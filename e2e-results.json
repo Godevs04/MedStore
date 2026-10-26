@@ -1,11 +1,11 @@
 {
-  "runAt": "2026-10-26T21:59:28.141Z",
+  "runAt": "2026-10-26T22:11:53.907Z",
   "results": [
     {
       "id": "E2E-01",
       "scenario": "Register organization with founder auto-login",
       "expected": "201 with userId + organizationId + slug",
-      "actual": "201 {\"userId\":\"1674d46f-5f74-4040-9057-25a91eff3a7a\",\"organizationId\":\"11f08240-a4dd",
+      "actual": "201 {\"userId\":\"3b3a4698-103c-4da7-ba0e-36eb93cac66e\",\"organizationId\":\"70a509f9-03fc",
       "status": "PASS",
       "evidence": "slug=e2e-pharma-pvt-ltd"
     },
@@ -13,7 +13,7 @@
       "id": "E2E-02",
       "scenario": "Login returns session for the founder",
       "expected": "200 with userId",
-      "actual": "200 userId=1674d46f-5f74-4040-9057-25a91eff3a7a",
+      "actual": "200 userId=3b3a4698-103c-4da7-ba0e-36eb93cac66e",
       "status": "PASS"
     },
     {
@@ -178,6 +178,34 @@
       "status": "PASS"
     },
     {
+      "id": "E2E-30",
+      "scenario": "Transfer list returns documents with lines and product context",
+      "expected": "200 with >= 1 transfer incl. lines",
+      "actual": "200 count=1 lines=1",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-31",
+      "scenario": "Count list returns posted count with variance lines",
+      "expected": "200 with >= 1 count incl. variance",
+      "actual": "200 count=1",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-32",
+      "scenario": "Recall list returns open recall with batch context",
+      "expected": "200 with >= 1 recall",
+      "actual": "200 count=1",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-33",
+      "scenario": "Resolve recall with documented resolution",
+      "expected": "201 RESOLVED with resolution notes",
+      "actual": "201 status=RESOLVED",
+      "status": "PASS"
+    },
+    {
       "id": "E2E-25",
       "scenario": "Ledger↔balance reconciliation across all operations",
       "expected": "200 consistent=true, 0 mismatches",
@@ -195,7 +223,7 @@
       "id": "E2E-27",
       "scenario": "Audit trail records the journey (org, profile, product, vendor, customer, tax, count, recall)",
       "expected": "200 with ≥ 8 audit events",
-      "actual": "200 events=9",
+      "actual": "200 events=10",
       "status": "PASS"
     },
     {

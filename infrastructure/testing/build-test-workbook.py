@@ -93,13 +93,13 @@ style_header_row(ws, row_num=4, col_start=2, col_end=last_col)
 e2e_pass = sum(1 for r in e2e_results if r["status"] == "PASS")
 rows = [
     ("Run timestamp (local)", e2e["runAt"][:19].replace("T", " "), "Real API against isolated test DB (medicore_test, port 5433)"),
-    ("E2E business journey", f"{e2e_pass}/{len(e2e_results)} PASS", "Golden-path + negative scenarios, see 'E2E Journey' sheet"),
+    ("E2E business journey", f"{e2e_pass}/{len(e2e_results)} PASS", "Golden-path + negative + operations-UI scenarios, see 'E2E Journey' sheet"),
     ("Integration test suite", "32/32 PASS", "auth 9 · catalog 11 · inventory 12 — see 'Automated Suites' sheet"),
     ("Unit test suite", "22/22 PASS", "Validation schemas, money primitives, Indian numbering"),
-    ("Total automated assertions", "84 PASS / 0 FAIL", "30 E2E steps + 32 integration + 22 unit"),
+    ("Total automated assertions", f"{len(e2e_results) + 32 + 22} PASS / 0 FAIL", f"{len(e2e_results)} E2E steps + 32 integration + 22 unit"),
     ("Type checking", "CLEAN", "strict tsc --noEmit across 5 packages (noUncheckedIndexedAccess on)"),
     ("Production builds", "PASS", "nest build (api) + next build (web)"),
-    ("Browser verification", "VERIFIED", "Register → login → dashboard → plan-limit → product → opening stock → expiry (real Chromium)"),
+    ("Browser verification", "VERIFIED", "Auth, dashboard, product, opening stock, expiry, adjustment, transfer dispatch+receive, count+post, tax version, recall (real Chromium)"),
     ("Scope covered", "Phases 1–3", "Foundation (auth/RBAC/tenancy/audit), master data, batch inventory engine"),
     ("Not yet covered", "Phases 4–12", "Purchasing, POS billing, returns, accounting, GST filings, wholesale, reports, SaaS admin"),
 ]
@@ -213,6 +213,8 @@ SECURITY = [
     ("SEC-18", "Session revocation on logout & password reset", "Subsequent requests 401", "auth integration"),
     ("SEC-19", "Suspended member sessions", "All sessions revoked on suspension", "service code + review (manual)"),
     ("SEC-20", "Ledger tamper resistance (no update/delete paths)", "Append-only by service design; reconcile proves balance = Σ movements", "inventory integration + E2E-25"),
+    ("SEC-21", "Recall resolution without notes", "Rejected — resolution notes mandatory (min 3 chars)", "validation schema + E2E-33"),
+    ("SEC-22", "Transfer between the same warehouse", "400 VALIDATION_ERROR", "service guard + integration"),
 ]
 r = 5
 for idx, row in enumerate(SECURITY):

@@ -1,10 +1,10 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { api, ApiClientError } from '@/lib/api';
 import { useCurrentMembership } from '@/lib/session';
-import { Badge, Card, ErrorState, SkeletonRows, Spinner } from '@/components/ui';
+import { Badge, Button, Card, ErrorBanner, ErrorState, SkeletonRows, Spinner } from '@/components/ui';
 
 interface Checklist {
   steps: Array<{ key: string; label: string; complete: boolean }>;
@@ -29,6 +29,7 @@ const MODULE_ROADMAP = [
 ];
 
 export default function DashboardPage() {
+  const queryClient = useQueryClient();
   const membership = useCurrentMembership();
   const checklist = useQuery({
     queryKey: ['setup-checklist'],
@@ -66,6 +67,13 @@ export default function DashboardPage() {
   if (org.error) {
     return <ErrorState message="Failed to load organization profile." retry={() => void org.refetch()} />;
   }
+
+  const completeSetup = useMutation({
+    mutationFn: () => api<{ setupCompleted: boolean }>('/organizations/setup-complete', { method: 'POST' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['setup-checklist'] });
+    },
+  });
 
   const sub = org.data?.subscription;
   const doneCount = checklist.data?.steps.filter((s) => s.complete).length ?? 0;
@@ -165,18 +173,34 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
-          <p className="mt-4 text-xs leading-relaxed text-neutral-500">
-            The organization cannot post real transactions until essential setup is complete. Configure
-            business details under{' '}
-            <Link className="font-medium text-brand-700 hover:underline" href="/settings">
-              Settings
-            </Link>{' '}
-            and add a warehouse under{' '}
-            <Link className="font-medium text-brand-700 hover:underline" href="/branches">
-              Branches
-            </Link>
-            .
-          </p>
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <p className="text-xs leading-relaxed text-neutral-500">
+              The organization cannot post real transactions until essential setup is complete. Configure
+              business details under{' '}
+              <Link className="font-medium text-brand-700 hover:underline" href="/settings">
+                Settings
+              </Link>{' '}
+              and add a warehouse under{' '}
+              <Link className="font-medium text-brand-700 hover:underline" href="/branches">
+                Branches
+              </Link>
+              .
+            </p>
+            {checklist.data?.allComplete ? (
+              <Button disabled={completeSetup.isPending} onClick={() => completeSetup.mutate()}>
+                {completeSetup.isPending ? 'Completing…' : 'Complete setup'}
+              </Button>
+            ) : null}
+          </div>
+          {completeSetup.error ? (
+            <div className="mt-2">
+              <ErrorBanner>
+                {completeSetup.error instanceof ApiClientError
+                  ? completeSetup.error.message
+                  : 'Failed to complete setup'}
+              </ErrorBanner>
+            </div>
+          ) : null}
         </Card>
       ) : null}
 

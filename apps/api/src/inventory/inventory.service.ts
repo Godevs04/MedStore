@@ -326,6 +326,68 @@ export class InventoryService {
     });
   }
 
+  // ── Lists for operations UI ────────────────────────────────────────────────
+
+  listTransfers(request: TenantRequest, params: { page: number; pageSize: number }) {
+    const orgId = request.tenantContext.organizationId;
+    return this.prisma.$transaction([
+      this.prisma.stockTransfer.count({ where: { organizationId: orgId } }),
+      this.prisma.stockTransfer.findMany({
+        where: { organizationId: orgId },
+        include: {
+          lines: { include: { batch: { include: { product: { select: { name: true, sku: true } } } } } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (params.page - 1) * params.pageSize,
+        take: params.pageSize,
+      }),
+    ]);
+  }
+
+  listCounts(request: TenantRequest, params: { page: number; pageSize: number }) {
+    const orgId = request.tenantContext.organizationId;
+    return this.prisma.$transaction([
+      this.prisma.stockCount.count({ where: { organizationId: orgId } }),
+      this.prisma.stockCount.findMany({
+        where: { organizationId: orgId },
+        include: {
+          lines: { include: { batch: { include: { product: { select: { name: true, sku: true } } } } } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (params.page - 1) * params.pageSize,
+        take: params.pageSize,
+      }),
+    ]);
+  }
+
+  listAdjustments(request: TenantRequest, params: { page: number; pageSize: number }) {
+    const orgId = request.tenantContext.organizationId;
+    return this.prisma.$transaction([
+      this.prisma.stockAdjustment.count({ where: { organizationId: orgId } }),
+      this.prisma.stockAdjustment.findMany({
+        where: { organizationId: orgId },
+        include: { batch: { include: { product: { select: { name: true, sku: true } } } } },
+        orderBy: { createdAt: 'desc' },
+        skip: (params.page - 1) * params.pageSize,
+        take: params.pageSize,
+      }),
+    ]);
+  }
+
+  listRecalls(request: TenantRequest, params: { page: number; pageSize: number }) {
+    const orgId = request.tenantContext.organizationId;
+    return this.prisma.$transaction([
+      this.prisma.recallRecord.count({ where: { organizationId: orgId } }),
+      this.prisma.recallRecord.findMany({
+        where: { organizationId: orgId },
+        include: { batch: { include: { product: { select: { name: true, sku: true } } } } },
+        orderBy: { createdAt: 'desc' },
+        skip: (params.page - 1) * params.pageSize,
+        take: params.pageSize,
+      }),
+    ]);
+  }
+
   // ── Availability & views ───────────────────────────────────────────────────
 
   async listBatches(

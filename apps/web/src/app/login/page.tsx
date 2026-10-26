@@ -129,12 +129,14 @@ export default function LoginPage() {
                 <Button type="submit" className="w-full py-2" disabled={isSubmitting}>
                   {isSubmitting ? 'Signing in…' : 'Sign in'}
                 </Button>
-                <p className="text-center text-xs text-neutral-500">
-                  No account?{' '}
+                <div className="flex items-center justify-between text-xs text-neutral-500">
+                  <Link className="font-medium text-brand-700 transition-colors hover:text-brand-500 hover:underline" href="/forgot-password">
+                    Forgot password?
+                  </Link>
                   <Link className="font-medium text-brand-700 transition-colors hover:text-brand-500 hover:underline" href="/register">
                     Create an organization
                   </Link>
-                </p>
+                </div>
               </form>
             </div>
           </Card>

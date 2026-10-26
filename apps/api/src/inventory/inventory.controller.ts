@@ -103,6 +103,60 @@ export class InventoryController {
     return { allocations };
   }
 
+  // ── Operations lists ───────────────────────────────────────────────────────
+
+  @Get('transfers')
+  @RequirePermissions('inventory.read')
+  async listTransfers(
+    @Req() req: TenantRequest,
+    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
+  ) {
+    const [total, items] = await this.inventory.listTransfers(req, {
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+    });
+    return { items, pageInfo: listPageInfo(pagination, total) };
+  }
+
+  @Get('counts')
+  @RequirePermissions('inventory.read')
+  async listCounts(
+    @Req() req: TenantRequest,
+    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
+  ) {
+    const [total, items] = await this.inventory.listCounts(req, {
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+    });
+    return { items, pageInfo: listPageInfo(pagination, total) };
+  }
+
+  @Get('adjustments')
+  @RequirePermissions('inventory.read')
+  async listAdjustments(
+    @Req() req: TenantRequest,
+    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
+  ) {
+    const [total, items] = await this.inventory.listAdjustments(req, {
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+    });
+    return { items, pageInfo: listPageInfo(pagination, total) };
+  }
+
+  @Get('recalls')
+  @RequirePermissions('inventory.read')
+  async listRecalls(
+    @Req() req: TenantRequest,
+    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
+  ) {
+    const [total, items] = await this.inventory.listRecalls(req, {
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+    });
+    return { items, pageInfo: listPageInfo(pagination, total) };
+  }
+
   // ── Expiry & ledger ────────────────────────────────────────────────────────
 
   @Get('expiry-dashboard')
@@ -228,4 +282,18 @@ export class InventoryController {
   reconcile(@Req() req: TenantRequest, @Query() query: { warehouseId?: string }) {
     return this.inventory.reconcile(req, query.warehouseId);
   }
+}
+
+function listPageInfo(
+  pagination: { page: number; pageSize: number },
+  total: number,
+) {
+  return {
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+    totalItems: total,
+    totalPages: Math.max(1, Math.ceil(total / pagination.pageSize)),
+    hasNextPage: pagination.page * pagination.pageSize < total,
+    hasPreviousPage: pagination.page > 1,
+  };
 }

@@ -449,6 +449,55 @@ async function main(): Promise<void> {
     blockedAlloc.status === 422 && blockedAlloc.body?.error?.code === 'BATCH_INELIGIBLE',
   );
 
+  // ── SCENARIO 5: Operations lists (UI backing endpoints) ──────────────────
+  const transfersList = await call('/api/v1/inventory/transfers?page=1&pageSize=50', {
+    cookie: sessionCookie,
+    org: orgId,
+  });
+  record(
+    'E2E-30',
+    'Transfer list returns documents with lines and product context',
+    '200 with >= 1 transfer incl. lines',
+    `${transfersList.status} count=${transfersList.body?.pageInfo?.totalItems} lines=${transfersList.body?.items?.[0]?.lines?.length}`,
+    transfersList.status === 200 && (transfersList.body?.items?.length ?? 0) >= 1,
+  );
+  const countsList = await call('/api/v1/inventory/counts?page=1&pageSize=50', {
+    cookie: sessionCookie,
+    org: orgId,
+  });
+  record(
+    'E2E-31',
+    'Count list returns posted count with variance lines',
+    '200 with >= 1 count incl. variance',
+    `${countsList.status} count=${countsList.body?.pageInfo?.totalItems}`,
+    countsList.status === 200 && (countsList.body?.items?.length ?? 0) >= 1,
+  );
+  const recallsList = await call('/api/v1/inventory/recalls?page=1&pageSize=50', {
+    cookie: sessionCookie,
+    org: orgId,
+  });
+  record(
+    'E2E-32',
+    'Recall list returns open recall with batch context',
+    '200 with >= 1 recall',
+    `${recallsList.status} count=${recallsList.body?.pageInfo?.totalItems}`,
+    recallsList.status === 200 && (recallsList.body?.items?.length ?? 0) >= 1,
+  );
+
+  const resolveRecall = await call(`/api/v1/inventory/recalls/${recallsList.body?.items?.[0]?.id}/resolve`, {
+    method: 'POST',
+    cookie: sessionCookie,
+    org: orgId,
+    body: { resolutionNotes: 'Stock quarantined and returned to supplier under reference MFR-2026-0412' },
+  });
+  record(
+    'E2E-33',
+    'Resolve recall with documented resolution',
+    '201 RESOLVED with resolution notes',
+    `${resolveRecall.status} status=${resolveRecall.body?.status}`,
+    resolveRecall.status === 201 && resolveRecall.body?.status === 'RESOLVED',
+  );
+
   // ── SCENARIO 5: Verification ──────────────────────────────────────────────
   const reconcile = await call('/api/v1/inventory/reconcile', { cookie: sessionCookie, org: orgId });
   record(

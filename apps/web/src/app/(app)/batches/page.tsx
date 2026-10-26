@@ -29,8 +29,9 @@ export default function BatchesPage() {
   const [warehouseId, setWarehouseId] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({ batchNumber: '', expiryDate: '', quantity: '', purchaseRate: '', mrp: '' });
-  const productId = ''; // batch creation picks product via id input below
   const [productIdInput, setProductIdInput] = useState('');
+  const [recallTarget, setRecallTarget] = useState<{ id: string; batchNumber: string } | null>(null);
+  const [recallReason, setRecallReason] = useState('');
 
   const warehouses = useQuery({
     queryKey: ['warehouses'],
@@ -38,6 +39,15 @@ export default function BatchesPage() {
       const branches = await api<Array<{ id: string; name: string; warehouses: Warehouse[] }>>('/organizations/branches');
       return branches.flatMap((b) => b.warehouses.map((w) => ({ ...w, branchId: b.id })));
     },
+    retry: false,
+  });
+
+  const productOptions = useQuery({
+    queryKey: ['product-options'],
+    queryFn: () =>
+      api<{ items: Array<{ id: string; name: string; sku: string }> }>(
+        '/catalog/products?page=1&pageSize=200&status=ACTIVE',
+      ),
     retry: false,
   });
 
@@ -70,6 +80,21 @@ export default function BatchesPage() {
       void queryClient.invalidateQueries({ queryKey: ['batches'] });
     },
     onError: (e) => setError(e instanceof ApiClientError ? e.message : 'Failed to record opening stock'),
+  });
+
+  const recall = useMutation({
+    mutationFn: () =>
+      api('/inventory/recalls', {
+        method: 'POST',
+        body: { batchId: recallTarget?.id, reason: recallReason.trim() },
+      }),
+    onSuccess: () => {
+      setRecallTarget(null);
+      setRecallReason('');
+      setError(null);
+      void queryClient.invalidateQueries({ queryKey: ['batches'] });
+    },
+    onError: (e) => setError(e instanceof ApiClientError ? e.message : 'Failed to create recall'),
   });
 
   const daysToExpiry = (date: string) => {
@@ -112,8 +137,13 @@ export default function BatchesPage() {
             createBatch.mutate();
           }}
         >
-          <Field label="Product ID">
-            <Input value={productIdInput} onChange={(e) => setProductIdInput(e.target.value)} placeholder="UUID" />
+          <Field label="Product">
+            <Select value={productIdInput} onChange={(e) => setProductIdInput(e.target.value)} aria-label="Product">
+              <option value="">Select product…</option>
+              {(productOptions.data?.items ?? []).map((p) => (
+                <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
+              ))}
+            </Select>
           </Field>
           <Field label="Batch number">
             <Input value={form.batchNumber} onChange={(e) => setForm((s) => ({ ...s, batchNumber: e.target.value }))} />
@@ -136,10 +166,38 @@ export default function BatchesPage() {
             </Button>
           </div>
         </form>
-        <p className="mt-2 text-xs text-neutral-500">
-          Product picker will become a search box in the POS phase; for now paste the product UUID from the catalog page.
-        </p>
       </Card>
+
+      {recallTarget ? (
+        <Card title={`Recall batch ${recallTarget.batchNumber}`} className="border-red-200">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="sm:col-span-2">
+              <Field label="Recall reason (recorded in the audit trail)">
+                <Input
+                  value={recallReason}
+                  onChange={(e) => setRecallReason(e.target.value)}
+                  placeholder="e.g. Manufacturer recall notice MFR-2026-0412"
+                />
+              </Field>
+            </div>
+            <div className="flex items-end gap-2">
+              <Button
+                variant="danger"
+                disabled={recallReason.trim().length < 3 || recall.isPending}
+                onClick={() => recall.mutate()}
+              >
+                {recall.isPending ? 'Recalling…' : 'Recall batch'}
+              </Button>
+              <Button variant="secondary" onClick={() => { setRecallTarget(null); setRecallReason(''); }}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-neutral-500">
+            Recalled batches immediately become ineligible for allocation (status RECALLED, Drugs Rules workflow).
+          </p>
+        </Card>
+      ) : null}
 
       <Card title={`Batches (${batches.data?.pageInfo.totalItems ?? 0})`}>
         {batches.isLoading ? (
@@ -187,6 +245,13 @@ export default function BatchesPage() {
                     <Badge tone={b.status === 'SALEABLE' ? 'green' : b.status === 'RECALLED' ? 'red' : 'amber'}>
                       {b.status}
                     </Badge>
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {b.status === 'SALEABLE' ? (
+                      <Button variant="secondary" onClick={() => setRecallTarget({ id: b.id, batchNumber: b.batchNumber })}>
+                        Recall
+                      </Button>
+                    ) : null}
                   </td>
                 </tr>
               );
