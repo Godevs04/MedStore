@@ -25,8 +25,8 @@ export const organizationSetupSchema = z.object({
   city: z.string().trim().max(100),
   stateCode: stateCodeSchema,
   pinCode: pinCodeSchema,
-  contactPhone: indianPhoneSchema,
-  contactEmail: emailSchema,
+  contactPhone: indianPhoneSchema.nullish(),
+  contactEmail: emailSchema.nullish(),
   /** Financial year start month for India: April by default. */
   financialYearStartMonth: z.number().int().min(1).max(12).default(4),
 });
