@@ -10,13 +10,14 @@ import { TenantContextGuard } from './rbac/tenant-context.guard.js';
 import { HealthController } from './health/health.controller.js';
 import { CatalogModule } from './catalog/catalog.module.js';
 import { PartnersModule } from './partners/partners.module.js';
+import { InventoryModule } from './inventory/inventory.module.js';
 
 /**
  * Guard order matters: SessionGuard authenticates, TenantContextGuard then
  * resolves org/branch + permissions for org-scoped endpoints.
  */
 @Module({
-  imports: [PrismaModule, AuthModule, AuditModule, OrganizationsModule, CatalogModule, PartnersModule],
+  imports: [PrismaModule, AuthModule, AuditModule, OrganizationsModule, CatalogModule, PartnersModule, InventoryModule],
   controllers: [HealthController],
   providers: [
     { provide: APP_GUARD, useClass: SessionGuard },

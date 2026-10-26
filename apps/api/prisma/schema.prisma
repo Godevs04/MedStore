@@ -550,6 +550,7 @@ model Product {
   updatedAt            DateTime @updatedAt @db.Timestamptz(6)
 
   barcodes      ProductBarcode[]
+  batches       InventoryBatch[]
   supplierLinks ProductSupplierMapping[]
   changeHistory ProductChangeHistory[]
 
@@ -653,4 +654,224 @@ model Customer {
   @@index([organizationId, name])
   @@index([organizationId, status])
   @@index([organizationId, phone])
+}
+
+// ── Inventory engine (Phase 3) ───────────────────────────────────────────────
+
+enum BatchStatus {
+  SALEABLE
+  QUARANTINED
+  RECALLED
+  DAMAGED
+  EXPIRED_BLOCKED
+}
+
+enum MovementType {
+  OPENING_STOCK
+  PURCHASE_RECEIPT
+  SALE
+  SALES_RETURN_IN
+  PURCHASE_RETURN_OUT
+  EXPIRY_RETURN_OUT
+  DAMAGE_OUT
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  TRANSFER_OUT
+  TRANSFER_IN
+  COUNT_VARIANCE_IN
+  COUNT_VARIANCE_OUT
+  RECALL_OUT
+  QUARANTINE_IN
+  QUARANTINE_RELEASE
+}
+
+enum TransferStatus {
+  DRAFT
+  DISPATCHED
+  IN_TRANSIT
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+enum CountStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  POSTED
+  CANCELLED
+}
+
+/// A batch is one manufacturer lot of one product with its own expiry,
+/// cost, and MRP. Same (product, batchNumber, expiry) received twice merges
+/// into the existing batch (service-level rule).
+model InventoryBatch {
+  id             String   @id @default(uuid())
+  organizationId String
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id])
+  warehouseId    String
+  batchNumber    String
+  expiryDate     DateTime @db.Timestamptz(6)
+  manufacturingDate DateTime? @db.Timestamptz(6)
+  supplierId     String?
+  purchaseRate   Decimal  @db.Decimal(18, 4)
+  mrp            Decimal  @db.Decimal(18, 4)
+  landedCost     Decimal? @db.Decimal(18, 4)
+  status         BatchStatus @default(SALEABLE)
+  sourceDocument String?
+  createdByUserId String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+
+  movements  InventoryMovement[]
+  balances   InventoryBalance[]
+  transfersOut StockTransferLine[] @relation("BatchTransferOut")
+
+  @@unique([organizationId, productId, warehouseId, batchNumber, expiryDate])
+  @@index([organizationId, productId, expiryDate])
+  @@index([organizationId, expiryDate])
+}
+
+/// Transactionally-maintained per (batch, warehouse) balance. The append-only
+/// movement ledger is the source of truth; a reconciliation test asserts
+/// balances == sum(movements) (spec §8, §26.D).
+model InventoryBalance {
+  id           String   @id @default(uuid())
+  organizationId String
+  batchId      String
+  batch        InventoryBatch @relation(fields: [batchId], references: [id])
+  warehouseId  String
+  quantity     Decimal  @default(0) @db.Decimal(14, 3)
+  reservedQty  Decimal  @default(0) @db.Decimal(14, 3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(6)
+
+  @@unique([batchId, warehouseId])
+  @@index([organizationId, warehouseId])
+}
+
+/// Append-only stock movement ledger (spec §8): actor, source document,
+/// batch, signed quantity, reason. Never updated or deleted (compensating
+/// movements only).
+model InventoryMovement {
+  id             String   @id @default(uuid())
+  organizationId String
+  batchId        String
+  batch          InventoryBatch @relation(fields: [batchId], references: [id])
+  warehouseId    String
+  movementType   MovementType
+  /// Signed quantity: positive IN, negative OUT.
+  quantity       Decimal  @db.Decimal(14, 3)
+  reason         String?
+  sourceDocument String?
+  sourceDocumentId String?
+  actorUserId    String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([batchId, createdAt])
+  @@index([organizationId, warehouseId, createdAt])
+}
+
+/// Soft reservations against a batch (e.g., pending transfer dispatch).
+model StockReservation {
+  id             String   @id @default(uuid())
+  organizationId String
+  batchId        String
+  warehouseId    String
+  quantity       Decimal  @db.Decimal(14, 3)
+  referenceType  String
+  referenceId    String
+  createdById    String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  releasedAt     DateTime? @db.Timestamptz(6)
+
+  @@index([batchId, releasedAt])
+}
+
+model StockAdjustment {
+  id             String   @id @default(uuid())
+  organizationId String
+  batchId        String
+  warehouseId    String
+  direction      String
+  quantity       Decimal  @db.Decimal(14, 3)
+  reason         String
+  notes          String?
+  movementId     String
+  actorUserId    String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([organizationId, createdAt])
+}
+
+model StockCount {
+  id             String   @id @default(uuid())
+  organizationId String
+  warehouseId    String
+  status         CountStatus @default(DRAFT)
+  notes          String?
+  createdByUserId String
+  postedAt       DateTime? @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  lines StockCountLine[]
+
+  @@index([organizationId, status])
+}
+
+model StockCountLine {
+  id         String  @id @default(uuid())
+  countId    String
+  count      StockCount @relation(fields: [countId], references: [id], onDelete: Cascade)
+  batchId    String
+  countedQty Decimal @db.Decimal(14, 3)
+  systemQty  Decimal @db.Decimal(14, 3)
+  variance   Decimal @db.Decimal(14, 3)
+
+  @@unique([countId, batchId])
+}
+
+model StockTransfer {
+  id                   String   @id @default(uuid())
+  organizationId       String
+  sourceWarehouseId    String
+  destinationWarehouseId String
+  status               TransferStatus @default(DRAFT)
+  notes                String?
+  dispatchedAt         DateTime? @db.Timestamptz(6)
+  receivedAt           DateTime? @db.Timestamptz(6)
+  createdById          String
+  createdAt            DateTime @default(now()) @db.Timestamptz(6)
+
+  lines StockTransferLine[]
+
+  @@index([organizationId, status])
+}
+
+model StockTransferLine {
+  id           String  @id @default(uuid())
+  transferId   String
+  transfer     StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  productId    String
+  batchId      String
+  batch        InventoryBatch @relation("BatchTransferOut", fields: [batchId], references: [id])
+  quantity     Decimal @db.Decimal(14, 3)
+  receivedQty  Decimal @default(0) @db.Decimal(14, 3)
+
+  @@unique([transferId, batchId])
+}
+
+model RecallRecord {
+  id             String   @id @default(uuid())
+  organizationId String
+  batchId        String
+  reason         String
+  notes          String?
+  status         String   @default("OPEN")
+  resolutionNotes String?
+  createdById    String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  resolvedAt     DateTime? @db.Timestamptz(6)
+
+  @@index([organizationId, status])
 }
