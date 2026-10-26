@@ -1,0 +1,435 @@
+// MediCore — Foundation schema (Phase 1): identity, tenancy, RBAC, audit, SaaS.
+// Master data (Phase 2) and inventory (Phase 3) are added as separate migrations.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Identity ─────────────────────────────────────────────────────────────────
+
+enum UserStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+}
+
+enum AuthTokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+  INVITATION
+}
+
+model User {
+  id                   String     @id @default(uuid())
+  email                String     @unique
+  emailVerifiedAt      DateTime?  @db.Timestamptz(6)
+  passwordHash         String?
+  fullName             String
+  status               UserStatus @default(INVITED)
+  isPlatformSuperadmin Boolean    @default(false)
+  failedLoginCount     Int        @default(0)
+  lockedUntil          DateTime?  @db.Timestamptz(6)
+  lastLoginAt          DateTime?  @db.Timestamptz(6)
+  createdAt            DateTime   @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime   @updatedAt @db.Timestamptz(6)
+
+  sessions        Session[]
+  authTokens      AuthToken[]
+  memberships     OrganizationMembership[]
+  loginAttempts   LoginAttempt[]
+  passwordHistory PasswordHistoryEntry[]
+
+  @@index([status])
+}
+
+model PasswordHistoryEntry {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  passwordHash String
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([userId, createdAt])
+}
+
+/// Opaque session tokens; only the SHA-256 hash is stored.
+model Session {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique
+  /// Device/user-agent hint for session visibility. Never contains credentials.
+  userAgent    String?
+  ipAddress    String?
+  createdAt    DateTime  @default(now()) @db.Timestamptz(6)
+  lastSeenAt   DateTime  @default(now()) @db.Timestamptz(6)
+  expiresAt    DateTime  @db.Timestamptz(6)
+  revokedAt    DateTime? @db.Timestamptz(6)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model LoginAttempt {
+  id        String   @id @default(uuid())
+  email     String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  success   Boolean
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([email, createdAt])
+  @@index([userId, createdAt])
+}
+
+/// Single-use auth tokens (email verification, password reset, invitations).
+model AuthToken {
+  id          String        @id @default(uuid())
+  userId      String?
+  user        User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        AuthTokenType
+  tokenHash   String        @unique
+  /// For invitations: which membership this token activates.
+  membershipId String?
+  membership  OrganizationMembership? @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+  expiresAt   DateTime      @db.Timestamptz(6)
+  usedAt      DateTime?     @db.Timestamptz(6)
+  createdAt   DateTime      @default(now()) @db.Timestamptz(6)
+
+  @@index([userId, type])
+}
+
+// ── Tenancy ──────────────────────────────────────────────────────────────────
+
+model Organization {
+  id                   String   @id @default(uuid())
+  name                 String
+  slug                 String   @unique
+  legalEntityName      String?
+  gstRegistrationStatus String  @default("UNREGISTERED") // REGULAR | COMPOSITION | UNREGISTERED | CONSUMER
+  gstin                String?
+  pan                  String?
+  addressLine1         String?
+  addressLine2         String?
+  city                 String?
+  stateCode            String?
+  pinCode              String?
+  contactPhone         String?
+  contactEmail         String?
+  currency             String   @default("INR")
+  timezone             String   @default("Asia/Kolkata")
+  financialYearStartMonth Int    @default(4)
+  /// Setup completeness gate: organization cannot post real transactions
+  /// until required setup steps are done (spec §6).
+  setupCompletedAt     DateTime? @db.Timestamptz(6)
+  createdAt            DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @db.Timestamptz(6)
+
+  memberships     OrganizationMembership[]
+  branches        Branch[]
+  roles           Role[]
+  subscription    Subscription?
+  settings        OrganizationSettings?
+  featureEntitlements FeatureEntitlement[]
+  usageRecords    UsageRecord[]
+  auditLogs       AuditLog[]
+  numberSequences DocumentNumberSequence[]
+  pharmacyLicences PharmacyLicence[]
+
+  @@index([name])
+}
+
+model OrganizationMembership {
+  id             String           @id @default(uuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId         String?
+  role           Role?            @relation(fields: [roleId], references: [id])
+  status         MembershipStatus @default(INVITED)
+  isOwner        Boolean          @default(false)
+  invitedAt      DateTime         @default(now()) @db.Timestamptz(6)
+  joinedAt       DateTime?        @db.Timestamptz(6)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @db.Timestamptz(6)
+
+  branchAssignments UserBranchAssignment[]
+  authTokens        AuthToken[]
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+model Branch {
+  id               String   @id @default(uuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name             String
+  code             String?
+  addressLine1     String?
+  city             String?
+  stateCode        String?
+  pinCode          String?
+  phone            String?
+  isBillingEnabled Boolean  @default(true)
+  isDefault        Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
+
+  warehouses    Warehouse[]
+  billingCounters BillingCounter[]
+  assignments   UserBranchAssignment[]
+  licences      PharmacyLicence[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+model Warehouse {
+  id             String  @id @default(uuid())
+  organizationId String
+  branchId       String
+  branch         Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  name           String
+  code           String?
+  isDefault      Boolean @default(false)
+  isActive       Boolean @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+
+  @@unique([branchId, code])
+  @@index([organizationId])
+}
+
+model BillingCounter {
+  id        String  @id @default(uuid())
+  branchId  String
+  branch    Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  name      String
+  isActive  Boolean @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([branchId, name])
+}
+
+model UserBranchAssignment {
+  id           String                 @id @default(uuid())
+  membershipId String
+  membership   OrganizationMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  branchId     String
+  branch       Branch                 @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, branchId])
+}
+
+// ── RBAC ─────────────────────────────────────────────────────────────────────
+
+model Role {
+  id             String   @id @default(uuid())
+  organizationId String?
+  /// Null organizationId = platform-level system role template.
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  key            String?
+  /// Human-readable name; must be unique per organization.
+  name           String
+  description    String?
+  isSystem       Boolean  @default(false)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+
+  permissions RolePermission[]
+  memberships OrganizationMembership[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model RolePermission {
+  id           String   @id @default(uuid())
+  roleId       String
+  role         Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+}
+
+model Permission {
+  id    String @id @default(uuid())
+  /// Dotted key, e.g. "sales.create" (spec §4).
+  key   String @unique
+  description String?
+
+  roles RolePermission[]
+}
+
+// ── SaaS plans & subscriptions ───────────────────────────────────────────────
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  GRACE
+  CANCELLED
+  EXPIRED
+}
+
+model SubscriptionPlan {
+  id            String   @id @default(uuid())
+  key           String   @unique // TRIAL | STARTER | PROFESSIONAL | BUSINESS | ENTERPRISE
+  name          String
+  description   String?
+  /// Plan limits: maxBranches, maxUsers, maxWarehouses, monthlyInvoiceLimit,
+  /// storageMb, apiAccess, modules[] — all configurable by platform admins.
+  limits        Json
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(6)
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id             String            @id @default(uuid())
+  organizationId String            @unique
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  planId         String
+  plan           SubscriptionPlan  @relation(fields: [planId], references: [id])
+  status         SubscriptionStatus @default(TRIALING)
+  trialEndsAt    DateTime?         @db.Timestamptz(6)
+  currentPeriodStart DateTime      @default(now()) @db.Timestamptz(6)
+  currentPeriodEnd   DateTime      @db.Timestamptz(6)
+  graceEndsAt    DateTime?         @db.Timestamptz(6)
+  cancelledAt    DateTime?         @db.Timestamptz(6)
+  createdAt      DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime          @updatedAt @db.Timestamptz(6)
+
+  /// Subscription lifecycle changes are recorded here (spec §5).
+  events         SubscriptionEvent[]
+}
+
+model SubscriptionEvent {
+  id             String       @id @default(uuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  eventType      String
+  fromPlanId     String?
+  toPlanId       String?
+  actorUserId    String?
+  notes          String?
+  createdAt      DateTime     @default(now()) @db.Timestamptz(6)
+
+  @@index([subscriptionId, createdAt])
+}
+
+model FeatureEntitlement {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  featureKey     String
+  enabled        Boolean      @default(false)
+  /// Optional per-org limit overrides (JSON), e.g. { "monthlyInvoiceLimit": 500 }.
+  limits         Json?
+  createdAt      DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @db.Timestamptz(6)
+
+  @@unique([organizationId, featureKey])
+}
+
+model UsageRecord {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  metric         String
+  periodStart    DateTime @db.Timestamptz(6)
+  periodEnd      DateTime @db.Timestamptz(6)
+  value          Int      @default(0)
+
+  @@unique([organizationId, metric, periodStart])
+}
+
+// ── Organization settings & numbering ────────────────────────────────────────
+
+model OrganizationSettings {
+  id             String   @id @default(uuid())
+  organizationId String   @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// Free-form but schema-validated JSON: receipt printer, expiry thresholds,
+  /// discount approval limits, POS defaults, feature toggles. Not for secrets.
+  settings       Json     @default("{}")
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+}
+
+/// Server-controlled document numbering (spec §12). Rows are locked with
+/// SELECT ... FOR UPDATE inside the posting transaction.
+model DocumentNumberSequence {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scope          String
+  /// Indian FY label, e.g. "2026-27"; null = continuous series.
+  fiscalYear     String?
+  prefix         String   @default("")
+  nextNumber     Int      @default(1)
+
+  @@unique([organizationId, scope, fiscalYear, prefix])
+}
+
+// ── Compliance (licence registry — Phase 1 tracking, workflows later) ────────
+
+model PharmacyLicence {
+  id               String   @id @default(uuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId         String?
+  branch           Branch?  @relation(fields: [branchId], references: [id])
+  licenceType      String
+  licenceNumber    String
+  issuingAuthority String?
+  issueDate        DateTime? @db.Timestamptz(6)
+  expiryDate       DateTime @db.Timestamptz(6)
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([organizationId, expiryDate])
+}
+
+// ── Audit ────────────────────────────────────────────────────────────────────
+
+/// Append-only audit trail. Services must never update or delete rows;
+/// the application DB role has UPDATE/DELETE revoked (security model doc).
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  actorUserId    String?
+  actorEmail     String?
+  event          String
+  entityType     String?
+  entityId       String?
+  /// Redacted diff/details JSON — never contains secrets or PHI (spec §1.28).
+  details        Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+}

@@ -1,0 +1,14 @@
+{
+  "name": "@medicore/shared-types",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

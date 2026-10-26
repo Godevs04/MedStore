@@ -1,0 +1,36 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# builds
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# env & secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# test & coverage
+coverage/
+.vitest-cache/
+playwright-report/
+test-results/
+
+# logs
+*.log
+npm-debug.log*
+
+# prisma client generation
+packages/api/node_modules/.prisma/
+
+# OS / editor
+.DS_Store
+.idea/
+*.swp
+
+# local postgres data lives outside the repo (~/medicore-pgdata)
