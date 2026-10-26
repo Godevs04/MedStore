@@ -433,3 +433,224 @@ model AuditLog {
   @@index([organizationId, createdAt])
   @@index([entityType, entityId])
 }
+
+// ── Master data (Phase 2) ────────────────────────────────────────────────────
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+enum PrescriptionClass {
+  OTC
+  PRESCRIPTION_ONLY
+  SCHEDULE_H1
+  SCHEDULE_X
+  NARCOTIC
+}
+
+enum VendorStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+model ProductCategory {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  parentId       String?
+  parent         ProductCategory?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children       ProductCategory[] @relation("CategoryTree")
+  description    String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  products Product[]
+
+  @@unique([organizationId, name])
+}
+
+model Manufacturer {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  contactEmail   String?
+  contactPhone   String?
+  notes          String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  products Product[]
+
+  @@unique([organizationId, name])
+}
+
+/// Versioned, effective-dated tax configuration (spec §13: never hardcode rates).
+/// A product references the version active at sale time; posted documents
+/// snapshot the rates actually applied.
+model TaxRateVersion {
+  id             String   @id @default(uuid())
+  organizationId String
+  hsnCode        String
+  description    String
+  cgstPercent    Decimal? @db.Decimal(5, 2)
+  sgstPercent    Decimal? @db.Decimal(5, 2)
+  igstPercent    Decimal? @db.Decimal(5, 2)
+  cessPercent    Decimal? @db.Decimal(5, 2)
+  effectiveFrom  DateTime @db.Timestamptz(6)
+  effectiveTo    DateTime? @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  products Product[]
+
+  @@index([organizationId, hsnCode, effectiveFrom])
+}
+
+model Product {
+  id                   String   @id @default(uuid())
+  organizationId       String
+  sku                  String
+  name                 String
+  genericName          String?
+  brand                String?
+  categoryId           String?
+  category             ProductCategory? @relation(fields: [categoryId], references: [id])
+  manufacturerId       String?
+  manufacturer         Manufacturer?    @relation(fields: [manufacturerId], references: [id])
+  dosageForm           String?
+  strength             String?
+  packSize             String?
+  unitsPerPack         Int?
+  purchaseUnit         String?
+  saleUnit             String?
+  unitConversionFactor Decimal? @db.Decimal(12, 4)
+  hsnCode              String?
+  taxRateVersionId     String?
+  taxRateVersion       TaxRateVersion?  @relation(fields: [taxRateVersionId], references: [id])
+  mrp                  Decimal? @db.Decimal(18, 4)
+  purchasePrice        Decimal? @db.Decimal(18, 4)
+  sellingPrice         Decimal? @db.Decimal(18, 4)
+  tradePrice           Decimal? @db.Decimal(18, 4)
+  prescriptionClass    PrescriptionClass?
+  storageInstructions  String?
+  requiresRefrigeration Boolean @default(false)
+  rackLocation         String?
+  reorderLevel         Int?
+  maxStockLevel        Int?
+  minOrderQuantity     Int?
+  status               ProductStatus @default(ACTIVE)
+  createdByUserId      String?
+  createdAt            DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @db.Timestamptz(6)
+
+  barcodes      ProductBarcode[]
+  supplierLinks ProductSupplierMapping[]
+  changeHistory ProductChangeHistory[]
+
+  @@unique([organizationId, sku])
+  @@index([organizationId, name])
+  @@index([organizationId, genericName])
+  @@index([organizationId, status])
+}
+
+model ProductBarcode {
+  id        String  @id @default(uuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  barcode   String
+
+  @@unique([productId, barcode])
+  @@index([barcode])
+}
+
+/// Supplier-specific product codes and price references.
+model ProductSupplierMapping {
+  id             String  @id @default(uuid())
+  productId      String
+  product        Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  vendorId       String
+  vendor         Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  supplierSku    String?
+  lastPurchaseRate Decimal? @db.Decimal(18, 4)
+
+  @@unique([vendorId, productId])
+}
+
+/// Append-only change log for product master edits (spec §7).
+model ProductChangeHistory {
+  id         String   @id @default(uuid())
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  actorUserId String?
+  changeType String
+  details    Json?
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([productId, createdAt])
+}
+
+model Vendor {
+  id                  String   @id @default(uuid())
+  organizationId      String
+  legalName           String
+  tradeName           String?
+  gstin               String?
+  pan                 String?
+  gstRegistrationType String   @default("REGULAR")
+  addressLine1        String?
+  addressLine2        String?
+  city                String?
+  stateCode           String?
+  pinCode             String?
+  contactName         String?
+  phone               String?
+  email               String?
+  creditDays          Int      @default(30)
+  /// Decimal-string money; positive opening balance = we owe the supplier.
+  creditLimit         Decimal  @default(0) @db.Decimal(18, 2)
+  openingBalance      Decimal  @default(0) @db.Decimal(18, 2)
+  status              VendorStatus @default(ACTIVE)
+  notes               String?
+  createdByUserId     String?
+  createdAt           DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @db.Timestamptz(6)
+
+  productLinks ProductSupplierMapping[]
+
+  @@index([organizationId, legalName])
+  @@index([organizationId, status])
+}
+
+model Customer {
+  id              String   @id @default(uuid())
+  organizationId  String
+  name            String
+  category        String?
+  gstin           String?
+  phone           String?
+  email           String?
+  addressLine1    String?
+  city            String?
+  stateCode       String?
+  pinCode         String?
+  creditDays      Int      @default(0)
+  creditLimit     Decimal  @default(0) @db.Decimal(18, 2)
+  /// Positive opening balance = customer owes us.
+  openingBalance  Decimal  @default(0) @db.Decimal(18, 2)
+  status          CustomerStatus @default(ACTIVE)
+  isWholesale     Boolean  @default(false)
+  notes           String?
+  createdByUserId String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([organizationId, name])
+  @@index([organizationId, status])
+  @@index([organizationId, phone])
+}

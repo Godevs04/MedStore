@@ -8,13 +8,15 @@ import { CorrelationIdMiddleware } from './common/correlation-id.middleware.js';
 import { SessionGuard } from './auth/session.guard.js';
 import { TenantContextGuard } from './rbac/tenant-context.guard.js';
 import { HealthController } from './health/health.controller.js';
+import { CatalogModule } from './catalog/catalog.module.js';
+import { PartnersModule } from './partners/partners.module.js';
 
 /**
  * Guard order matters: SessionGuard authenticates, TenantContextGuard then
  * resolves org/branch + permissions for org-scoped endpoints.
  */
 @Module({
-  imports: [PrismaModule, AuthModule, AuditModule, OrganizationsModule],
+  imports: [PrismaModule, AuthModule, AuditModule, OrganizationsModule, CatalogModule, PartnersModule],
   controllers: [HealthController],
   providers: [
     { provide: APP_GUARD, useClass: SessionGuard },

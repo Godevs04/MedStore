@@ -7,6 +7,7 @@ import type { LoginRequestDto, RegisterOrganizationRequestDto } from '@medicore/
 import { PrismaService } from '../prisma/prisma.module.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AccountLocked, Conflict, Forbidden, InvalidCredentials, NotFound, Unauthenticated } from '../common/app-exception.js';
+import { SYSTEM_ROLE_PERMISSIONS } from '../rbac/permission-catalog.js';
 import { EMAIL_SENDER, type EmailSender } from './email.port.js';
 
 const ARGON_OPTS: argon2.Options = {
@@ -77,6 +78,31 @@ export class AuthService {
       const ownerRole = await tx.role.create({
         data: { organizationId: org.id, key: 'ORGANIZATION_OWNER', name: 'Owner', isSystem: true },
       });
+
+      // Seed the standard organization roles with their explicit permission
+      // sets (spec §4). Owner is created above; superadmin is a user flag.
+      const permissionRows = await tx.permission.findMany({ select: { id: true, key: true } });
+      const permissionByKey = new Map(permissionRows.map((p) => [p.key, p.id]));
+      for (const [roleKey, permissionKeys] of Object.entries(SYSTEM_ROLE_PERMISSIONS)) {
+        if (roleKey === 'PLATFORM_SUPERADMIN') continue;
+        await tx.role.create({
+          data: {
+            organizationId: org.id,
+            key: roleKey,
+            name: roleKey
+              .replace(/^ORGANIZATION_/, '')
+              .toLowerCase()
+              .replace(/(^|_)([a-z])/g, (_, s: string, c: string) => `${s ? ' ' : ''}${c.toUpperCase()}`),
+            isSystem: true,
+            permissions: {
+              create: permissionKeys
+                .map((key) => permissionByKey.get(key))
+                .filter((id): id is string => id !== undefined)
+                .map((permissionId) => ({ permissionId })),
+            },
+          },
+        });
+      }
 
       await tx.organizationMembership.create({
         data: {
