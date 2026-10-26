@@ -24,7 +24,7 @@ export class ApiClientError extends Error {
 }
 
 export interface ApiOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   body?: unknown;
   /** Context headers override stored selection (used by switcher endpoints). */
   organizationId?: string;

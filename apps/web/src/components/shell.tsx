@@ -16,6 +16,10 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: '/', label: 'Dashboard' },
+  { href: '/products', label: 'Products' },
+  { href: '/vendors', label: 'Vendors' },
+  { href: '/customers', label: 'Customers' },
+  { href: '/import', label: 'Import' },
   { href: '/users', label: 'Users', permission: 'users.read' },
   { href: '/roles', label: 'Roles', permission: 'roles.read' },
   { href: '/branches', label: 'Branches', permission: 'branches.read' },
