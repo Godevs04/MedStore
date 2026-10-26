@@ -3,8 +3,7 @@
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "noEmit": true,
-    "types": ["node"]
+    "noEmit": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }
