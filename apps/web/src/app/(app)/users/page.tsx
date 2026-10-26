@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api, ApiClientError } from '@/lib/api';
-import { Badge, Button, Card, ErrorState, Field, Input, Select, Spinner, Table } from '@/components/ui';
+import { Badge, Button, Card, ErrorState, Field, Input, Select, Spinner, Table, SuccessBanner, ErrorBanner } from '@/components/ui';
 
 interface Member {
   id: string;
@@ -105,7 +105,7 @@ export default function UsersPage() {
         <Button onClick={() => setShowInvite((s) => !s)}>Invite user</Button>
       </div>
 
-      {actionError ? <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{actionError}</p> : null}
+      {actionError ? <ErrorBanner>{actionError}</ErrorBanner> : null}
 
       {showInvite ? (
         <Card title="Invite a user">

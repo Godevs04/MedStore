@@ -7,7 +7,7 @@ import { customerCreateSchema } from '@medicore/validation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { z } from 'zod';
 import { api, ApiClientError } from '@/lib/api';
-import { Badge, Button, Card, EmptyState, ErrorState, Field, Input, Spinner, Table } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, ErrorState, Field, Input, Spinner, Table, SuccessBanner, ErrorBanner } from '@/components/ui';
 
 interface CustomerRow {
   id: string;
@@ -77,8 +77,8 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      {notice ? <p className="rounded border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">{notice}</p> : null}
-      {error ? <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p> : null}
+      {notice ? <SuccessBanner>{notice}</SuccessBanner> : null}
+      {error ? <ErrorBanner>{error}</ErrorBanner> : null}
 
       {showCreate ? (
         <Card title="New customer">

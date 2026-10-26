@@ -7,7 +7,7 @@ import { branchCreateSchema, warehouseCreateSchema } from '@medicore/validation'
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { z } from 'zod';
 import { api, ApiClientError } from '@/lib/api';
-import { Badge, Button, Card, ErrorState, Field, Input, Spinner, Table } from '@/components/ui';
+import { Badge, Button, Card, ErrorState, Field, Input, Spinner, Table, SuccessBanner, ErrorBanner } from '@/components/ui';
 
 interface BranchRow {
   id: string;
@@ -78,7 +78,7 @@ export default function BranchesPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       <h1 className="text-lg font-semibold">Branches & warehouses</h1>
-      {error ? <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p> : null}
+      {error ? <ErrorBanner>{error}</ErrorBanner> : null}
 
       <Card title={`Branches (${branches.data?.length ?? 0})`}>
         <Table

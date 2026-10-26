@@ -1,0 +1,216 @@
+{
+  "runAt": "2026-10-26T21:59:28.141Z",
+  "results": [
+    {
+      "id": "E2E-01",
+      "scenario": "Register organization with founder auto-login",
+      "expected": "201 with userId + organizationId + slug",
+      "actual": "201 {\"userId\":\"1674d46f-5f74-4040-9057-25a91eff3a7a\",\"organizationId\":\"11f08240-a4dd",
+      "status": "PASS",
+      "evidence": "slug=e2e-pharma-pvt-ltd"
+    },
+    {
+      "id": "E2E-02",
+      "scenario": "Login returns session for the founder",
+      "expected": "200 with userId",
+      "actual": "200 userId=1674d46f-5f74-4040-9057-25a91eff3a7a",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-03",
+      "scenario": "Session resolves memberships with Owner role",
+      "expected": "200, memberships[0].isOwner=true",
+      "actual": "200 isOwner=true",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-04",
+      "scenario": "Default branch created at registration",
+      "expected": "200 with 1 default branch",
+      "actual": "200 branches=1 default=true",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-05",
+      "scenario": "Create warehouse on branch",
+      "expected": "201 with warehouse id",
+      "actual": "201 name=Central Store",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-06b",
+      "scenario": "Save business profile (address, GST registration with GSTIN)",
+      "expected": "200 with updated organization",
+      "actual": "200 city=Pune gstin=27E2EPA1234F1Z5",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-06",
+      "scenario": "Setup checklist reflects readiness after warehouse creation",
+      "expected": "200 allComplete=true",
+      "actual": "200 allComplete=true",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-07",
+      "scenario": "Complete onboarding (posting gate lifted)",
+      "expected": "200 setupCompleted=true",
+      "actual": "200 {\"setupCompleted\":true}",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-08",
+      "scenario": "Create effective-dated GST rate version (HSN 3004 @ 5%)",
+      "expected": "201 with version id",
+      "actual": "201 cgst=2.5",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-09",
+      "scenario": "Create medicine product with barcodes and tax classification",
+      "expected": "201 with product id",
+      "actual": "201 sku=AZI-500",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-10",
+      "scenario": "Barcode lookup resolves the product (POS path)",
+      "expected": "200 with matching sku",
+      "actual": "200 sku=AZI-500",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-11",
+      "scenario": "Create supplier with GSTIN (Maharashtra, state-consistent)",
+      "expected": "201 with vendor id",
+      "actual": "201 gstin=27MSDPS1234K1Z9",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-12",
+      "scenario": "Create credit customer",
+      "expected": "201 with customer id",
+      "actual": "201 name=Dr. Sharma Clinic",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-13",
+      "scenario": "Receive near-expiry batch (45 days) — earliest expiry",
+      "expected": "201 with balance 200",
+      "actual": "201 qty=200",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-14",
+      "scenario": "Receive long-dated batch (300 days)",
+      "expected": "201 with balance 300",
+      "actual": "201 qty=300",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-15",
+      "scenario": "FEFO allocation spans batches earliest-expiry-first",
+      "expected": "200: [AZI-26A01 x200, AZI-26B02 x20]",
+      "actual": "200 [[\"AZI-26A01\",200],[\"AZI-26B02\",20]]",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-16",
+      "scenario": "Oversell attempt rejected (negative-stock prevention)",
+      "expected": "422 INSUFFICIENT_STOCK",
+      "actual": "422 INSUFFICIENT_STOCK",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-17",
+      "scenario": "Expiry dashboard buckets the 45-day batch into DAYS_60",
+      "expected": "200 buckets with DAYS_60 ≥ 1",
+      "actual": "200 buckets={\"EXPIRED\":0,\"DAYS_30\":0,\"DAYS_60\":1,\"DAYS_90\":0,\"CUSTOM\":0,\"OK\":1}",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-18",
+      "scenario": "Dispatch stock transfer (50 units of long-dated batch)",
+      "expected": "201 DISPATCHED with source deducted",
+      "actual": "201 status=DISPATCHED",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-19",
+      "scenario": "Receive transfer in full → RECEIVED",
+      "expected": "201 status=RECEIVED",
+      "actual": "201 status=RECEIVED",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-20",
+      "scenario": "Post-completion receipt rejected (state machine)",
+      "expected": "409 STATE_TRANSITION_INVALID",
+      "actual": "409 STATE_TRANSITION_INVALID",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-21",
+      "scenario": "Cycle count: system 230 vs counted 228 (variance −2)",
+      "expected": "201 COMPLETED with variance lines",
+      "actual": "201 variance=-2",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-22",
+      "scenario": "Post count → compensating movement",
+      "expected": "201 POSTED",
+      "actual": "201 status=POSTED",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-23",
+      "scenario": "Recall near-expiry batch → status RECALLED",
+      "expected": "201 recall open; batch blocked",
+      "actual": "201",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-24",
+      "scenario": "Allocation of recalled batch blocked",
+      "expected": "422 BATCH_INELIGIBLE",
+      "actual": "422 BATCH_INELIGIBLE",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-25",
+      "scenario": "Ledger↔balance reconciliation across all operations",
+      "expected": "200 consistent=true, 0 mismatches",
+      "actual": "200 checked=3 mismatches=0",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-26",
+      "scenario": "Append-only ledger traceable with reasons and documents",
+      "expected": "200 with ≥ 5 movement rows",
+      "actual": "200 rows=5",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-27",
+      "scenario": "Audit trail records the journey (org, profile, product, vendor, customer, tax, count, recall)",
+      "expected": "200 with ≥ 8 audit events",
+      "actual": "200 events=9",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-28",
+      "scenario": "Cross-tenant product read prevented",
+      "expected": "404 NOT_FOUND (no existence leak)",
+      "actual": "404 NOT_FOUND",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-29",
+      "scenario": "Cross-tenant inventory access prevented (other org's warehouse)",
+      "expected": "404 (warehouse not visible cross-tenant)",
+      "actual": "404 NOT_FOUND",
+      "status": "PASS"
+    }
+  ]
+}

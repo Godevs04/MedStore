@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, ApiClientError } from '@/lib/api';
 import { useCurrentMembership, useSession } from '@/lib/session';
-import { Badge, Button, Card, EmptyState, ErrorState, Field, Input, Select, Spinner, Table, cn } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, ErrorState, Field, Input, Select, Spinner, Table, cn, SuccessBanner, ErrorBanner } from '@/components/ui';
 
 interface BatchRow {
   id: string;
@@ -102,7 +102,7 @@ export default function BatchesPage() {
         </Select>
       </div>
 
-      {error ? <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p> : null}
+      {error ? <ErrorBanner>{error}</ErrorBanner> : null}
 
       <Card title="Record opening stock">
         <form

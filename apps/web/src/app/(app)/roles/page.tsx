@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, ApiClientError } from '@/lib/api';
-import { Badge, Button, Card, ErrorState, Field, Input, Spinner, Table } from '@/components/ui';
+import { Badge, Button, Card, ErrorState, Field, Input, Spinner, Table, SuccessBanner, ErrorBanner } from '@/components/ui';
 
 interface RoleRow {
   id: string;
@@ -81,7 +81,7 @@ export default function RolesPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       <h1 className="text-lg font-semibold">Roles & permissions</h1>
-      {error ? <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p> : null}
+      {error ? <ErrorBanner>{error}</ErrorBanner> : null}
 
       <Card title="Roles">
         <Table

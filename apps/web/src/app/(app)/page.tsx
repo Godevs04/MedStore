@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { api, ApiClientError } from '@/lib/api';
 import { useCurrentMembership } from '@/lib/session';
-import { Badge, Card, ErrorState, Spinner } from '@/components/ui';
+import { Badge, Card, ErrorState, SkeletonRows, Spinner } from '@/components/ui';
 
 interface Checklist {
   steps: Array<{ key: string; label: string; complete: boolean }>;
@@ -21,6 +21,13 @@ interface OrgProfile {
   subscription: { status: string; planName: string; trialEndsAt: string | null } | null;
 }
 
+const MODULE_ROADMAP = [
+  { label: 'Purchasing', phase: 'Phase 4' },
+  { label: 'POS billing', phase: 'Phase 5' },
+  { label: 'Accounting', phase: 'Phase 7' },
+  { label: 'GST & compliance registers', phase: 'Phase 8' },
+];
+
 export default function DashboardPage() {
   const membership = useCurrentMembership();
   const checklist = useQuery({
@@ -34,7 +41,21 @@ export default function DashboardPage() {
     retry: false,
   });
 
-  if (checklist.isLoading || org.isLoading) return <Spinner />;
+  if (checklist.isLoading || org.isLoading) {
+    return (
+      <div className="mx-auto max-w-5xl space-y-4">
+        <div className="mc-skeleton h-8 w-72" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="mc-skeleton h-28 rounded-xl" style={{ animationDelay: `${i * 100}ms` }} />
+          ))}
+        </div>
+        <div className="rounded-xl border border-neutral-200 bg-white p-5">
+          <SkeletonRows rows={4} />
+        </div>
+      </div>
+    );
+  }
   if (checklist.error) {
     const message =
       checklist.error instanceof ApiClientError && checklist.error.status === 403
@@ -47,70 +68,136 @@ export default function DashboardPage() {
   }
 
   const sub = org.data?.subscription;
+  const doneCount = checklist.data?.steps.filter((s) => s.complete).length ?? 0;
+  const totalSteps = checklist.data?.steps.length ?? 1;
+  const progressPct = Math.round((doneCount / totalSteps) * 100);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold">{org.data?.name}</h1>
-        <p className="text-sm text-neutral-500">
-          {membership?.organizationName} · {sub ? `${sub.planName} plan (${sub.status})` : 'No subscription'}
+    <div className="mx-auto max-w-5xl space-y-5">
+      {/* Header */}
+      <div className="mc-anim-fade-up">
+        <h1 className="text-xl font-bold tracking-tight text-neutral-900">{org.data?.name}</h1>
+        <p className="mt-0.5 text-sm text-neutral-500">
+          {membership?.organizationName} ·{' '}
+          {sub ? (
+            <span>
+              {sub.planName} plan ·{' '}
+              <Badge tone={sub.status === 'TRIALING' ? 'amber' : 'green'} dot>
+                {sub.status}
+              </Badge>
+            </span>
+          ) : (
+            'No subscription'
+          )}
         </p>
       </div>
 
+      {/* Stat cards */}
+      <div className="mc-stagger grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <Card delay={0}>
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-neutral-400">Plan</p>
+              <p className="mt-1 text-2xl font-bold tracking-tight text-neutral-900">
+                {sub?.planName ?? '—'}
+              </p>
+              {sub?.trialEndsAt ? (
+                <p className="mt-1 text-xs text-neutral-500">
+                  Trial ends {new Date(sub.trialEndsAt).toLocaleDateString()}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-lg ring-1 ring-brand-100">
+              ◈
+            </div>
+          </div>
+        </Card>
+
+        <Card delay={80}>
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-neutral-400">GST registration</p>
+              <p className="mt-1 text-2xl font-bold tracking-tight text-neutral-900">
+                {org.data?.gstRegistrationStatus}
+              </p>
+              <p className="mt-1 font-mono text-xs text-neutral-500">{org.data?.gstin ?? 'GSTIN not set'}</p>
+            </div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-lg ring-1 ring-sky-100">
+              ⛨
+            </div>
+          </div>
+        </Card>
+
+        <Card delay={160}>
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-neutral-400">Setup progress</p>
+              <p className="mt-1 text-2xl font-bold tracking-tight text-neutral-900">
+                {doneCount}/{totalSteps}
+              </p>
+              <div className="mt-2 h-1.5 w-28 overflow-hidden rounded-full bg-neutral-100">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-brand-400 to-brand-600 transition-[width] duration-700 ease-out"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+            </div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-lg ring-1 ring-amber-100">
+              ◔
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Setup checklist */}
       {checklist.data && !checklist.data.setupCompletedAt ? (
-        <Card
-          title="Setup checklist"
-          actions={
-            checklist.data.allComplete ? (
-              <span className="text-xs text-green-700">Ready to complete setup</span>
-            ) : undefined
-          }
-        >
-          <ul className="space-y-1.5">
+        <Card title="Setup checklist" delay={220}>
+          <div className="mc-stagger space-y-2.5">
             {checklist.data.steps.map((s) => (
-              <li key={s.key} className="flex items-center gap-2 text-sm">
-                <Badge tone={s.complete ? 'green' : 'amber'}>{s.complete ? 'Done' : 'Pending'}</Badge>
-                {s.label}
-              </li>
+              <div
+                key={s.key}
+                className="flex items-center justify-between rounded-lg border border-neutral-100 bg-neutral-50/50 px-3 py-2 transition-all duration-200 hover:border-brand-200 hover:bg-brand-50/40"
+              >
+                <span className="text-sm text-neutral-700">{s.label}</span>
+                <Badge tone={s.complete ? 'green' : 'amber'} dot>
+                  {s.complete ? 'Done' : 'Pending'}
+                </Badge>
+              </div>
             ))}
-          </ul>
-          <p className="mt-3 text-xs text-neutral-500">
+          </div>
+          <p className="mt-4 text-xs leading-relaxed text-neutral-500">
             The organization cannot post real transactions until essential setup is complete. Configure
-            business details under <Link className="text-brand-700 hover:underline" href="/settings">Settings</Link>{' '}
-            and add a warehouse under <Link className="text-brand-700 hover:underline" href="/branches">Branches</Link>.
+            business details under{' '}
+            <Link className="font-medium text-brand-700 hover:underline" href="/settings">
+              Settings
+            </Link>{' '}
+            and add a warehouse under{' '}
+            <Link className="font-medium text-brand-700 hover:underline" href="/branches">
+              Branches
+            </Link>
+            .
           </p>
         </Card>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Card title="Subscription">
-          {sub ? (
-            <dl className="space-y-1 text-sm">
-              <div className="flex justify-between"><dt className="text-neutral-500">Plan</dt><dd>{sub.planName}</dd></div>
-              <div className="flex justify-between"><dt className="text-neutral-500">Status</dt><dd><Badge tone={sub.status === 'TRIALING' ? 'amber' : 'green'}>{sub.status}</Badge></dd></div>
-              {sub.trialEndsAt ? (
-                <div className="flex justify-between"><dt className="text-neutral-500">Trial ends</dt><dd>{new Date(sub.trialEndsAt).toLocaleDateString()}</dd></div>
-              ) : null}
-            </dl>
-          ) : (
-            <p className="text-sm text-neutral-500">No subscription configured.</p>
-          )}
-        </Card>
-
-        <Card title="Business identity">
-          <dl className="space-y-1 text-sm">
-            <div className="flex justify-between"><dt className="text-neutral-500">GST registration</dt><dd>{org.data?.gstRegistrationStatus}</dd></div>
-            <div className="flex justify-between"><dt className="text-neutral-500">GSTIN</dt><dd className="font-mono">{org.data?.gstin ?? '—'}</dd></div>
-            <div className="flex justify-between"><dt className="text-neutral-500">State</dt><dd>{org.data?.stateCode ?? '—'}</dd></div>
-          </dl>
-        </Card>
-      </div>
-
-      <Card title="Coming in later phases">
-        <p className="text-sm text-neutral-600">
-          Product catalog, batch inventory, purchasing, POS billing, accounting and compliance registers
-          are implemented in Phases 2–10. The foundation you are using (organizations, branches, users,
-          roles, audit) is live and enforced server-side.
+      {/* Roadmap */}
+      <Card title="Platform roadmap" delay={280}>
+        <div className="mc-stagger grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          {MODULE_ROADMAP.map((m) => (
+            <div
+              key={m.label}
+              className="group rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-3 py-3 transition-all duration-200 hover:border-brand-300 hover:bg-brand-50/50"
+            >
+              <p className="text-sm font-medium text-neutral-700 transition-colors group-hover:text-brand-700">
+                {m.label}
+              </p>
+              <p className="mt-0.5 text-xs text-neutral-400">{m.phase}</p>
+            </div>
+          ))}
+        </div>
+        <p className="mt-4 text-xs leading-relaxed text-neutral-500">
+          The foundation you are using — organizations, branches, users, roles, master data and the
+          batch-level inventory engine — is live and enforced server-side.
         </p>
       </Card>
     </div>

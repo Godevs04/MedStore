@@ -8,7 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import type { z } from 'zod';
 import { api, ApiClientError } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { Button, Card, ErrorState, Field, Input, Select, Spinner } from '@/components/ui';
+import { Button, Card, ErrorState, Field, Input, Select, Spinner, SuccessBanner, ErrorBanner } from '@/components/ui';
 
 type OrgForm = z.input<typeof organizationSetupSchema>;
 
@@ -118,8 +118,8 @@ export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       <h1 className="text-lg font-semibold">Organization settings</h1>
-      {message ? <p className="rounded border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">{message}</p> : null}
-      {error ? <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p> : null}
+      {message ? <SuccessBanner>{message}</SuccessBanner> : null}
+      {error ? <ErrorBanner>{error}</ErrorBanner> : null}
 
       <Card title="Business profile">
         <form className="grid grid-cols-1 gap-3 sm:grid-cols-2" onSubmit={form.handleSubmit((d) => save.mutate(d))}>

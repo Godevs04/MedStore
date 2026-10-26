@@ -43,39 +43,60 @@ export default function RegisterPage() {
   });
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-neutral-100 p-4">
-      <div className="w-full max-w-sm space-y-4">
-        <div className="text-center">
-          <h1 className="text-xl font-bold text-brand-700">MediCore</h1>
-          <p className="text-sm text-neutral-500">Create your organization</p>
+    <div className="mc-auth-backdrop flex min-h-screen items-center justify-center p-6">
+      <div className="w-full max-w-md space-y-5">
+        <div className="mc-anim-fade-up text-center">
+          <div className="mc-anim-float mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-xl font-bold text-white shadow-xl shadow-brand-600/30">
+            M
+          </div>
+          <h1 className="mt-3 text-xl font-bold tracking-tight">
+            <span className="mc-gradient-text">Create your pharmacy workspace</span>
+          </h1>
+          <p className="mt-1 text-sm text-neutral-500">
+            Free 14-day trial · full features · no card required
+          </p>
         </div>
-        <Card title="Register">
-          <form className="space-y-3" onSubmit={onSubmit}>
+        <Card className="mc-stagger">
+          <form className="grid grid-cols-1 gap-4 p-1 sm:grid-cols-2" onSubmit={onSubmit}>
+            <div className="sm:col-span-2">
+              <Field label="Organization name" error={errors.organizationName?.message}>
+                <Input placeholder="e.g. City Care Pharmacy" {...register('organizationName')} />
+              </Field>
+            </div>
             <Field label="Your name" error={errors.fullName?.message}>
-              <Input {...register('fullName')} />
+              <Input placeholder="Full name" {...register('fullName')} />
             </Field>
             <Field label="Email" error={errors.email?.message}>
-              <Input type="email" autoComplete="email" {...register('email')} />
+              <Input type="email" autoComplete="email" placeholder="you@pharmacy.in" {...register('email')} />
             </Field>
-            <Field
-              label="Password"
-              error={errors.password?.message}
-            >
-              <Input type="password" autoComplete="new-password" {...register('password')} />
-            </Field>
-            <Field label="Organization name" error={errors.organizationName?.message}>
-              <Input {...register('organizationName')} />
-            </Field>
-            {formError ? <p className="text-xs text-red-600">{formError}</p> : null}
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? 'Creating…' : 'Create organization'}
-            </Button>
-            <p className="text-center text-xs text-neutral-500">
-              Already have an account?{' '}
-              <Link className="text-brand-700 hover:underline" href="/login">
-                Sign in
-              </Link>
-            </p>
+            <div className="sm:col-span-2">
+              <Field label="Password" error={errors.password?.message}>
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="Min 10 chars, mixed case + digit"
+                  {...register('password')}
+                />
+              </Field>
+            </div>
+            {formError ? (
+              <div className="sm:col-span-2">
+                <p className="mc-anim-scale-in rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
+                  {formError}
+                </p>
+              </div>
+            ) : null}
+            <div className="sm:col-span-2">
+              <Button type="submit" className="w-full py-2" disabled={isSubmitting}>
+                {isSubmitting ? 'Creating organization…' : 'Create organization'}
+              </Button>
+              <p className="mt-3 text-center text-xs text-neutral-500">
+                Already have an account?{' '}
+                <Link className="font-medium text-brand-700 transition-colors hover:text-brand-500 hover:underline" href="/login">
+                  Sign in
+                </Link>
+              </p>
+            </div>
           </form>
         </Card>
       </div>
