@@ -3,7 +3,7 @@
 Statuses: NOT STARTED · IN PROGRESS · IMPLEMENTED (code + UI exists) · TESTED (automated tests pass) · VERIFIED (end-to-end/manual evidence) · BLOCKED · NOT CONNECTED (external integration deliberately not represented as operational)
 
 Evidence sources:
-- **Integration** — `pnpm --filter @medicore/api test:integration` (76 tests across `auth`, `catalog`, `inventory`, `commerce`, `acceptance`, `saas` suites, real API on `medicore_test`).
+- **Integration** — `pnpm --filter @medicore/api test:integration` (77 tests across `auth`, `catalog`, `inventory`, `commerce`, `acceptance`, `saas` suites, real API on `medicore_test`).
 - **E2E** — `pnpm --filter @medicore/api exec tsx scripts/e2e-journey.ts` (47 asserted steps, results in `e2e-results.json`).
 - **Browser** — live walk of the PRD §38 journey against `localhost:3000` / `:3001`.
 

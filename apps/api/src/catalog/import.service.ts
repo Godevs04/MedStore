@@ -15,6 +15,39 @@ import { Conflict } from '../common/app-exception.js';
 const text = (value: unknown): string =>
   typeof value === 'string' || typeof value === 'number' ? String(value) : '';
 
+/** Strips optional/nullable/default/refinement wrappers to reach the field's value type. */
+function baseType(schema: z.ZodTypeAny): z.ZodTypeAny {
+  let current = schema;
+  for (;;) {
+    if (current instanceof z.ZodOptional || current instanceof z.ZodNullable) current = current.unwrap() as z.ZodTypeAny;
+    else if (current instanceof z.ZodDefault) current = current.removeDefault() as z.ZodTypeAny;
+    else if (current instanceof z.ZodEffects) current = current.innerType() as z.ZodTypeAny;
+    else return current;
+  }
+}
+
+const TRUE_WORDS = new Set(['true', 'yes', 'y', '1']);
+const FALSE_WORDS = new Set(['false', 'no', 'n', '0']);
+
+function coerceCell(type: z.ZodTypeAny, value: string): unknown {
+  if (type instanceof z.ZodNumber) return /^-?\d+(\.\d+)?$/.test(value) ? Number(value) : value;
+  if (type instanceof z.ZodBoolean) {
+    const word = value.toLowerCase();
+    return TRUE_WORDS.has(word) ? true : FALSE_WORDS.has(word) ? false : value;
+  }
+  if (type instanceof z.ZodArray) return value.split(/[|;]/).map((v) => v.trim()).filter(Boolean);
+  return value;
+}
+
+/** Cells that could not be converted surface as "expected number, received string"; reword for spreadsheet users. */
+function issueMessage(issue: z.ZodIssue): string {
+  if (issue.code === z.ZodIssueCode.invalid_type && issue.received === 'string') {
+    if (issue.expected === 'number') return 'Must be a number (e.g. 30 or 125.50)';
+    if (issue.expected === 'boolean') return 'Must be yes or no';
+  }
+  return issue.message;
+}
+
 export type ImportType = 'products' | 'vendors' | 'customers';
 
 export interface ImportRowResult {
@@ -82,13 +115,13 @@ export class ImportService {
 
     rows.forEach((row, index) => {
       const rowNumber = index + 1;
-      const parsed = schema.safeParse(this.coerceRow(row));
+      const parsed = schema.safeParse(this.coerceRow(type, row));
       if (!parsed.success) {
         errorRows += 1;
         results.push({
           row: rowNumber,
           status: 'ERROR',
-          errors: parsed.error.issues.map((i) => ({ field: i.path.join('.'), message: i.message })),
+          errors: parsed.error.issues.map((i) => ({ field: i.path.join('.'), message: issueMessage(i) })),
         });
         return;
       }
@@ -259,7 +292,7 @@ export class ImportService {
     }
   }
 
-  private schemaFor(type: ImportType): z.ZodTypeAny {
+  private schemaFor(type: ImportType): z.AnyZodObject {
     switch (type) {
       case 'products':
         return productCreateSchema;
@@ -270,12 +303,18 @@ export class ImportService {
     }
   }
 
-  /** CSV cells arrive as strings; coerce numeric/boolean fields per schema needs. */
-  private coerceRow(row: Record<string, unknown>): Record<string, unknown> {
+  /**
+   * CSV cells arrive as strings. Empty cells are dropped so defaults apply;
+   * number, boolean and list fields are converted using the schema's own types.
+   * Unconvertible values are left as-is so validation reports them per field.
+   */
+  private coerceRow(type: ImportType, row: Record<string, unknown>): Record<string, unknown> {
+    const shape = this.schemaFor(type).shape as Record<string, z.ZodTypeAny>;
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(row)) {
       if (value === '' || value === undefined || value === null) continue;
-      out[key] = value;
+      const field = shape[key];
+      out[key] = typeof value === 'string' && field ? coerceCell(baseType(field), value.trim()) : value;
     }
     return out;
   }

@@ -236,6 +236,40 @@ describe('CSV import', () => {
     expect((retry.body as { duplicateRows: number }).duplicateRows).toBe(1);
   });
 
+  it('converts CSV text cells into numbers, booleans and lists using the schema', async () => {
+    const vendors = await api<{ validRows: number; validatedRows: Array<Record<string, unknown>> }>({
+      path: '/api/v1/imports/vendors/preview',
+      method: 'POST',
+      user: owner,
+      body: { rows: [{ legalName: 'CSV Pharma Distributors', creditDays: '45', creditLimit: '50000.00', city: '' }] },
+    });
+    expect(vendors.body.validRows).toBe(1);
+    expect(vendors.body.validatedRows[0]).toMatchObject({ creditDays: 45, creditLimit: '50000.00' });
+
+    const customers = await api<{ validRows: number; validatedRows: Array<Record<string, unknown>> }>({
+      path: '/api/v1/imports/customers/preview',
+      method: 'POST',
+      user: owner,
+      body: { rows: [{ name: 'CSV Clinic', isWholesale: 'yes', creditDays: '15' }] },
+    });
+    expect(customers.body.validatedRows[0]).toMatchObject({ isWholesale: true, creditDays: 15 });
+
+    const products = await api<{ validatedRows: Array<Record<string, unknown>>; results: Array<{ status: string; errors?: Array<{ field?: string }> }> }>({
+      path: '/api/v1/imports/products/preview',
+      method: 'POST',
+      user: owner,
+      body: {
+        rows: [
+          { name: 'CSV Syrup', sku: 'CSV-SYR-1', barcodes: '89010001|89010002', reorderLevel: '20', requiresRefrigeration: 'no' },
+          { name: 'CSV Bad Number', sku: 'CSV-BAD-1', reorderLevel: 'twenty' },
+        ],
+      },
+    });
+    expect(products.body.validatedRows[0]).toMatchObject({ barcodes: ['89010001', '89010002'], reorderLevel: 20, requiresRefrigeration: false });
+    expect(products.body.results[1]).toMatchObject({ status: 'ERROR' });
+    expect(products.body.results[1]!.errors?.[0]).toMatchObject({ field: 'reorderLevel', message: expect.stringContaining('Must be a number') });
+  });
+
   it('denies import to members without products.import permission', async () => {
     // Create a role with read-only catalog access.
     const roleRes = await api({

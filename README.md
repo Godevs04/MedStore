@@ -23,7 +23,7 @@ pnpm --filter @medicore/web dev                                          # Web o
 # 4. Verify
 pnpm lint                                                      # ESLint (type-aware) for API, packages, web; zero warnings allowed
 pnpm typecheck
-pnpm --filter @medicore/api build && pnpm test:integration     # 76 integration tests vs medicore_test (runs dist/main.js)
+pnpm --filter @medicore/api build && pnpm test:integration     # 77 integration tests vs medicore_test (runs dist/main.js)
 pnpm --filter @medicore/api exec tsx scripts/e2e-journey.ts   # 47-step business journey → e2e-results.json
 pnpm --filter @medicore/web build                              # production build
 # while `next dev` is running, build into a separate folder:

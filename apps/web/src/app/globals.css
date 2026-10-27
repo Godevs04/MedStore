@@ -108,6 +108,47 @@ body {
 }
 .mc-anim-toast { animation: mc-toast-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
+/* ── Import flow ──────────────────────────────────────────────────────────── */
+@keyframes mc-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+@keyframes mc-pop {
+  0% { opacity: 0; transform: scale(0.6); }
+  60% { opacity: 1; transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+@keyframes mc-draw {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes mc-ripple {
+  from { opacity: 0.55; transform: scale(0.85); }
+  to { opacity: 0; transform: scale(1.6); }
+}
+@keyframes mc-shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+@keyframes mc-march {
+  to { background-position: 24px 0; }
+}
+.mc-anim-bob { animation: mc-bob 1.6s ease-in-out infinite; }
+.mc-anim-pop { animation: mc-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.mc-anim-shake { animation: mc-shake 0.4s ease-in-out both; }
+.mc-anim-ripple { animation: mc-ripple 1.8s ease-out infinite; }
+.mc-draw-check { stroke-dasharray: 48; stroke-dashoffset: 48; animation: mc-draw 0.55s 0.25s cubic-bezier(0.65, 0, 0.35, 1) forwards; }
+/* Indeterminate progress stripe while the server validates. */
+.mc-progress-stripes {
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.35) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.35) 50%, rgba(255, 255, 255, 0.35) 75%, transparent 75%);
+  background-size: 24px 24px;
+  animation: mc-march 0.8s linear infinite;
+}
+/* Smooth open/close for collapsible panels without measuring height. */
+.mc-collapse { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
+.mc-collapse[data-open='true'] { grid-template-rows: 1fr; }
+.mc-collapse > * { overflow: hidden; }
+
 /* ── Print: tax invoice (A4 and 80mm thermal) ─────────────────────────────── */
 .print-only { display: none; }
 @media print {
@@ -126,8 +167,11 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .mc-anim-drawer, .mc-anim-toast,
   .mc-anim-fade-up, .mc-anim-fade-in, .mc-anim-scale-in, .mc-anim-slide-in,
-  .mc-anim-float, .mc-anim-pulse-dot, .mc-stagger > * {
+  .mc-anim-float, .mc-anim-pulse-dot, .mc-stagger > *,
+  .mc-anim-bob, .mc-anim-pop, .mc-anim-shake, .mc-anim-ripple, .mc-progress-stripes {
     animation: none;
   }
+  .mc-draw-check { animation: none; stroke-dashoffset: 0; }
+  .mc-collapse { transition: none; }
   .mc-skeleton { animation: none; }
 }
