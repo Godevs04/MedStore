@@ -7,7 +7,7 @@ import { adjustmentCreateSchema } from '@medicore/validation';
 import { api, ApiClientError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { ADJUSTMENT_REASON_LABELS, ProductSearch, batchItem, qtyFmt, useBatchOptions, useCan, useWarehouses, type ProductHit } from '@/lib/stock';
-import { BarChart, Combobox, ConfirmDialog, DateRangePicker, FilterChips, KpiGrid, Pagination, QtyInput, useFieldErrors, type DateRange, type PageInfo } from '@/components/kit';
+import { BarChart, compactInr, Combobox, ConfirmDialog, DateRangePicker, FilterChips, KpiGrid, Pagination, QtyInput, useFieldErrors, type DateRange, type PageInfo } from '@/components/kit';
 import { Badge, Button, Card, EmptyState, ErrorState, Field, PageHeader, Select, SkeletonRows, Stat, Table, Td, Textarea, Th, Tr, cn, money } from '@/components/ui';
 
 interface AdjustmentRow {
@@ -157,7 +157,7 @@ function AdjustForm({ onDone }: { onDone: () => void }) {
                 }}
                 className={cn(
                   'inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all',
-                  direction === d ? (d === 'OUT' ? 'bg-white text-red-700 shadow-sm' : 'bg-white text-emerald-700 shadow-sm') : 'text-neutral-500',
+                  direction === d ? (d === 'OUT' ? 'bg-surface text-danger ring-1 ring-line' : 'bg-surface text-success ring-1 ring-line') : 'text-muted hover:text-ink',
                 )}
               >
                 <Icon name={d === 'OUT' ? 'arrowDown' : 'arrowUp'} size={14} strokeWidth={2.25} />
@@ -207,7 +207,7 @@ function AdjustForm({ onDone }: { onDone: () => void }) {
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         {batch && qty > 0 ? (
           <p className="mc-anim-fade-in text-xs text-neutral-600">
-            Balance <span className="font-semibold tabular-nums">{qtyFmt(batch.onHand)}</span> → <span className={cn('font-semibold tabular-nums', after !== null && after < 0 ? 'text-red-600' : 'text-neutral-900')}>{qtyFmt(after ?? 0)}</span> ·{' '}
+            Balance <span className="font-semibold num">{qtyFmt(batch.onHand)}</span> → <span className={cn('font-semibold num', after !== null && after < 0 ? 'text-danger' : 'text-ink')}>{qtyFmt(after ?? 0)}</span> ·{' '}
             {direction === 'IN' ? 'gain' : 'loss'} of <span className="font-semibold">{money(value)}</span> at cost
           </p>
         ) : (
@@ -293,29 +293,31 @@ export default function AdjustmentsPage() {
   const topOut = s?.byReason.filter((r) => Number(r.outValue) > 0).sort((a, b) => Number(b.outValue) - Number(a.outValue))[0];
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4">
+    <div className="space-y-6">
       <PageHeader title="Stock adjustments" subtitle="Damage, breakage, theft, cold-chain loss and corrections — every change is valued at cost, posted to the books and audited." />
 
       {can('inventory.adjust') ? <AdjustForm onDone={refresh} /> : null}
 
       {s ? (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <KpiGrid cols={3}>
-            <Stat label="Stock lost" value={money(s.outValue)} hint={topOut ? `Mostly ${ADJUSTMENT_REASON_LABELS[topOut.reason]?.toLowerCase()}` : 'No losses'} tone={Number(s.outValue) > 0 ? 'red' : 'green'} />
-            <Stat label="Stock gained" value={money(s.inValue)} hint="Corrections and finds" tone="green" delay={60} />
-            <Stat label="Net impact" value={money(s.netValue)} hint={`${s.count} adjustment${s.count === 1 ? '' : 's'}`} tone={Number(s.netValue) < 0 ? 'amber' : 'blue'} delay={120} />
+        <>
+          <KpiGrid bare cols={3}>
+            <Stat variant="alert" label="Stock lost" value={money(s.outValue)} hint={topOut ? `Mostly ${ADJUSTMENT_REASON_LABELS[topOut.reason]?.toLowerCase()}` : 'No losses'} tone={Number(s.outValue) > 0 ? 'red' : 'neutral'} />
+            <Stat label="Stock gained" value={money(s.inValue)} hint="Corrections and finds" />
+            <Stat label="Net impact" value={money(s.netValue)} hint={`${s.count} adjustment${s.count === 1 ? '' : 's'}`} tone={Number(s.netValue) < 0 ? 'amber' : 'neutral'} />
           </KpiGrid>
-          <Card title="Loss by reason (at cost)" className="lg:col-span-2" delay={80}>
+          <Card variant="section" title="Loss by reason (at cost)">
             <BarChart
               data={s.byReason
                 .filter((r) => Number(r.outValue) > 0)
                 .map((r) => ({ label: ADJUSTMENT_REASON_LABELS[r.reason] ?? r.reason, value: Number(r.outValue), hint: `${ADJUSTMENT_REASON_LABELS[r.reason]} · ${qtyFmt(r.outQty)} units · ${r.count} entries` }))}
-              format={(n) => money(n)}
+              format={compactInr}
+              detailFormat={(n) => money(n)}
               tone="red"
               height={150}
+              emptyLabel="No stock losses in this period."
             />
           </Card>
-        </div>
+        </>
       ) : null}
 
       <Card title={`Adjustment history (${list.data?.pageInfo.totalItems ?? 0})`}>
@@ -329,7 +331,7 @@ export default function AdjustmentsPage() {
               value={direction}
               onChange={setDirection}
             />
-            <Select value={reason} onChange={(e) => setReason(e.target.value)} className="w-48" aria-label="Reason">
+            <Select value={reason} onChange={(e) => setReason(e.target.value)} className="w-full sm:w-48" aria-label="Reason">
               <option value="">All reasons</option>
               {REASONS.map((r) => (
                 <option key={r} value={r}>
@@ -337,7 +339,7 @@ export default function AdjustmentsPage() {
                 </option>
               ))}
             </Select>
-            <Select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className="w-48" aria-label="Warehouse">
+            <Select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className="w-full sm:w-48" aria-label="Warehouse">
               <option value="">All warehouses</option>
               {warehouses.list.map((w) => (
                 <option key={w.id} value={w.id}>
@@ -373,22 +375,22 @@ export default function AdjustmentsPage() {
                 const q = Number(a.quantity);
                 return (
                   <Tr key={a.id}>
-                    <Td className="whitespace-nowrap text-xs text-neutral-500">{new Date(a.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</Td>
+                    <Td className="whitespace-nowrap text-xs text-muted">{new Date(a.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</Td>
                     <Td>
-                      <div className="font-medium text-neutral-800">{a.batch.product.name}</div>
-                      <div className="font-mono text-xs text-neutral-500">{a.batch.batchNumber}</div>
+                      <div className="font-medium text-ink">{a.batch.product.name}</div>
+                      <div className="font-mono text-xs text-muted">{a.batch.batchNumber}</div>
                     </Td>
                     <Td>
                       <Badge tone={a.direction === 'OUT' ? 'red' : 'green'}>{ADJUSTMENT_REASON_LABELS[a.reason] ?? a.reason}</Badge>
-                      {a.notes ? <div className="mt-0.5 max-w-[240px] truncate text-[11px] text-neutral-500" title={a.notes}>{a.notes}</div> : null}
+                      {a.notes ? <div className="mt-0.5 max-w-[240px] truncate text-2xs text-muted" title={a.notes}>{a.notes}</div> : null}
                     </Td>
-                    <Td right className={cn('font-semibold', a.direction === 'OUT' ? 'text-red-600' : 'text-emerald-700')}>
+                    <Td right className={cn('font-semibold', a.direction === 'OUT' ? 'text-danger' : 'text-success')}>
                       {a.direction === 'OUT' ? '−' : '+'}
                       {qtyFmt(q)}
                     </Td>
                     <Td right>{money(q * Number(a.batch.purchaseRate))}</Td>
                     <Td className="text-xs text-neutral-600">{warehouses.nameOf(a.warehouseId)}</Td>
-                    <Td className="text-xs text-neutral-500">{a.actorName ?? '—'}</Td>
+                    <Td className="text-xs text-muted">{a.actorName ?? '—'}</Td>
                   </Tr>
                 );
               })}

@@ -42,8 +42,7 @@ import {
   cn,
   fmtDate,
   money,
-  todayIso,
-} from '@/components/ui';
+  todayIso, Alert, StatusBadge } from '@/components/ui';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -257,18 +256,18 @@ function ProductPicker({ onPick, exclude = [], disabled }: { onPick: (p: Product
 function VendorLicenceNote({ vendor }: { vendor: Vendor | undefined }) {
   if (!vendor) return null;
   if (!vendor.drugLicenceNumber) {
-    return <p className="mc-anim-fade-in text-[11px] font-medium text-amber-700"><Icon name="warning" size={13} /> No drug licence on file for this supplier — record Form 20B/21B in Vendors.</p>;
+    return <p className="mc-anim-fade-in text-2xs font-medium text-warning"><Icon name="warning" size={13} /> No drug licence on file for this supplier — record Form 20B/21B in Vendors.</p>;
   }
   const days = vendor.drugLicenceExpiry ? daysUntil(vendor.drugLicenceExpiry.slice(0, 10)) : null;
-  if (days !== null && days < 0) return <p className="mc-anim-shake text-[11px] font-medium text-red-600"><Icon name="danger" size={13} /> Supplier drug licence expired {Math.abs(days)} days ago.</p>;
-  if (days !== null && days <= 30) return <p className="text-[11px] font-medium text-amber-700">Supplier drug licence expires in {days} days.</p>;
-  return <p className="text-[11px] text-emerald-700"><Icon name="check" size={13} strokeWidth={2.5} /> DL {vendor.drugLicenceNumber}</p>;
+  if (days !== null && days < 0) return <p className="text-2xs font-medium text-danger"><Icon name="danger" size={13} /> Supplier drug licence expired {Math.abs(days)} days ago.</p>;
+  if (days !== null && days <= 30) return <p className="text-2xs font-medium text-warning">Supplier drug licence expires in {days} days.</p>;
+  return <p className="text-2xs text-success"><Icon name="check" size={13} strokeWidth={2.5} /> DL {vendor.drugLicenceNumber}</p>;
 }
 
 function VendorSelect({ vendors, value, onChange, disabled, error }: { vendors: Vendor[]; value: string; onChange: (id: string) => void; disabled?: boolean; error?: string }) {
   return (
     <Field label="Vendor" required error={error} hint={<VendorLicenceNote vendor={vendors.find((v) => v.id === value)} />}>
-      <Select value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={cn(error && 'border-red-400')}>
+      <Select value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={cn(error && 'border-danger')}>
         <option value="">Select vendor…</option>
         {vendors.map((v) => (
           <option key={v.id} value={v.id}>
@@ -284,7 +283,7 @@ function RateHint({ last, current }: { last: { lastRate: string; lastPurchased: 
   if (!last) return null;
   const diff = num(current) - num(last.lastRate);
   return (
-    <span className={cn('text-[10px] tabular-nums', diff > 0.004 ? 'text-red-600' : diff < -0.004 ? 'text-emerald-700' : 'text-neutral-400')}>
+    <span className={cn('text-[10px] num', diff > 0.004 ? 'text-danger' : diff < -0.004 ? 'text-success' : 'text-faint')}>
       last {money(last.lastRate)} · {fmtDate(last.lastPurchased)}
     </span>
   );
@@ -345,14 +344,16 @@ function ReorderPanel({ vendors }: { vendors: Vendor[] }) {
     <Card
       title={`Reorder suggestions${q.data ? ` (${items.length})` : ''}`}
       actions={
-        <Select value={vendorId} onChange={(e) => { setVendorId(e.target.value); setPicked({}); }} className="w-56" aria-label="Filter suggestions by vendor">
-          <option value="">All vendors</option>
-          {vendors.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.legalName}
-            </option>
-          ))}
-        </Select>
+        <div className="w-56 shrink-0">
+          <Select value={vendorId} onChange={(e) => { setVendorId(e.target.value); setPicked({}); }} aria-label="Filter suggestions by vendor">
+            <option value="">All vendors</option>
+            {vendors.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.legalName}
+              </option>
+            ))}
+          </Select>
+        </div>
       }
     >
       {q.isLoading ? (
@@ -367,23 +368,23 @@ function ReorderPanel({ vendors }: { vendors: Vendor[] }) {
             {visible.map((s) => {
               const on = s.productId in picked;
               return (
-                <Tr key={s.productId} className={cn(on && 'bg-brand-50/50')}>
+                <Tr key={s.productId} className={cn(on && 'bg-mint/60')}>
                   <Td>
                     <input type="checkbox" className="accent-brand-600" checked={on} onChange={() => toggle(s)} aria-label={`Select ${s.name}`} />
                   </Td>
                   <Td>
-                    <div className="font-medium text-neutral-800">{s.name}</div>
-                    <div className="text-[11px] text-neutral-500">
+                    <div className="font-medium text-ink">{s.name}</div>
+                    <div className="text-2xs text-muted">
                       <span className="font-mono">{s.sku}</span> · reorder at {s.reorderLevel}
-                      {s.onOrder > 0 ? <span className="text-brand-700"> · {s.onOrder} on order</span> : null}
+                      {s.onOrder > 0 ? <span className="text-teal-ink"> · {s.onOrder} on order</span> : null}
                     </div>
                   </Td>
-                  <Td right className={cn(s.onHand === 0 ? 'font-semibold text-red-600' : 'text-amber-700')}>{s.onHand.toLocaleString('en-IN')}</Td>
+                  <Td right className={cn(s.onHand === 0 ? 'font-semibold text-danger' : 'text-warning')}>{s.onHand.toLocaleString('en-IN')}</Td>
                   <Td right className="text-xs">
-                    {s.daysOfCover === null ? <span className="text-neutral-400">no sales</span> : <span className={cn(s.daysOfCover <= 7 && 'font-semibold text-red-600')}>{s.daysOfCover}d</span>}
-                    <div className="text-[10px] text-neutral-400">{s.avgDailySales}/day</div>
+                    {s.daysOfCover === null ? <span className="text-faint">no sales</span> : <span className={cn(s.daysOfCover <= 7 && 'font-semibold text-danger')}>{s.daysOfCover}d</span>}
+                    <div className="text-[10px] text-faint">{s.avgDailySales}/day</div>
                   </Td>
-                  <Td className="text-xs">{s.vendorName ?? <span className="text-neutral-400">—</span>}</Td>
+                  <Td className="text-xs">{s.vendorName ?? <span className="text-faint">—</span>}</Td>
                   <Td right>
                     {on ? (
                       <QtyInput className="ml-auto w-20 text-right" value={picked[s.productId]!.qty} onChange={(v) => setPicked((p) => ({ ...p, [s.productId]: { ...p[s.productId]!, qty: v } }))} aria-label={`Quantity for ${s.name}`} />
@@ -412,8 +413,8 @@ function ReorderPanel({ vendors }: { vendors: Vendor[] }) {
             )}
             <div className="flex items-center gap-3">
               {chosen.length ? (
-                <span className="text-sm text-neutral-500">
-                  {chosen.length} item{chosen.length === 1 ? '' : 's'} · <span className="font-semibold text-neutral-900">{money(total)}</span> + GST
+                <span className="text-sm text-muted">
+                  {chosen.length} item{chosen.length === 1 ? '' : 's'} · <span className="font-semibold text-ink">{money(total)}</span> + GST
                   {targetVendor ? ` · ${vendors.find((v) => v.id === targetVendor)?.legalName ?? ''}` : ''}
                 </span>
               ) : null}
@@ -499,20 +500,20 @@ function NewPOCard() {
             const qErr = errors[`${l.productId}.quantity`];
             const rErr = errors[`${l.productId}.unitPrice`];
             return (
-              <div key={l.productId} className="mc-anim-fade-up flex flex-wrap items-start gap-2 rounded-lg border border-neutral-200 bg-neutral-50/60 px-3 py-2">
+              <div key={l.productId} className="mc-anim-fade-in flex flex-wrap items-start gap-2 rounded-lg border border-line bg-subtle/60 px-3 py-2">
                 <span className="min-w-[10rem] flex-1 pt-2 text-sm">
-                  <span className="font-medium">{l.name}</span> <span className="font-mono text-xs text-neutral-400">{l.sku}</span>
-                  {l.mrp ? <span className="ml-1 text-xs text-neutral-400">MRP {money(l.mrp)}</span> : null}
+                  <span className="font-medium">{l.name}</span> <span className="font-mono text-xs text-faint">{l.sku}</span>
+                  {l.mrp ? <span className="ml-1 text-xs text-faint">MRP {money(l.mrp)}</span> : null}
                 </span>
                 <div className="w-24">
                   <QtyInput className="text-right" decimals={3} placeholder="Qty" value={l.quantity} invalid={Boolean(qErr)} onChange={(v) => setLines((s) => s.map((x, j) => (j === i ? { ...x, quantity: v } : x)))} aria-label={`Quantity of ${l.name}`} />
-                  {qErr ? <p className="mc-anim-shake mt-0.5 text-[10px] text-red-600">{qErr}</p> : null}
+                  {qErr ? <p className="mt-0.5 text-[10px] text-danger">{qErr}</p> : null}
                 </div>
                 <div className="w-32">
                   <MoneyInput value={l.unitPrice} invalid={Boolean(rErr)} onChange={(v) => setLines((s) => s.map((x, j) => (j === i ? { ...x, unitPrice: v } : x)))} aria-label={`Rate of ${l.name}`} />
-                  {rErr ? <p className="mc-anim-shake mt-0.5 text-[10px] text-red-600">{rErr}</p> : <RateHint last={rates.get(l.productId)} current={l.unitPrice} />}
+                  {rErr ? <p className="mt-0.5 text-[10px] text-danger">{rErr}</p> : <RateHint last={rates.get(l.productId)} current={l.unitPrice} />}
                 </div>
-                <span className="w-24 pt-2 text-right text-sm tabular-nums">{money(num(l.quantity) * num(l.unitPrice))}</span>
+                <span className="w-24 pt-2 text-right text-sm num">{money(num(l.quantity) * num(l.unitPrice))}</span>
                 <Button variant="ghost" onClick={() => setLines((s) => s.filter((_, j) => j !== i))} aria-label={`Remove ${l.name}`}>
                   <Icon name="close" size={14} />
                 </Button>
@@ -522,7 +523,7 @@ function NewPOCard() {
         </div>
       ) : null}
       <div className="mt-3 flex items-center justify-between gap-3">
-        <span className="text-sm text-neutral-500">{lines.length ? <>Estimated <span className="font-semibold text-neutral-900">{money(total)}</span> + GST</> : null}</span>
+        <span className="text-sm text-muted">{lines.length ? <>Estimated <span className="font-semibold text-ink">{money(total)}</span> + GST</> : null}</span>
         <Button disabled={create.isPending} onClick={submit}>
           {create.isPending ? 'Creating…' : 'Create PO (draft)'}
         </Button>
@@ -694,7 +695,7 @@ function GrnDrawer({ po, onClose, onDone }: { po: PORow | null; onClose: () => v
         <EmptyState title={po ? 'Everything on this PO has been received' : 'Add products to receive'} />
       ) : (
         <div className="space-y-3">
-          <div className="hidden grid-cols-8 gap-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-neutral-400 sm:grid">
+          <div className="hidden grid-cols-8 gap-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-faint sm:grid">
             <span className="col-span-2">Batch no.</span>
             <span>Expiry</span>
             <span>Mfg date</span>
@@ -709,14 +710,14 @@ function GrnDrawer({ po, onClose, onDone }: { po: PORow | null; onClose: () => v
             const rem = remainingFor(first.poLineId);
             const receiving = receivingFor(first.poLineId);
             return (
-              <div key={k} className="mc-anim-fade-up rounded-xl border border-neutral-200">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-100 bg-neutral-50/70 px-3 py-2">
+              <div key={k} className="mc-anim-fade-in rounded-lg border border-line">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-t-lg border-b border-line bg-subtle/70 px-3 py-2">
                   <span className="text-sm font-medium">
-                    {first.name} <span className="font-mono text-xs text-neutral-400">{first.sku}</span>
+                    {first.name} <span className="font-mono text-xs text-faint">{first.sku}</span>
                   </span>
-                  <span className="flex items-center gap-2 text-xs text-neutral-500">
+                  <span className="flex items-center gap-2 text-xs text-muted">
                     {rem !== null ? (
-                      <span className={cn(receiving < rem && 'text-amber-700', receiving > rem && 'font-semibold text-red-600')}>
+                      <span className={cn(receiving < rem && 'text-warning', receiving > rem && 'font-semibold text-danger')}>
                         Ordered {num(poLine!.quantity)} · received {num(poLine!.receivedQty)} · receiving {receiving} of {rem} open
                         {receiving < rem ? ' (partial)' : ''}
                       </span>
@@ -734,9 +735,9 @@ function GrnDrawer({ po, onClose, onDone }: { po: PORow | null; onClose: () => v
                     return (
                       <div key={r.key}>
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-8">
-                          <Input className={cn('font-mono uppercase sm:col-span-2', cell(r, 'batchNumber') && 'border-red-400')} placeholder="Batch no." maxLength={64} value={r.batchNumber} onChange={(e) => update(r.key, { batchNumber: e.target.value.toUpperCase() })} aria-label="Batch number" />
-                          <Input type="date" className={cn(cell(r, 'expiryDate') && 'border-red-400')} min={today} value={r.expiryDate} onChange={(e) => update(r.key, { expiryDate: e.target.value })} aria-label="Expiry date" />
-                          <Input type="date" className={cn(cell(r, 'manufacturingDate') && 'border-red-400')} max={today} value={r.manufacturingDate} onChange={(e) => update(r.key, { manufacturingDate: e.target.value })} aria-label="Manufacturing date (optional)" />
+                          <Input className={cn('font-mono uppercase sm:col-span-2', cell(r, 'batchNumber') && 'border-danger')} placeholder="Batch no." maxLength={64} value={r.batchNumber} onChange={(e) => update(r.key, { batchNumber: e.target.value.toUpperCase() })} aria-label="Batch number" />
+                          <Input type="date" className={cn(cell(r, 'expiryDate') && 'border-danger')} min={today} value={r.expiryDate} onChange={(e) => update(r.key, { expiryDate: e.target.value })} aria-label="Expiry date" />
+                          <Input type="date" className={cn(cell(r, 'manufacturingDate') && 'border-danger')} max={today} value={r.manufacturingDate} onChange={(e) => update(r.key, { manufacturingDate: e.target.value })} aria-label="Manufacturing date (optional)" />
                           <QtyInput className="text-right" decimals={3} placeholder="Qty" value={r.quantity} invalid={cell(r, 'quantity')} onChange={(v) => update(r.key, { quantity: v })} aria-label="Quantity" />
                           <QtyInput className="text-right" decimals={3} placeholder="Free" value={r.freeQuantity} onChange={(v) => update(r.key, { freeQuantity: v })} aria-label="Free quantity" />
                           <MoneyInput value={r.purchaseRate} invalid={cell(r, 'purchaseRate')} onChange={(v) => update(r.key, { purchaseRate: v })} aria-label="Purchase rate" />
@@ -747,8 +748,8 @@ function GrnDrawer({ po, onClose, onDone }: { po: PORow | null; onClose: () => v
                             </Button>
                           </div>
                         </div>
-                        {shown.length ? <p className="mc-anim-shake mt-1 text-xs font-medium text-red-600"><Icon name="warning" size={13} /> {shown.map(([, m]) => m).join(' · ')}</p> : null}
-                        {c.warning ? <p className="mt-1 text-xs text-amber-700"><Icon name="pending" size={13} /> {c.warning}</p> : null}
+                        {shown.length ? <p className="mt-1 text-xs font-medium text-danger"><Icon name="warning" size={13} /> {shown.map(([, m]) => m).join(' · ')}</p> : null}
+                        {c.warning ? <p className="mt-1 text-xs text-warning"><Icon name="pending" size={13} /> {c.warning}</p> : null}
                       </div>
                     );
                   })}
@@ -759,9 +760,9 @@ function GrnDrawer({ po, onClose, onDone }: { po: PORow | null; onClose: () => v
         </div>
       )}
 
-      <div className="flex items-center justify-between rounded-xl bg-neutral-50 px-3 py-2.5 text-sm ring-1 ring-neutral-100">
-        <span className="text-neutral-500">Receipt value at purchase rate (excl. GST)</span>
-        <span className="font-semibold tabular-nums">{money(value)}</span>
+      <div className="flex items-center justify-between rounded-lg bg-subtle px-3 py-2.5 text-[13px]">
+        <span className="text-muted">Receipt value at purchase rate (excl. GST)</span>
+        <span className="font-semibold num">{money(value)}</span>
       </div>
       <div className="flex gap-2">
         <Button disabled={submit.isPending} onClick={post}>
@@ -903,7 +904,7 @@ function InvoiceDrawer({ grn, onClose, onDone }: { grn: GRNRow | null; onClose: 
             ))}
           </Select>
         </Field>
-        <Field label="Supplier invoice no." required error={showErr('invoiceNumber')} hint={dup.isFetching ? 'Checking for duplicates…' : dup.data && !dup.data.duplicate && dn ? <><Icon name="check" size={12} strokeWidth={2.5} className="text-emerald-600" /> Not posted before</> : undefined}>
+        <Field label="Supplier invoice no." required error={showErr('invoiceNumber')} hint={dup.isFetching ? 'Checking for duplicates…' : dup.data && !dup.data.duplicate && dn ? <><Icon name="check" size={12} strokeWidth={2.5} className="text-success" /> Not posted before</> : undefined}>
           <Input value={invoiceNumber} maxLength={16} className="font-mono uppercase" onChange={(e) => setInvoiceNumber(e.target.value.toUpperCase())} placeholder="As printed on the bill" />
         </Field>
         <Field label="Invoice date" required error={tried ? errors.invoiceDate : undefined}>
@@ -932,13 +933,13 @@ function InvoiceDrawer({ grn, onClose, onDone }: { grn: GRNRow | null; onClose: 
             const bad = mismatch.includes(l.productId);
             const gst = gstOf(l);
             return (
-              <Tr key={`${l.productId}-${i}`} className={bad ? 'bg-red-50/50' : undefined}>
+              <Tr key={`${l.productId}-${i}`} className={bad ? 'bg-danger/[0.04]' : undefined}>
                 <Td>
                   <div className="text-sm font-medium">{l.name}</div>
-                  {resolvedOf(l) === false ? <Badge tone="red">No GST rate</Badge> : gst ? <span className="text-xs text-neutral-500">GST {num(gst)}%</span> : null}
-                  {bad ? <div className="mc-anim-shake text-[11px] font-medium text-red-600">Received {receivedBy.get(l.productId) ?? 0}</div> : null}
+                  {resolvedOf(l) === false ? <Badge tone="red">No GST rate</Badge> : gst ? <span className="text-xs text-muted">GST {num(gst)}%</span> : null}
+                  {bad ? <div className="text-2xs font-medium text-danger">Received {receivedBy.get(l.productId) ?? 0}</div> : null}
                 </Td>
-                {selectedGrn ? <Td right className="text-xs text-neutral-500">{receivedBy.get(l.productId) ?? 0}</Td> : null}
+                {selectedGrn ? <Td right className="text-xs text-muted">{receivedBy.get(l.productId) ?? 0}</Td> : null}
                 <Td right>
                   <QtyInput className="ml-auto w-20 text-right" decimals={3} value={l.quantity} invalid={Boolean(tried && errors[`${l.productId}.quantity`]) || bad} onChange={(v) => setLines((s) => s.map((x, j) => (j === i ? { ...x, quantity: v } : x)))} aria-label={`Billed quantity of ${l.name}`} />
                 </Td>
@@ -965,12 +966,12 @@ function InvoiceDrawer({ grn, onClose, onDone }: { grn: GRNRow | null; onClose: 
         <EmptyState title="No lines yet" hint={vendorId ? 'Pick a goods receipt to prefill, or add products for a direct bill.' : 'Select the vendor first.'} />
       )}
 
-      {mismatch.length ? <p className="mc-anim-shake text-sm font-medium text-red-600">Billed quantities must match the goods receipt for every product.</p> : null}
-      {noRate.length ? <p className="text-sm font-medium text-red-600">Configure a GST rate for every product before posting (Configuration → Tax rates).</p> : null}
-      <dl className="space-y-1 rounded-xl bg-neutral-50 px-3 py-2.5 text-sm ring-1 ring-neutral-100">
-        <div className="flex justify-between text-neutral-500"><dt>Taxable value</dt><dd className="tabular-nums">{money(subtotal)}</dd></div>
-        <div className="flex justify-between text-neutral-500"><dt>Input GST (estimate)</dt><dd className="tabular-nums">{money(gstEstimate)}</dd></div>
-        <div className="flex justify-between border-t border-neutral-200 pt-1 font-semibold"><dt>Invoice total (estimate)</dt><dd className="tabular-nums">{money(subtotal + gstEstimate)}</dd></div>
+      {mismatch.length ? <p className="text-sm font-medium text-danger">Billed quantities must match the goods receipt for every product.</p> : null}
+      {noRate.length ? <p className="text-sm font-medium text-danger">Configure a GST rate for every product before posting (Configuration → Tax rates).</p> : null}
+      <dl className="space-y-1 rounded-lg bg-subtle px-3 py-2.5 text-[13px]">
+        <div className="flex justify-between text-muted"><dt>Taxable value</dt><dd className="num">{money(subtotal)}</dd></div>
+        <div className="flex justify-between text-muted"><dt>Input GST (estimate)</dt><dd className="num">{money(gstEstimate)}</dd></div>
+        <div className="flex justify-between border-t border-line pt-1 font-semibold"><dt>Invoice total (estimate)</dt><dd className="num">{money(subtotal + gstEstimate)}</dd></div>
       </dl>
       <div className="flex gap-2">
         <Button disabled={submit.isPending} onClick={post}>
@@ -1047,7 +1048,7 @@ function PaymentForm() {
         <Field
           label="Method"
           required
-          hint={method === 'CASH' && total > 10000 ? <span className="text-amber-700"><Icon name="warning" size={13} /> Cash above ₹10,000 a day to one supplier is not deductible as an expense (Income Tax s.40A(3)).</span> : undefined}
+          hint={method === 'CASH' && total > 10000 ? <span className="text-warning"><Icon name="warning" size={13} /> Cash above ₹10,000 a day to one supplier is not deductible as an expense (Income Tax s.40A(3)).</span> : undefined}
         >
           <Select value={method} onChange={(e) => { setMethod(e.target.value as typeof method); setErrors((x) => ({ ...x, reference: '' })); }}>
             <option value="BANK">Bank (NEFT / RTGS / IMPS / cheque)</option>
@@ -1069,7 +1070,7 @@ function PaymentForm() {
             <ErrorState message="Could not load open invoices." retry={() => void ledger.refetch()} />
           </div>
         ) : open.length === 0 ? (
-          <p className="mt-4 text-center text-sm text-neutral-500"><Icon name="celebrate" size={15} className="mr-1 text-brand-600" /> No open invoices for this vendor.</p>
+          <p className="mt-4 text-center text-sm text-muted"><Icon name="celebrate" size={15} className="mr-1 text-teal-ink" /> No open invoices for this vendor.</p>
         ) : (
           <div className="mt-3">
             <Table head={<tr><Th>Invoice</Th><Th>Due</Th><Th right>Total</Th><Th right>Outstanding</Th><Th right>Pay now</Th></tr>}>
@@ -1088,14 +1089,14 @@ function PaymentForm() {
                         Full
                       </Button>
                     </div>
-                    {errors[i.id] ? <p className="mc-anim-shake text-[11px] text-red-600">{errors[i.id]}</p> : null}
+                    {errors[i.id] ? <p className="text-2xs text-danger">{errors[i.id]}</p> : null}
                   </Td>
                 </Tr>
               ))}
             </Table>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm text-neutral-500">
-                Paying <span className="font-semibold text-neutral-900">{money(total)}</span> across {entries.length} invoice{entries.length === 1 ? '' : 's'} · vendor outstanding {money(ledger.data?.outstanding)}
+              <span className="text-sm text-muted">
+                Paying <span className="font-semibold text-ink">{money(total)}</span> across {entries.length} invoice{entries.length === 1 ? '' : 's'} · vendor outstanding {money(ledger.data?.outstanding)}
               </span>
               <Button disabled={pay.isPending} onClick={submit}>
                 {pay.isPending ? 'Recording…' : `Record payment ${money(total)}`}
@@ -1212,19 +1213,19 @@ function ReturnForm() {
           {lines.map((l, i) => {
             const err = tried || l.quantity ? lineErr(l) : null;
             return (
-              <div key={l.batchId} className="mc-anim-fade-up rounded-lg border border-neutral-200 bg-neutral-50/60 px-3 py-2">
+              <div key={l.batchId} className="mc-anim-fade-in rounded-lg border border-line bg-subtle/60 px-3 py-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="min-w-[12rem] flex-1 text-sm">
-                    {l.label} <span className="text-xs text-neutral-400">({l.onHand} on hand)</span>
+                    {l.label} <span className="text-xs text-faint">({l.onHand} on hand)</span>
                   </span>
                   <QtyInput className="w-20 text-right" decimals={3} placeholder="Qty" value={l.quantity} invalid={Boolean(err)} onChange={(v) => setLines((s) => s.map((x, j) => (j === i ? { ...x, quantity: v } : x)))} aria-label="Return quantity" />
                   <MoneyInput className="w-28" value={l.rate} onChange={(v) => setLines((s) => s.map((x, j) => (j === i ? { ...x, rate: v } : x)))} aria-label="Return rate" />
-                  <span className="w-24 text-right text-sm tabular-nums">{money(num(l.quantity) * num(l.rate))}</span>
+                  <span className="w-24 text-right text-sm num">{money(num(l.quantity) * num(l.rate))}</span>
                   <Button variant="ghost" onClick={() => setLines((s) => s.filter((_, j) => j !== i))} aria-label="Remove line">
                     <Icon name="close" size={14} />
                   </Button>
                 </div>
-                {err ? <p className="mc-anim-shake mt-1 text-[11px] font-medium text-red-600">{err}</p> : null}
+                {err ? <p className="mt-1 text-2xs font-medium text-danger">{err}</p> : null}
               </div>
             );
           })}
@@ -1236,7 +1237,7 @@ function ReturnForm() {
             <Input value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} placeholder="Near expiry / damaged in transit / recall / short-dated supply" />
           </Field>
         </div>
-        <div className="flex items-end justify-end text-sm text-neutral-500">Value {money(value)} + GST</div>
+        <div className="flex items-end justify-end text-sm text-muted">Value {money(value)} + GST</div>
       </div>
       <div className="mt-3">
         <Button disabled={submit.isPending} onClick={post}>
@@ -1359,7 +1360,7 @@ function PurchasingInner() {
   const s = summary.data;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Purchasing"
         subtitle="PO → goods receipt (batch + expiry) → supplier invoice (three-way match) → payment."
@@ -1376,17 +1377,16 @@ function PurchasingInner() {
       />
 
       {can('purchases.read') ? (
-        <KpiGrid cols={4}>
-          <Stat label="Open orders" value={s ? s.openOrders : '…'} hint={s ? `${s.draftOrders} draft` : undefined} tone="blue" delay={0} />
-          <Stat label="Awaiting bill" value={s ? s.awaitingBill : '…'} hint="goods received, not invoiced" tone={s && s.awaitingBill > 0 ? 'amber' : 'green'} delay={60} />
+        <KpiGrid bare cols={4}>
+          <Stat label="Open orders" value={s ? s.openOrders : '…'} hint={s ? `${s.draftOrders} draft` : undefined} />
+          <Stat label="Awaiting bill" value={s ? s.awaitingBill : '…'} hint="goods received, not invoiced" tone={s && s.awaitingBill > 0 ? 'amber' : 'green'} />
           <Stat
             label="Payables"
             value={s ? money(s.payable) : '…'}
-            hint={s ? (Number(s.overdue) > 0 ? <span className="font-medium text-red-600">{money(s.overdue)} overdue</span> : `${money(s.dueThisWeek)} due in 7 days`) : undefined}
-            tone={s && Number(s.overdue) > 0 ? 'red' : 'amber'}
-            delay={120}
+            hint={s ? (Number(s.overdue) > 0 ? <span className="font-medium text-danger">{money(s.overdue)} overdue</span> : `${money(s.dueThisWeek)} due in 7 days`) : undefined}
+            tone={s && Number(s.overdue) > 0 ? 'red' : s && Number(s.payable) > 0 ? 'amber' : 'neutral'}
           />
-          <Stat label="Purchases this month" value={s ? money(s.monthPurchases) : '…'} hint={s ? `${s.monthInvoices} bills · ITC ${money(s.monthInputGst)}` : undefined} tone="green" delay={180} />
+          <Stat label="Purchases this month" value={s ? money(s.monthPurchases) : '…'} hint={s ? `${s.monthInvoices} bills · ITC ${money(s.monthInputGst)}` : undefined} />
         </KpiGrid>
       ) : null}
 
@@ -1415,7 +1415,7 @@ function PurchasingInner() {
         title={{ orders: 'Purchase orders', receipts: 'Goods receipts', invoices: 'Supplier invoices', payments: 'Payment history', returns: 'Debit notes' }[tab]}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Select value={vendorId} onChange={(e) => { setVendorId(e.target.value); resetPages(); }} className="w-52" aria-label="Filter by vendor">
+            <Select value={vendorId} onChange={(e) => { setVendorId(e.target.value); resetPages(); }} className="w-full sm:w-52" aria-label="Filter by vendor">
               <option value="">All vendors</option>
               {vendors.map((v) => (
                 <option key={v.id} value={v.id}>
@@ -1423,17 +1423,21 @@ function PurchasingInner() {
                 </option>
               ))}
             </Select>
-            <SearchInput value={search} onChange={(v) => { setSearch(v); resetPages(); }} placeholder="Document no. / UTR…" className="w-52" />
+            <SearchInput value={search} onChange={(v) => { setSearch(v); resetPages(); }} placeholder="Document no. / UTR…" className="w-full sm:w-52" />
           </div>
         }
       >
         {tab === 'invoices' && focusId ? (
-          <div className="mc-anim-fade-in mb-3 flex items-center justify-between gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-xs text-brand-800">
-            <span>Showing the linked supplier invoice only.</span>
-            <Button variant="ghost" onClick={clearFocus}>
-              Show all invoices
-            </Button>
-          </div>
+          <Alert
+            className="mb-3"
+            action={
+              <Button variant="ghost" size="sm" onClick={clearFocus}>
+                Show all invoices
+              </Button>
+            }
+          >
+            Showing the linked supplier invoice only.
+          </Alert>
         ) : null}
         {STATUS_CHIPS[tab] ? (
           <div className="mb-3">
@@ -1462,7 +1466,7 @@ function PurchasingInner() {
                     <Tr key={p.id}>
                       <Td>
                         <div className="font-mono text-xs font-semibold">{p.poNumber}</div>
-                        <div className={cn('text-xs', late ? 'font-medium text-red-600' : 'text-neutral-500')}>
+                        <div className={cn('text-xs', late ? 'font-medium text-danger' : 'text-muted')}>
                           {fmtDate(p.createdAt)}
                           {p.expectedDate ? ` · due ${fmtDate(p.expectedDate)}` : ''}
                           {late ? ' · late' : ''}
@@ -1474,14 +1478,12 @@ function PurchasingInner() {
                           {p.lines.map((l) => `${l.product.name} ${num(l.receivedQty)}/${num(l.quantity)}`).join(' · ')}
                         </div>
                         <div className="mt-1 h-1 w-32 overflow-hidden rounded-full bg-neutral-100">
-                          <div className="mc-anim-grow-x h-full origin-left rounded-full bg-gradient-to-r from-brand-400 to-brand-600" style={{ width: `${pct}%` }} />
+                          <div className="h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${pct}%` }} />
                         </div>
                       </Td>
                       <Td right className="text-sm">{money(value)}</Td>
                       <Td>
-                        <Badge tone={PO_TONE[p.status] ?? 'neutral'} dot>
-                          {p.status.replace('_', ' ').toLowerCase()}
-                        </Badge>
+                        <StatusBadge status={p.status} tone={PO_TONE[p.status]} />
                       </Td>
                       <Td right>
                         <div className="flex justify-end gap-1.5">
@@ -1495,9 +1497,9 @@ function PurchasingInner() {
                               Confirm
                             </Button>
                           ) : null}
-                          {['SENT', 'CONFIRMED', 'PARTIALLY_RECEIVED'].includes(p.status) && can('purchases.receive') ? <Button onClick={() => setGrnFor(p)}>Receive</Button> : null}
+                          {['SENT', 'CONFIRMED', 'PARTIALLY_RECEIVED'].includes(p.status) && can('purchases.receive') ? <Button variant="secondary" size="sm" onClick={() => setGrnFor(p)}>Receive</Button> : null}
                           {['DRAFT', 'SENT', 'CONFIRMED'].includes(p.status) && can('purchases.approve') ? (
-                            <Button variant="ghost" className="text-red-600 hover:bg-red-50" onClick={() => setCancelPo(p)}>
+                            <Button variant="ghost" size="sm" className="text-danger hover:bg-danger/10" onClick={() => setCancelPo(p)}>
                               Cancel
                             </Button>
                           ) : null}
@@ -1519,7 +1521,7 @@ function PurchasingInner() {
                   <Tr key={g.id}>
                     <Td>
                       <div className="font-mono text-xs font-semibold">{g.grnNumber}</div>
-                      <div className="text-xs text-neutral-500">
+                      <div className="text-xs text-muted">
                         {fmtDate(g.receivedDate)}
                         {g.po ? ` · ${g.po.poNumber}` : ' · direct'}
                       </div>
@@ -1530,7 +1532,7 @@ function PurchasingInner() {
                         const days = daysUntil(l.expiryDate.slice(0, 10));
                         return (
                           <div key={l.id}>
-                            {l.product.name} · <span className="font-mono">{l.batchNumber}</span> · <span className={cn(days < SHORT_EXPIRY_DAYS && 'font-medium text-amber-700')}>exp {fmtDate(l.expiryDate)}</span> · {num(l.quantity)}
+                            {l.product.name} · <span className="font-mono">{l.batchNumber}</span> · <span className={cn(days < SHORT_EXPIRY_DAYS && 'font-medium text-warning')}>exp {fmtDate(l.expiryDate)}</span> · {num(l.quantity)}
                             {num(l.freeQuantity) ? ` + ${num(l.freeQuantity)} free` : ''}
                           </div>
                         );
@@ -1570,7 +1572,7 @@ function PurchasingInner() {
                     <Tr key={i.id}>
                       <Td>
                         <div className="font-mono text-xs font-semibold">{i.invoiceNumber}</div>
-                        <div className={cn('text-xs', overdue ? 'font-medium text-red-600' : 'text-neutral-500')}>
+                        <div className={cn('text-xs', overdue ? 'font-medium text-danger' : 'text-muted')}>
                           {fmtDate(i.invoiceDate)} · due {fmtDate(i.dueDate)}
                         </div>
                       </Td>
@@ -1579,11 +1581,9 @@ function PurchasingInner() {
                       <Td right className="text-xs">{money(i.subtotal)}</Td>
                       <Td right className="text-xs">{money(i.taxAmount)}</Td>
                       <Td right className="font-semibold">{money(i.total)}</Td>
-                      <Td right className={out > 0 ? 'font-medium text-amber-700' : 'text-neutral-400'}>{out > 0 ? money(out) : '—'}</Td>
+                      <Td right className={out > 0 ? 'font-medium text-warning' : 'text-faint'}>{out > 0 ? money(out) : '—'}</Td>
                       <Td>
-                        <Badge tone={INV_TONE[i.status] ?? 'neutral'} dot>
-                          {i.status.replace('_', ' ').toLowerCase()}
-                        </Badge>
+                        <StatusBadge status={i.status} tone={INV_TONE[i.status]} />
                       </Td>
                     </Tr>
                   );
@@ -1601,7 +1601,7 @@ function PurchasingInner() {
                   <Tr key={p.id}>
                     <Td>
                       <div className="font-mono text-xs font-semibold">{p.paymentNumber}</div>
-                      <div className="text-xs text-neutral-500">{fmtDate(p.paymentDate)}</div>
+                      <div className="text-xs text-muted">{fmtDate(p.paymentDate)}</div>
                     </Td>
                     <Td className="text-sm">{p.vendor.legalName}</Td>
                     <Td className="text-xs">
@@ -1625,7 +1625,7 @@ function PurchasingInner() {
                   <Tr key={r.id}>
                     <Td>
                       <div className="font-mono text-xs font-semibold">{r.returnNumber}</div>
-                      <div className="text-xs text-neutral-500">{fmtDate(r.createdAt)}</div>
+                      <div className="text-xs text-muted">{fmtDate(r.createdAt)}</div>
                     </Td>
                     <Td className="text-sm">{r.vendor.legalName}</Td>
                     <Td className="text-xs text-neutral-600">{r.lines.map((l) => `${l.batch.product.name} (${l.batch.batchNumber}) ×${num(l.quantity)}`).join(', ')}</Td>

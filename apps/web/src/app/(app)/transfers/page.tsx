@@ -9,7 +9,7 @@ import { api, ApiClientError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { MOVEMENT_LABELS, ProductSearch, batchItem, qtyFmt, useBatchOptions, useCan, useWarehouses, type BatchChoice, type ProductHit } from '@/lib/stock';
 import { Combobox, ConfirmDialog, FormSection, KpiGrid, Meter, Pagination, QtyInput, useFieldErrors, type PageInfo } from '@/components/kit';
-import { Badge, Button, Card, Drawer, EmptyState, ErrorState, Field, PageHeader, Select, SkeletonRows, Stat, Table, Tabs, Td, Textarea, Th, Tr, cn, money } from '@/components/ui';
+import { Button, Card, Drawer, EmptyState, ErrorState, Field, PageHeader, Select, SkeletonRows, Stat, Table, Tabs, Td, Textarea, Th, Tr, cn, money, StatusBadge } from '@/components/ui';
 
 interface TransferLine {
   id: string;
@@ -90,7 +90,7 @@ function LineEditor({
   const batches = useBatchOptions(warehouseId, line.product?.id ?? '');
   const err = (f: string) => errors[`lines.${index}.${f}`];
   return (
-    <div className={cn('mc-anim-fade-up grid grid-cols-1 gap-2 rounded-lg border p-3 md:grid-cols-12', Object.keys(errors).some((k) => k.startsWith(`lines.${index}.`)) ? 'border-red-200 bg-red-50/40' : 'border-neutral-200')}>
+    <div className={cn('mc-anim-fade-in grid grid-cols-1 gap-2 rounded-lg border p-3 md:grid-cols-12', Object.keys(errors).some((k) => k.startsWith(`lines.${index}.`)) ? 'border-danger/30 bg-danger/[0.04]' : 'border-line')}>
       <Field label={`Line ${index + 1} · product`} required error={err('productId')} className="md:col-span-5">
         <ProductSearch value={line.product?.id ?? null} invalid={Boolean(err('productId'))} disabled={!warehouseId} onPick={(p) => onChange({ product: p, batchId: null, batch: null })} />
       </Field>
@@ -229,10 +229,10 @@ function NewTransfer({ onClose, onDone }: { onClose: () => void; onDone: () => v
               <Textarea rows={1} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Vehicle no., courier, delivery challan…" />
             </Field>
           </div>
-          {warehouses.list.length < 2 ? <p className="mt-2 text-xs text-amber-700">Only one warehouse exists. Add another under Branches to transfer stock.</p> : null}
+          {warehouses.list.length < 2 ? <p className="mt-2 text-xs text-warning">Only one warehouse exists. Add another under Branches to transfer stock.</p> : null}
         </FormSection>
         <FormSection title={`Lines (${lines.length})`}>
-          {errors.lines ? <p className="mb-2 text-xs text-red-600">{errors.lines}</p> : null}
+          {errors.lines ? <p className="mb-2 text-xs text-danger">{errors.lines}</p> : null}
           <div className="space-y-2">
             {lines.map((l, i) => (
               <LineEditor
@@ -251,7 +251,7 @@ function NewTransfer({ onClose, onDone }: { onClose: () => void; onDone: () => v
             <Icon name="plus" size={14} strokeWidth={2.25} /> Add line
           </Button>
         </FormSection>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-100 pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
           <p className="text-xs text-neutral-600">
             {qtyFmt(units)} units · {money(value)} at cost
           </p>
@@ -353,15 +353,13 @@ function TransferDrawer({ id, onClose, onChanged }: { id: string | null; onClose
       ) : (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={STATUS_TONE[t.status] ?? 'neutral'} dot>
-              {STATUS_LABEL[t.status] ?? t.status}
-            </Badge>
-            <span className="text-xs text-neutral-500">
+            <StatusBadge status={t.status} label={STATUS_LABEL[t.status]} tone={STATUS_TONE[t.status]} />
+            <span className="text-xs text-muted">
               Dispatched {new Date(t.dispatchedAt ?? t.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
               {t.createdByName ? ` by ${t.createdByName}` : ''}
             </span>
           </div>
-          {t.notes ? <p className="rounded-lg bg-neutral-50 p-2 text-xs text-neutral-600">{t.notes}</p> : null}
+          {t.notes ? <p className="rounded-lg bg-subtle p-2 text-xs text-neutral-600">{t.notes}</p> : null}
           <Meter value={totals(t.lines).pct} tone={t.status === 'RECEIVED' ? 'green' : 'brand'} label={`${qtyFmt(totals(t.lines).got)} of ${qtyFmt(totals(t.lines).sent)} units received`} />
           <Table
             head={
@@ -376,11 +374,11 @@ function TransferDrawer({ id, onClose, onChanged }: { id: string | null; onClose
             {t.lines.map((l) => (
               <Tr key={l.id}>
                 <Td>
-                  <div className="font-medium text-neutral-800">{l.batch.product.name}</div>
-                  <div className="font-mono text-xs text-neutral-500">{l.batch.batchNumber}</div>
+                  <div className="font-medium text-ink">{l.batch.product.name}</div>
+                  <div className="font-mono text-xs text-muted">{l.batch.batchNumber}</div>
                 </Td>
                 <Td right>{qtyFmt(Number(l.quantity))}</Td>
-                <Td right className={remaining(l) === 0 ? 'text-emerald-700' : ''}>
+                <Td right className={remaining(l) === 0 ? 'text-success' : ''}>
                   {qtyFmt(Number(l.receivedQty))}
                 </Td>
                 {open && can('inventory.transfer') ? (
@@ -394,10 +392,10 @@ function TransferDrawer({ id, onClose, onChanged }: { id: string | null; onClose
                           placeholder={String(remaining(l))}
                           aria-label={`Received quantity for ${l.batch.batchNumber}`}
                         />
-                        {errors[l.id] ? <p className="mt-0.5 text-[11px] text-red-600">{errors[l.id]}</p> : null}
+                        {errors[l.id] ? <p className="mt-0.5 text-2xs text-danger">{errors[l.id]}</p> : null}
                       </div>
                     ) : (
-                      <span className="text-xs text-emerald-700"><Icon name="check" size={13} strokeWidth={2.5} /> done</span>
+                      <span className="text-xs text-success"><Icon name="check" size={13} strokeWidth={2.5} /> done</span>
                     )}
                   </Td>
                 ) : null}
@@ -421,13 +419,13 @@ function TransferDrawer({ id, onClose, onChanged }: { id: string | null; onClose
           ) : null}
           {t.movements.length ? (
             <div>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">Stock movements</h4>
-              <ol className="space-y-2 border-l border-neutral-200 pl-4">
+              <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Stock movements</h4>
+              <ol className="space-y-2 border-l border-line pl-4">
                 {t.movements.map((m) => (
                   <li key={m.id} className="relative text-xs">
-                    <span className={cn('absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full', m.movementType === 'TRANSFER_OUT' ? 'bg-red-400' : 'bg-emerald-500')} />
-                    <span className="font-medium text-neutral-800">{MOVEMENT_LABELS[m.movementType] ?? m.movementType}</span> · {qtyFmt(Math.abs(Number(m.quantity)))} units at {warehouses.nameOf(m.warehouseId)}
-                    <div className="text-neutral-500">{new Date(m.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</div>
+                    <span className={cn('absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full', m.movementType === 'TRANSFER_OUT' ? 'bg-danger' : 'bg-success')} />
+                    <span className="font-medium text-ink">{MOVEMENT_LABELS[m.movementType] ?? m.movementType}</span> · {qtyFmt(Math.abs(Number(m.quantity)))} units at {warehouses.nameOf(m.warehouseId)}
+                    <div className="text-muted">{new Date(m.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</div>
                   </li>
                 ))}
               </ol>
@@ -509,17 +507,17 @@ function TransfersInner() {
   const items = list.data?.items ?? [];
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Stock transfers"
         subtitle="Move stock between branches and warehouses with dispatch, part-receipt and full audit trail."
         actions={can('inventory.transfer') && !creating ? <Button onClick={() => setCreating(true)}><Icon name="plus" size={15} strokeWidth={2.25} /> New transfer</Button> : null}
       />
 
-      <KpiGrid cols={3}>
-        <Stat label="In transit" value={String(inTransit.data?.pageInfo.totalItems ?? 0)} hint="Dispatched, awaiting receipt" tone="blue" />
-        <Stat label="Part received" value={String(partial.data?.pageInfo.totalItems ?? 0)} hint="Short or pending lines" tone={(partial.data?.pageInfo.totalItems ?? 0) > 0 ? 'amber' : 'green'} delay={60} />
-        <Stat label="Value in transit" value={money(transitValue)} hint="At purchase cost" delay={120} />
+      <KpiGrid bare cols={3}>
+        <Stat label="In transit" value={String(inTransit.data?.pageInfo.totalItems ?? 0)} hint="Dispatched, awaiting receipt" />
+        <Stat label="Part received" value={String(partial.data?.pageInfo.totalItems ?? 0)} hint="Short or pending lines" tone={(partial.data?.pageInfo.totalItems ?? 0) > 0 ? 'amber' : 'neutral'} />
+        <Stat label="Value in transit" value={money(transitValue)} hint="At purchase cost" />
       </KpiGrid>
 
       {creating ? <NewTransfer onClose={() => setCreating(false)} onDone={refresh} /> : null}
@@ -537,7 +535,7 @@ function TransfersInner() {
             value={tab}
             onChange={setTab}
           />
-          <Select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className="w-56" aria-label="Warehouse">
+          <Select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className="w-full sm:w-56" aria-label="Warehouse">
             <option value="">All warehouses</option>
             {warehouses.list.map((w) => (
               <option key={w.id} value={w.id}>
@@ -554,26 +552,23 @@ function TransfersInner() {
           <EmptyState title="No transfers here" hint={tab === 'open' ? 'Nothing is in transit right now.' : 'Transfers appear here once dispatched.'} />
         ) : (
           <>
-            <div className="space-y-2">
-              {items.map((t, i) => {
+            <ul className="-mx-4 divide-y divide-line border-t border-line">
+              {items.map((t) => {
                 const tt = totals(t.lines);
                 return (
+                  <li key={t.id}>
                   <button
-                    key={t.id}
                     type="button"
                     onClick={() => setFocus(t.id)}
-                    className="mc-anim-fade-up block w-full rounded-xl border border-neutral-200 p-3 text-left transition hover:border-brand-300 hover:shadow-sm"
-                    style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}
+                    className="block w-full px-4 py-3 text-left transition-colors hover:bg-subtle/60"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-sm font-medium text-neutral-800">
-                        {warehouses.nameOf(t.sourceWarehouseId)} <Icon name="arrowRight" size={13} className="text-neutral-400" /> {warehouses.nameOf(t.destinationWarehouseId)}
+                      <div className="text-sm font-medium text-ink">
+                        {warehouses.nameOf(t.sourceWarehouseId)} <Icon name="arrowRight" size={13} className="text-faint" /> {warehouses.nameOf(t.destinationWarehouseId)}
                       </div>
-                      <Badge tone={STATUS_TONE[t.status] ?? 'neutral'} dot>
-                        {STATUS_LABEL[t.status] ?? t.status}
-                      </Badge>
+                      <StatusBadge status={t.status} label={STATUS_LABEL[t.status]} tone={STATUS_TONE[t.status]} />
                     </div>
-                    <div className="mt-1 text-xs text-neutral-500">
+                    <div className="mt-1 text-xs text-muted">
                       {t.id.slice(0, 8).toUpperCase()} · {new Date(t.createdAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })} · {t.lines.length} line{t.lines.length === 1 ? '' : 's'} · {qtyFmt(tt.sent)} units · {money(tt.value)}
                     </div>
                     <div className="mt-1 truncate text-xs text-neutral-600">{t.lines.map((l) => `${l.batch.product.name} (${l.batch.batchNumber})`).join(', ')}</div>
@@ -583,9 +578,10 @@ function TransfersInner() {
                       </div>
                     ) : null}
                   </button>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
             <Pagination info={list.data?.pageInfo} onChange={setPage} label="transfers" />
           </>
         )}

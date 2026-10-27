@@ -90,17 +90,17 @@ export function HeldBillsDrawer({ open, onClose, onResume }: { open: boolean; on
       ) : !bills.data?.length ? (
         <EmptyState title="No bills on hold" hint="Use “Hold bill” (F8) to park a cart and serve the next customer." />
       ) : (
-        <ul className="mc-stagger space-y-2">
+        <ul className="divide-y divide-line rounded-lg border border-line">
           {bills.data.map((b) => (
-            <li key={b.id} className="flex items-center gap-3 rounded-xl border border-neutral-200 p-3 transition-colors hover:border-brand-200">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50 text-amber-700"><Icon name="pause" size={16} /></span>
+            <li key={b.id} className="flex items-center gap-3 p-3 transition-colors hover:bg-subtle/60">
+              <span className="flex h-8 w-8 items-center justify-center rounded-md bg-subtle text-warning"><Icon name="pause" size={16} /></span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{b.label}</p>
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-muted">
                   {b.itemCount} item{b.itemCount === 1 ? '' : 's'} · {money(b.total)} · {new Date(b.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                 </p>
               </div>
-              <Button variant="ghost" className="text-red-600 hover:bg-red-50" disabled={discard.isPending} onClick={() => discard.mutate(b.id)}>Discard</Button>
+              <Button variant="ghost" size="sm" className="text-danger hover:bg-danger/10" disabled={discard.isPending} onClick={() => discard.mutate(b.id)}>Discard</Button>
               <Button onClick={() => onResume(b)}>Resume</Button>
             </li>
           ))}
@@ -131,19 +131,19 @@ export function SubstitutesPanel({ productId, warehouseId, onPick, onClose }: { 
     queryFn: () => api<{ generic: string | null; strength?: string | null; items: Substitute[] }>(`/catalog/products/${productId}/substitutes?warehouseId=${warehouseId}`),
   });
   return (
-    <div className="mc-anim-drop mt-2 rounded-xl border border-brand-200 bg-white p-2 shadow-lg">
+    <div className="mc-anim-drop mt-2 rounded-lg border border-line bg-surface p-2 shadow-pop">
       <div className="flex items-center justify-between px-1 pb-1">
         <p className="text-xs font-semibold text-neutral-700">
           Substitutes{subs.data?.generic ? ` · ${subs.data.generic}` : ''}
         </p>
-        <button className="text-xs text-neutral-400 hover:text-neutral-700" onClick={onClose} aria-label="Close substitutes"><Icon name="close" size={14} /></button>
+        <button className="text-xs text-faint hover:text-neutral-700" onClick={onClose} aria-label="Close substitutes"><Icon name="close" size={14} /></button>
       </div>
       {subs.isLoading ? (
-        <p className="px-1 py-2 text-xs text-neutral-500">Finding alternatives…</p>
+        <p className="px-1 py-2 text-xs text-muted">Finding alternatives…</p>
       ) : !subs.data?.generic ? (
-        <p className="px-1 py-2 text-xs text-neutral-500">Add a generic name to this product to see substitutes.</p>
+        <p className="px-1 py-2 text-xs text-muted">Add a generic name to this product to see substitutes.</p>
       ) : subs.data.items.length === 0 ? (
-        <p className="px-1 py-2 text-xs text-neutral-500">No other products with this generic.</p>
+        <p className="px-1 py-2 text-xs text-muted">No other products with this generic.</p>
       ) : (
         <ul className="max-h-56 space-y-1 overflow-y-auto">
           {subs.data.items.map((s) => (
@@ -151,18 +151,18 @@ export function SubstitutesPanel({ productId, warehouseId, onPick, onClose }: { 
               <button
                 disabled={s.onHand <= 0}
                 onClick={() => onPick(s)}
-                className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors', s.onHand > 0 ? 'hover:bg-brand-50' : 'cursor-not-allowed opacity-50')}
+                className={cn('flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors', s.onHand > 0 ? 'hover:bg-subtle' : 'cursor-not-allowed opacity-50')}
               >
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1">
-                    <span className="truncate font-medium text-neutral-800">{[s.name, s.strength].filter(Boolean).join(' ')}</span>
+                    <span className="truncate font-medium text-ink">{[s.name, s.strength].filter(Boolean).join(' ')}</span>
                     {!s.sameStrength ? <Badge tone="amber">Different strength</Badge> : null}
                   </span>
-                  <span className="block truncate text-neutral-500">{[s.manufacturer, s.dosageForm].filter(Boolean).join(' · ') || s.sku}</span>
+                  <span className="block truncate text-muted">{[s.manufacturer, s.dosageForm].filter(Boolean).join(' · ') || s.sku}</span>
                 </span>
                 <span className="text-right">
-                  <span className="block font-semibold tabular-nums text-brand-700">{money(s.sellingPrice ?? s.mrp)}</span>
-                  <span className={cn('block tabular-nums', s.onHand > 0 ? 'text-emerald-700' : 'text-red-600')}>{s.onHand > 0 ? `${s.onHand} in stock` : 'Out of stock'}</span>
+                  <span className="block font-semibold num text-teal-ink">{money(s.sellingPrice ?? s.mrp)}</span>
+                  <span className={cn('block num', s.onHand > 0 ? 'text-success' : 'text-danger')}>{s.onHand > 0 ? `${s.onHand} in stock` : 'Out of stock'}</span>
                 </span>
               </button>
             </li>

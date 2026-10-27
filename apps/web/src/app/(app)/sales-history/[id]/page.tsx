@@ -11,7 +11,7 @@ import { useCurrentMembership } from '@/lib/session';
 import { toast } from '@/lib/toast';
 import { amountInWords } from '@/lib/words';
 import { ConfirmDialog, MoneyInput, QtyInput, useFieldErrors } from '@/components/kit';
-import { Badge, Button, Drawer, ErrorState, Field, Input, Select, SkeletonRows, cn, fmtDate, money } from '@/components/ui';
+import { Alert, Button, Card, Drawer, ErrorState, Field, Input, Select, SkeletonRows, StatusBadge, cn, fmtDate, money } from '@/components/ui';
 
 interface InvoiceDetail {
   id: string;
@@ -82,7 +82,6 @@ interface InvoiceDetail {
 
 const n = (v: string | number) => Number(v);
 const qty = (v: string) => Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 });
-const STATUS_TONE: Record<string, 'green' | 'amber' | 'red' | 'neutral'> = { POSTED: 'green', PARTIALLY_RETURNED: 'amber', RETURNED: 'red', CANCELLED: 'neutral' };
 
 function printAs(mode: 'a4' | 'thermal') {
   const style = document.createElement('style');
@@ -133,16 +132,16 @@ function ReturnDrawer({ invoice, onClose, onDone }: { invoice: InvoiceDetail; on
 
   return (
     <Drawer open onClose={onClose} title="Return items" subtitle={`Against ${invoice.invoiceNumber} · issues a credit note and reverses GST`}>
-      <div className="space-y-2">
+      <div className="divide-y divide-line rounded-lg border border-line">
         {returnable.map(({ line, max }) => {
           const r = rows[line.id]!;
           const over = n(r.qty || 0) > max;
           return (
-            <div key={line.id} className={cn('rounded-xl border px-3 py-2.5', over ? 'border-red-200 bg-red-50/40' : 'border-neutral-200')}>
+            <div key={line.id} className={cn('px-3 py-2.5', over && 'bg-danger/[0.04]')}>
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-neutral-800">{line.productName}</p>
-                  <p className="text-xs text-neutral-500">
+                  <p className="truncate text-sm font-medium text-ink">{line.productName}</p>
+                  <p className="text-xs text-muted">
                     Sold {qty(line.quantity)} · returned {qty(line.returnedQty)} · {money(n(line.lineTotal) / n(line.quantity))} each
                   </p>
                 </div>
@@ -156,7 +155,7 @@ function ReturnDrawer({ invoice, onClose, onDone }: { invoice: InvoiceDetail; on
                     onChange={(v) => setRows((s) => ({ ...s, [line.id]: { ...r, qty: v } }))}
                     aria-label={`Return quantity for ${line.productName}`}
                   />
-                  <Button variant="ghost" className="px-2 text-xs" onClick={() => setRows((s) => ({ ...s, [line.id]: { ...r, qty: String(max) } }))}>
+                  <Button variant="ghost" size="sm" onClick={() => setRows((s) => ({ ...s, [line.id]: { ...r, qty: String(max) } }))}>
                     All
                   </Button>
                 </div>
@@ -165,7 +164,7 @@ function ReturnDrawer({ invoice, onClose, onDone }: { invoice: InvoiceDetail; on
                 <input type="checkbox" className="accent-brand-600" checked={r.restock} onChange={(e) => setRows((s) => ({ ...s, [line.id]: { ...r, restock: e.target.checked } }))} />
                 Restock to saleable inventory (uncheck for damaged / expired goods)
               </label>
-              {over ? <p className="mc-anim-shake mt-1 text-xs font-medium text-red-600">Only {qty(String(max))} can be returned.</p> : null}
+              {over ? <p className="mt-1 text-xs font-medium text-danger">Only {qty(String(max))} can be returned.</p> : null}
             </div>
           );
         })}
@@ -181,13 +180,13 @@ function ReturnDrawer({ invoice, onClose, onDone }: { invoice: InvoiceDetail; on
           <option value="BANK">Bank transfer</option>
         </Select>
       </Field>
-      <div className="rounded-xl bg-neutral-50 px-3 py-2.5 text-sm ring-1 ring-neutral-100">
+      <div className="rounded-lg bg-subtle px-3 py-2.5 text-[13px]">
         <div className="flex justify-between">
-          <span className="text-neutral-500">Estimated credit note</span>
-          <span className="font-semibold tabular-nums">{money(estimate)}</span>
+          <span className="text-muted">Estimated credit note</span>
+          <span className="font-semibold num">{money(estimate)}</span>
         </div>
         {openCredit > 0 ? (
-          <p className="mt-1 text-xs text-neutral-500">
+          <p className="mt-1 text-xs text-muted">
             {money(Math.min(openCredit, estimate))} will first settle this invoice&apos;s open credit; the rest is refunded via {refundMethod.toLowerCase()}.
           </p>
         ) : null}
@@ -293,9 +292,7 @@ function InvoiceView() {
     return (
       <div className="mx-auto max-w-4xl space-y-4">
         <div className="mc-skeleton h-8 w-64" />
-        <div className="rounded-xl border border-neutral-200 bg-white p-6">
-          <SkeletonRows rows={8} cols={6} />
-        </div>
+        <SkeletonRows rows={8} cols={6} />
       </div>
     );
   }
@@ -337,14 +334,16 @@ function InvoiceView() {
   const address = [s?.addressLine1, s?.addressLine2, s?.city, s?.pinCode].filter(Boolean).join(', ');
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4">
-      <div className="no-print mc-anim-fade-up flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Link href="/sales-history" className="text-sm text-neutral-500 hover:text-brand-700">
-            <span className="inline-flex items-center gap-1"><Icon name="arrowLeft" size={14} /> Sales</span>
+    <div className="mx-auto max-w-4xl space-y-5">
+      <div className="no-print mc-anim-fade-in flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <Link href="/sales-history" className="inline-flex items-center gap-1 text-xs text-muted hover:text-teal-ink">
+            <Icon name="arrowLeft" size={13} /> Sales &amp; returns
           </Link>
-          <h1 className="font-mono text-lg font-semibold tracking-tight">{inv.invoiceNumber}</h1>
-          <Badge tone={STATUS_TONE[inv.status] ?? 'neutral'}>{inv.status.replace('_', ' ').toLowerCase()}</Badge>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <h1 className="font-mono text-xl font-semibold text-ink">{inv.invoiceNumber}</h1>
+            <StatusBadge status={inv.status} />
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => printAs('a4')}>
@@ -364,7 +363,7 @@ function InvoiceView() {
             </Button>
           ) : null}
           {canCancel ? (
-            <Button variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => setCancelling(true)}>
+            <Button variant="secondary" className="text-danger hover:border-danger/30 hover:bg-danger/10" onClick={() => setCancelling(true)}>
               <Icon name="ban" size={15} /> Cancel invoice
             </Button>
           ) : null}
@@ -376,34 +375,27 @@ function InvoiceView() {
 
       <div className="no-print space-y-2">
         {params.get('replay') ? (
-          <div className="mc-anim-fade-in rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm text-sky-800">
-            This sale was already posted — showing the original invoice (no duplicate created).
-          </div>
+          <Alert tone="info">This sale was already posted — showing the original invoice (no duplicate created).</Alert>
         ) : null}
         {params.get('change') && !cancelled ? (
-          <div className="mc-anim-pop flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-            <span className="text-sm font-medium text-emerald-800">Give change</span>
-            <span className="text-2xl font-bold tabular-nums text-emerald-700">{money(params.get('change'))}</span>
-          </div>
+          <Alert tone="success" title="Give change" action={<span className="num text-metric font-[550] text-success">{money(params.get('change'))}</span>} />
         ) : null}
         {cancelled ? (
-          <div className="mc-anim-fade-in rounded-xl border border-neutral-300 bg-neutral-100 px-4 py-2.5 text-sm text-neutral-700">
-            <span className="font-semibold">Cancelled</span>
-            {inv.cancelledAt ? ` on ${fmtDate(inv.cancelledAt)}` : ''}
-            {inv.cancelReason ? ` — ${inv.cancelReason}` : ''}. Stock was returned to the original batches and the sale journal reversed.
-          </div>
+          <Alert tone="warning" icon="ban" title={`Cancelled${inv.cancelledAt ? ` on ${fmtDate(inv.cancelledAt)}` : ''}${inv.cancelReason ? ` — ${inv.cancelReason}` : ''}`}>
+            Stock was returned to the original batches and the sale journal reversed.
+          </Alert>
         ) : null}
       </div>
 
-      <article className="print-area mc-anim-fade-up relative overflow-hidden rounded-xl border border-neutral-200 bg-white p-6 text-[13px] leading-snug text-neutral-800 shadow-sm">
+      <article className="print-area mc-anim-fade-in relative overflow-hidden rounded-xl border border-line bg-surface p-4 text-[13px] leading-snug text-ink sm:p-6">
         {cancelled ? (
-          <span aria-hidden className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-12 select-none rounded-lg border-4 border-red-300 px-6 py-2 text-5xl font-black uppercase tracking-widest text-red-300/70">
+          <span aria-hidden className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-12 select-none rounded-lg border-4 border-danger/40 px-6 py-2 text-5xl font-black uppercase tracking-widest text-danger/40">
             Cancelled
           </span>
         ) : null}
-        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-200 pb-4">
+        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4">
           <div>
-            <h2 className="text-lg font-bold tracking-tight text-neutral-900">{s?.legalEntityName || s?.name}</h2>
+            <h2 className="text-lg font-bold tracking-tight text-ink">{s?.legalEntityName || s?.name}</h2>
             {address ? <p className="text-neutral-600">{address}</p> : null}
             <p className="text-neutral-600">
               {[s?.contactPhone && `Ph ${s.contactPhone}`, s?.contactEmail].filter(Boolean).join(' · ')}
@@ -412,34 +404,34 @@ function InvoiceView() {
               GSTIN {s?.gstin ?? 'Unregistered'} {s?.stateCode ? `· State ${s.stateCode}` : ''}
             </p>
             {s?.licences.length ? (
-              <p className="font-mono text-[11px] text-neutral-500">{s.licences.map((l) => `${l.licenceType.replace(/_/g, ' ')}: ${l.licenceNumber}`).join(' · ')}</p>
+              <p className="font-mono text-2xs text-muted">{s.licences.map((l) => `${l.licenceType.replace(/_/g, ' ')}: ${l.licenceNumber}`).join(' · ')}</p>
             ) : null}
           </div>
           <div className="text-right">
-            <p className="text-base font-bold uppercase tracking-widest text-brand-700">{s?.gstin ? 'Tax invoice' : 'Bill of supply'}</p>
+            <p className="text-base font-bold uppercase tracking-widest text-teal-ink">{s?.gstin ? 'Tax invoice' : 'Bill of supply'}</p>
             <p className="font-mono font-semibold">{inv.invoiceNumber}</p>
             <p className="text-neutral-600">{new Date(inv.invoiceDate).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' })}</p>
-            {inv.warehouse ? <p className="thermal-hide text-xs text-neutral-500">{inv.warehouse.branch.name}</p> : null}
+            {inv.warehouse ? <p className="thermal-hide text-xs text-muted">{inv.warehouse.branch.name}</p> : null}
           </div>
         </header>
 
-        <section className="grid grid-cols-2 gap-4 border-b border-neutral-200 py-3">
+        <section className="grid grid-cols-2 gap-4 border-b border-line py-3">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Billed to</p>
+            <p className="text-2xs font-semibold uppercase tracking-wider text-faint">Billed to</p>
             <p className="font-medium">{inv.customer?.name ?? inv.walkInName ?? 'Walk-in customer'}</p>
             {inv.customer?.addressLine1 ? <p className="text-neutral-600">{[inv.customer.addressLine1, inv.customer.city].filter(Boolean).join(', ')}</p> : null}
             {inv.customer?.phone ? <p className="text-neutral-600">Ph {inv.customer.phone}</p> : null}
             {inv.customer?.gstin ? <p className="font-mono text-xs">GSTIN {inv.customer.gstin}</p> : null}
           </div>
           <div className="text-right">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Place of supply</p>
+            <p className="text-2xs font-semibold uppercase tracking-wider text-faint">Place of supply</p>
             <p>{inv.customer?.stateCode ?? s?.stateCode ?? '—'}</p>
-            <p className="text-xs text-neutral-500">{interState ? 'Inter-state (IGST)' : 'Intra-state (CGST + SGST)'}</p>
+            <p className="text-xs text-muted">{interState ? 'Inter-state (IGST)' : 'Intra-state (CGST + SGST)'}</p>
           </div>
         </section>
 
         <table className="mt-3 w-full text-left text-[12px]">
-          <thead className="border-b border-neutral-300 text-[10px] uppercase tracking-wider text-neutral-500">
+          <thead className="border-b border-neutral-300 text-[10px] uppercase tracking-wider text-muted">
             <tr>
               <th className="py-1.5 pr-2">#</th>
               <th className="py-1.5 pr-2">Item</th>
@@ -453,19 +445,19 @@ function InvoiceView() {
               <th className="py-1.5 text-right">Amount</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-neutral-100">
+          <tbody className="divide-y divide-line">
             {inv.lines.map((l, i) => (
               <tr key={l.id} className="align-top">
-                <td className="py-1.5 pr-2 text-neutral-400">{i + 1}</td>
+                <td className="py-1.5 pr-2 text-faint">{i + 1}</td>
                 <td className="py-1.5 pr-2">
                   <span className="font-medium">{l.productName}</span>
                   {l.product.prescriptionClass && l.product.prescriptionClass !== 'OTC' ? (
-                    <span className="ml-1 rounded bg-amber-50 px-1 text-[10px] font-semibold text-amber-700">{l.product.prescriptionClass === 'SCHEDULE_H1' ? 'H1' : 'Rx'}</span>
+                    <span className="ml-1 rounded bg-warning/10 px-1 text-[10px] font-semibold text-warning">{l.product.prescriptionClass === 'SCHEDULE_H1' ? 'H1' : 'Rx'}</span>
                   ) : null}
-                  {n(l.returnedQty) > 0 ? <span className="ml-1 text-[10px] text-red-600">returned {qty(l.returnedQty)}</span> : null}
+                  {n(l.returnedQty) > 0 ? <span className="ml-1 text-[10px] text-danger">returned {qty(l.returnedQty)}</span> : null}
                 </td>
-                <td className="thermal-hide py-1.5 pr-2 font-mono text-[11px]">{l.hsnCode ?? l.product.hsnCode ?? '—'}</td>
-                <td className="thermal-hide py-1.5 pr-2 text-[11px] text-neutral-600">
+                <td className="thermal-hide py-1.5 pr-2 font-mono text-2xs">{l.hsnCode ?? l.product.hsnCode ?? '—'}</td>
+                <td className="thermal-hide py-1.5 pr-2 text-2xs text-neutral-600">
                   {l.batchAllocations.map((a, j) => (
                     <div key={j}>
                       {a.batch.batchNumber} · {new Date(a.batch.expiryDate).toLocaleDateString('en-IN', { month: '2-digit', year: '2-digit' })}
@@ -473,22 +465,22 @@ function InvoiceView() {
                     </div>
                   ))}
                 </td>
-                <td className="py-1.5 pr-2 text-right tabular-nums">{qty(l.quantity)}</td>
-                <td className="py-1.5 pr-2 text-right tabular-nums">{money(l.unitPrice, false)}</td>
-                <td className="thermal-hide py-1.5 pr-2 text-right tabular-nums">{n(l.discountAmount) > 0 ? money(l.discountAmount, false) : '—'}</td>
-                <td className="thermal-hide py-1.5 pr-2 text-right tabular-nums">{money(l.taxableValue, false)}</td>
-                <td className="thermal-hide py-1.5 pr-2 text-right tabular-nums">{n(l.taxRatePercent)}%</td>
-                <td className="py-1.5 text-right font-medium tabular-nums">{money(l.lineTotal, false)}</td>
+                <td className="py-1.5 pr-2 text-right num">{qty(l.quantity)}</td>
+                <td className="py-1.5 pr-2 text-right num">{money(l.unitPrice, false)}</td>
+                <td className="thermal-hide py-1.5 pr-2 text-right num">{n(l.discountAmount) > 0 ? money(l.discountAmount, false) : '—'}</td>
+                <td className="thermal-hide py-1.5 pr-2 text-right num">{money(l.taxableValue, false)}</td>
+                <td className="thermal-hide py-1.5 pr-2 text-right num">{n(l.taxRatePercent)}%</td>
+                <td className="py-1.5 text-right font-medium num">{money(l.lineTotal, false)}</td>
               </tr>
             ))}
           </tbody>
         </table>
 
-        <section className="mt-4 grid gap-4 border-t border-neutral-200 pt-3 sm:grid-cols-2">
+        <section className="mt-4 grid gap-4 border-t border-line pt-3 sm:grid-cols-2">
           <div className="thermal-hide">
-            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">HSN-wise tax summary</p>
-            <table className="w-full text-[11px]">
-              <thead className="text-neutral-500">
+            <p className="mb-1 text-2xs font-semibold uppercase tracking-wider text-faint">HSN-wise tax summary</p>
+            <table className="w-full text-2xs">
+              <thead className="text-muted">
                 <tr>
                   <th className="py-0.5 text-left font-medium">HSN</th>
                   <th className="py-0.5 text-right font-medium">Rate</th>
@@ -503,7 +495,7 @@ function InvoiceView() {
               </thead>
               <tbody>
                 {hsnSummary.map((h) => (
-                  <tr key={`${h.hsn}-${h.rate}`} className="tabular-nums">
+                  <tr key={`${h.hsn}-${h.rate}`} className="num">
                     <td className="py-0.5 font-mono">{h.hsn}</td>
                     <td className="py-0.5 text-right">{n(h.rate)}%</td>
                     <td className="py-0.5 text-right">{money(h.taxable, false)}</td>
@@ -518,7 +510,7 @@ function InvoiceView() {
               </tbody>
             </table>
           </div>
-          <dl className="space-y-0.5 tabular-nums">
+          <dl className="space-y-0.5 num">
             {n(inv.discountAmount) > 0 ? (
               <div className="flex justify-between text-neutral-600"><dt>Discount</dt><dd>−{money(inv.discountAmount)}</dd></div>
             ) : null}
@@ -533,25 +525,25 @@ function InvoiceView() {
             )}
             {n(inv.cessAmount) > 0 ? <div className="flex justify-between text-neutral-600"><dt>Cess</dt><dd>{money(inv.cessAmount)}</dd></div> : null}
             <div className="flex justify-between text-neutral-600"><dt>Round off</dt><dd>{money(inv.roundOff)}</dd></div>
-            <div className="flex justify-between border-t border-neutral-300 pt-1 text-base font-bold text-neutral-900"><dt>Total</dt><dd>{money(inv.total)}</dd></div>
-            <p className="pt-0.5 text-right text-[11px] italic text-neutral-500">{amountInWords(inv.total)}</p>
+            <div className="flex justify-between border-t border-neutral-300 pt-1 text-base font-bold text-ink"><dt>Total</dt><dd>{money(inv.total)}</dd></div>
+            <p className="pt-0.5 text-right text-2xs italic text-muted">{amountInWords(inv.total)}</p>
           </dl>
         </section>
 
-        <section className="mt-3 flex flex-wrap gap-x-6 gap-y-1 border-t border-neutral-200 pt-2 text-[12px]">
-          <span className="text-neutral-500">Paid:</span>
+        <section className="mt-3 flex flex-wrap gap-x-6 gap-y-1 border-t border-line pt-2 text-[12px]">
+          <span className="text-muted">Paid:</span>
           {inv.payments.map((p) => (
             <span key={p.id}>
               {p.method} {money(p.amount)}
-              {p.reference ? <span className="text-neutral-400"> ({p.reference})</span> : null}
+              {p.reference ? <span className="text-faint"> ({p.reference})</span> : null}
             </span>
           ))}
-          {n(inv.creditAmount) > 0 ? <span className="font-medium text-amber-700">Balance due {money(inv.creditAmount)}</span> : null}
+          {n(inv.creditAmount) > 0 ? <span className="font-medium text-warning">Balance due {money(inv.creditAmount)}</span> : null}
         </section>
 
         {inv.prescriptions.length ? (
-          <section className="mt-3 rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2 text-[12px]">
-            <p className="font-semibold text-amber-800">Schedule H1 — prescription record</p>
+          <section className="mt-3 border-l-2 border-warning py-1 pl-3 text-[12px]">
+            <p className="font-semibold text-warning">Schedule H1 — prescription record</p>
             <p>
               Patient: {inv.prescriptions[0]!.patientName}
               {inv.prescriptions[0]!.patientPhone ? ` (${inv.prescriptions[0]!.patientPhone})` : ''} · Prescriber: {inv.prescriptions[0]!.prescriberName}
@@ -568,20 +560,20 @@ function InvoiceView() {
         ) : null}
 
         {inv.returns.length ? (
-          <section className="mt-3 border-t border-neutral-200 pt-2 text-[12px]">
-            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Credit notes</p>
+          <section className="mt-3 border-t border-line pt-2 text-[12px]">
+            <p className="mb-1 text-2xs font-semibold uppercase tracking-wider text-faint">Credit notes</p>
             {inv.returns.map((r) => (
               <div key={r.id} className="flex justify-between">
                 <span>
                   <span className="font-mono">{r.returnNumber}</span> · {fmtDate(r.createdAt)} · {r.reason}
                 </span>
-                <span className="tabular-nums">−{money(r.refundTotal)}</span>
+                <span className="num">−{money(r.refundTotal)}</span>
               </div>
             ))}
           </section>
         ) : null}
 
-        <footer className="mt-6 flex items-end justify-between border-t border-neutral-200 pt-3 text-[11px] text-neutral-500">
+        <footer className="mt-6 flex items-end justify-between border-t border-line pt-3 text-2xs text-muted">
           <p>Computer-generated invoice. Prices inclusive of GST. Medicines sold on valid prescription where required.</p>
           <p className="thermal-hide text-right">
             For {s?.legalEntityName || s?.name}
@@ -592,30 +584,29 @@ function InvoiceView() {
       </article>
 
       {timeline.length ? (
-        <section className="no-print mc-anim-fade-up rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-          <h2 className="mb-3 text-sm font-semibold">Payment timeline</h2>
-          <ol className="relative space-y-3 border-l border-neutral-200 pl-5">
+        <Card variant="section" title="Payment timeline" className="no-print">
+          <ol className="relative space-y-3 border-l border-line pl-5">
             {timeline.map((t) => (
-              <li key={t.key} className="mc-anim-fade-up relative">
+              <li key={t.key} className="mc-anim-fade-in relative">
                 <span
                   className={cn(
-                    'absolute -left-[26px] top-1 h-3 w-3 rounded-full ring-4 ring-white',
-                    t.tone === 'green' ? 'bg-emerald-500' : t.tone === 'amber' ? 'bg-amber-500' : t.tone === 'red' ? 'bg-red-500' : 'bg-neutral-400',
+                    'absolute -left-[26px] top-1 h-3 w-3 rounded-full ring-4 ring-canvas',
+                    t.tone === 'green' ? 'bg-success' : t.tone === 'amber' ? 'bg-warning' : t.tone === 'red' ? 'bg-danger' : 'bg-neutral-400',
                   )}
                 />
                 <div className="flex items-baseline justify-between gap-3 text-sm">
-                  <span className="font-medium text-neutral-800">{t.label}</span>
-                  <span className="tabular-nums text-neutral-900">{t.amount.startsWith('-') ? `−${money(t.amount.slice(1))}` : money(t.amount)}</span>
+                  <span className="font-medium text-ink">{t.label}</span>
+                  <span className="num text-ink">{t.amount.startsWith('-') ? `−${money(t.amount.slice(1))}` : money(t.amount)}</span>
                 </div>
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-muted">
                   {new Date(t.at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
                   {t.note ? ` · ${t.note}` : ''}
                 </p>
               </li>
             ))}
           </ol>
-          {n(inv.creditAmount) > 0 && !cancelled ? <p className="mt-3 text-xs font-medium text-amber-700">Balance due {money(inv.creditAmount)}</p> : null}
-        </section>
+          {n(inv.creditAmount) > 0 && !cancelled ? <p className="num mt-3 text-xs font-medium text-warning">Balance due {money(inv.creditAmount)}</p> : null}
+        </Card>
       ) : null}
 
       {returning ? (

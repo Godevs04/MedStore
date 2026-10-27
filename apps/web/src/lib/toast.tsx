@@ -37,10 +37,10 @@ export const toast = {
 };
 
 const TONE: Record<ToastTone, { ring: string; icon: IconName; iconBg: string }> = {
-  success: { ring: 'border-emerald-200', icon: 'check', iconBg: 'bg-emerald-500' },
-  error: { ring: 'border-red-200', icon: 'danger', iconBg: 'bg-red-500' },
-  warning: { ring: 'border-amber-200', icon: 'warning', iconBg: 'bg-amber-500' },
-  info: { ring: 'border-brand-200', icon: 'info', iconBg: 'bg-brand-600' },
+  success: { ring: 'before:bg-success', icon: 'checkCircle', iconBg: 'text-success' },
+  error: { ring: 'before:bg-danger', icon: 'danger', iconBg: 'text-danger' },
+  warning: { ring: 'before:bg-warning', icon: 'warning', iconBg: 'text-warning' },
+  info: { ring: 'before:bg-info', icon: 'info', iconBg: 'text-info' },
 };
 
 function ToastCard({ item }: { item: ToastItem }) {
@@ -52,16 +52,14 @@ function ToastCard({ item }: { item: ToastItem }) {
   return (
     <div
       role={item.tone === 'error' ? 'alert' : 'status'}
-      className={`mc-anim-toast pointer-events-auto flex w-80 items-start gap-3 rounded-xl border ${tone.ring} bg-white/95 px-3.5 py-3 shadow-lg shadow-neutral-900/10 backdrop-blur`}
+      className={`mc-anim-toast pointer-events-auto relative flex w-80 max-w-[calc(100vw-2rem)] items-start gap-2.5 overflow-hidden rounded-lg border border-line bg-surface py-2.5 pl-4 pr-3 shadow-pop before:absolute before:inset-y-0 before:left-0 before:w-[3px] ${tone.ring}`}
     >
-      <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-white ${tone.iconBg}`}>
-        <Icon name={tone.icon} size={12} strokeWidth={2.5} />
-      </span>
+      <Icon name={tone.icon} size={16} className={`mt-px ${tone.iconBg}`} />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-neutral-900">{item.title}</p>
-        {item.description ? <p className="mt-0.5 break-words text-xs text-neutral-500">{item.description}</p> : null}
+        <p className="text-[13px] font-medium text-ink">{item.title}</p>
+        {item.description ? <p className="mt-0.5 break-words text-xs text-muted">{item.description}</p> : null}
       </div>
-      <button aria-label="Dismiss" className="text-neutral-400 transition-colors hover:text-neutral-700" onClick={() => toast.dismiss(item.id)}>
+      <button aria-label="Dismiss" className="rounded p-0.5 text-faint transition-colors hover:bg-subtle hover:text-ink" onClick={() => toast.dismiss(item.id)}>
         <Icon name="close" size={14} />
       </button>
     </div>
@@ -78,7 +76,7 @@ const serverSnapshot: ToastItem[] = [];
 export function Toaster() {
   const list = useSyncExternalStore(subscribe, snapshot, () => serverSnapshot);
   return (
-    <div aria-live="polite" className="no-print pointer-events-none fixed bottom-4 right-4 z-[100] flex flex-col items-end gap-2">
+    <div aria-live="polite" className="no-print pointer-events-none fixed bottom-4 right-4 z-toast flex flex-col items-end gap-2">
       {list.map((t) => (
         <ToastCard key={t.id} item={t} />
       ))}

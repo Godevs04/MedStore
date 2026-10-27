@@ -2,7 +2,23 @@
 
 import Link from 'next/link';
 import { createPortal } from 'react-dom';
-import { useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type Ref, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import {
+  Children,
+  Fragment,
+  createContext,
+  isValidElement,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  type ButtonHTMLAttributes,
+  type CSSProperties,
+  type InputHTMLAttributes,
+  type ReactNode,
+  type Ref,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
+} from 'react';
 import { Icon, type IconName } from './icons';
 
 const inr = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -14,6 +30,12 @@ export function money(v: string | number | null | undefined, symbol = true): str
   const s = inr.format(Math.abs(safe));
   const sign = safe < 0 && s !== '0.00' ? '−' : '';
   return symbol ? `${sign}₹${s}` : `${sign}${s}`;
+}
+
+/** An amount where a negative is a problem (loss, negative asset): minus sign plus danger tone. */
+export function Signed({ value, symbol = true, className }: { value: string | number | null | undefined; symbol?: boolean; className?: string }) {
+  const n = Number(value ?? 0);
+  return <span className={cn('num', n < 0 && 'text-danger', className)}>{money(value, symbol)}</span>;
 }
 
 export function fmtDate(v: string | Date | null | undefined): string {
@@ -30,30 +52,37 @@ export function cn(...classes: Array<string | false | null | undefined>): string
   return classes.filter(Boolean).join(' ');
 }
 
-type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
+export type Tone = 'neutral' | 'green' | 'amber' | 'red' | 'blue';
+
+// ── Buttons ──────────────────────────────────────────────────────────────────
+
+type ButtonVariant = 'primary' | 'secondary' | 'tertiary' | 'danger' | 'ghost';
+type ButtonSize = 'sm' | 'md';
+
+const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
+  primary: 'bg-primary text-white shadow-sm hover:bg-primary-hover',
+  secondary: 'border border-line bg-surface text-ink hover:border-neutral-300 hover:bg-canvas',
+  tertiary: 'text-muted hover:bg-subtle hover:text-ink',
+  danger: 'bg-danger text-white hover:bg-danger/90',
+  /** Alias of `tertiary`. */
+  ghost: 'text-muted hover:bg-subtle hover:text-ink',
+};
 
 export function Button({
   variant = 'primary',
+  size = 'md',
   className,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
-  const styles: Record<ButtonVariant, string> = {
-    primary:
-      'bg-gradient-to-b from-brand-500 to-brand-600 text-white shadow-sm shadow-brand-600/25 hover:shadow-md hover:shadow-brand-600/30 hover:brightness-[1.06] active:scale-[0.98]',
-    secondary:
-      'bg-white text-neutral-800 border border-neutral-300 shadow-sm hover:border-brand-400 hover:text-brand-700 active:scale-[0.98]',
-    danger:
-      'bg-gradient-to-b from-red-500 to-red-600 text-white shadow-sm shadow-red-600/25 hover:brightness-[1.06] active:scale-[0.98]',
-    ghost: 'text-neutral-600 hover:bg-brand-50 hover:text-brand-700 active:scale-[0.98]',
-  };
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: ButtonSize }) {
   return (
     <button
       className={cn(
-        'inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium',
-        'transition-all duration-200 ease-out',
-        'disabled:cursor-not-allowed disabled:opacity-55 disabled:shadow-none disabled:active:scale-100',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60 focus-visible:ring-offset-1',
-        styles[variant],
+        'inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium',
+        'transition-colors duration-150 active:translate-y-px',
+        'disabled:cursor-not-allowed disabled:opacity-50 disabled:active:translate-y-0',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-1',
+        size === 'sm' ? 'h-control-sm px-2.5 text-xs' : 'h-control px-3.5 text-[13px]',
+        BUTTON_VARIANTS[variant],
         className,
       )}
       {...props}
@@ -61,34 +90,37 @@ export function Button({
   );
 }
 
-export function Input({ className, ref, ...props }: InputHTMLAttributes<HTMLInputElement> & { ref?: Ref<HTMLInputElement> }) {
+/** Square icon-only button; `label` is the accessible name and tooltip. */
+export function IconButton({
+  icon,
+  label,
+  variant = 'ghost',
+  size = 'md',
+  className,
+  ...props
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> & { icon: IconName; label: string; variant?: ButtonVariant; size?: ButtonSize }) {
   return (
-    <input
-      ref={ref}
-      className={cn(
-        'w-full rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm shadow-inner shadow-neutral-100',
-        'outline-none transition-all duration-200',
-        'hover:border-neutral-400 focus:border-brand-500 focus:ring-3 focus:ring-brand-500/15',
-        'disabled:bg-neutral-100 disabled:text-neutral-400',
-        className,
-      )}
-      {...props}
-    />
+    <Button variant={variant} size={size} aria-label={label} title={label} className={cn(size === 'sm' ? 'w-8 px-0' : 'w-9 px-0', className)} {...props}>
+      <Icon name={icon} size={size === 'sm' ? 15 : 16} />
+    </Button>
   );
+}
+
+// ── Form controls ────────────────────────────────────────────────────────────
+
+const CONTROL =
+  'w-full rounded-md border border-line bg-surface text-[13px] text-ink outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-quiet hover:border-neutral-300 focus:border-accent focus:ring-3 focus:ring-accent/15 disabled:cursor-not-allowed disabled:bg-subtle disabled:text-neutral-400';
+
+export function Input({ className, ref, ...props }: InputHTMLAttributes<HTMLInputElement> & { ref?: Ref<HTMLInputElement> }) {
+  return <input ref={ref} className={cn(CONTROL, 'h-control px-3', className)} {...props} />;
 }
 
 export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select
-      className={cn(
-        'w-full cursor-pointer rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm shadow-inner shadow-neutral-100',
-        'outline-none transition-all duration-200',
-        'hover:border-neutral-400 focus:border-brand-500 focus:ring-3 focus:ring-brand-500/15',
-        className,
-      )}
-      {...props}
-    />
-  );
+  return <select className={cn(CONTROL, 'h-control cursor-pointer px-2.5', className)} {...props} />;
+}
+
+export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return <textarea className={cn(CONTROL, 'px-3 py-2', className)} {...props} />;
 }
 
 export function Field({
@@ -107,105 +139,191 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <label className={cn('block space-y-1', className)}>
-      <span className="text-xs font-medium text-neutral-600">
+    <label className={cn('block space-y-1.5', className)}>
+      <span className="block text-xs font-medium text-neutral-700">
         {label}
-        {required ? <span className="ml-0.5 text-red-500">*</span> : null}
+        {required ? (
+          <span className="ml-0.5 text-danger" aria-hidden>
+            *
+          </span>
+        ) : null}
       </span>
       <span
         className={cn(
           'block rounded-lg',
-          error && '[&_input]:border-red-400 [&_select]:border-red-400 [&_textarea]:border-red-400 [&_input]:ring-3 [&_input]:ring-red-500/10',
+          error && '[&_input]:border-danger [&_select]:border-danger [&_textarea]:border-danger [&_input]:ring-3 [&_input]:ring-danger/10',
         )}
       >
         {children}
       </span>
       {error ? (
-        <span key={error} className="mc-anim-shake block text-xs text-red-600" role="alert">
+        <span key={error} className="flex items-start gap-1 text-xs text-danger" role="alert">
+          <Icon name="warning" size={12} className="mt-0.5" />
           {error}
         </span>
       ) : hint ? (
-        <span className="block text-[11px] text-neutral-500">{hint}</span>
+        <span className="block text-2xs text-muted">{hint}</span>
       ) : null}
     </label>
   );
 }
 
+// ── Surfaces ─────────────────────────────────────────────────────────────────
+
+/**
+ * Content group. `variant="panel"` (default) is a flat outlined surface; `variant="section"`
+ * is an open section (heading + hairline) for grouping inside a page without another box.
+ */
+const InPanel = createContext(false);
+
 export function Card({
   title,
+  description,
   actions,
   children,
   className,
-  delay,
+  variant = 'panel',
 }: {
   title?: string;
+  description?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
+  /** Kept for call-site compatibility; panels no longer stagger in. */
   delay?: number;
+  variant?: 'panel' | 'section';
 }) {
+  if (variant === 'section') {
+    return (
+      <section className={cn('mc-anim-fade-in min-w-0', className)}>
+        {title || actions ? (
+          <header className="mb-3 flex flex-wrap items-end justify-between gap-2 border-b border-line pb-2">
+            <div className="min-w-0">
+              {title ? <h2 className="text-section font-[550] text-ink">{title}</h2> : null}
+              {description ? <p className="mt-0.5 text-xs text-muted">{description}</p> : null}
+            </div>
+            {actions}
+          </header>
+        ) : null}
+        {children}
+      </section>
+    );
+  }
   return (
-    <section
-      className={cn(
-        'mc-anim-fade-up rounded-xl border border-neutral-200/80 bg-white shadow-sm shadow-neutral-200/60',
-        'transition-shadow duration-300 hover:shadow-md hover:shadow-neutral-200',
-        className,
-      )}
-      style={delay !== undefined ? { animationDelay: `${delay}ms` } : undefined}
-    >
-      {(title || actions) && (
-        <header className="flex items-center justify-between border-b border-neutral-100 px-4 py-2.5">
-          <h2 className="text-sm font-semibold tracking-tight text-neutral-800">{title}</h2>
+    <section className={cn('mc-anim-fade-in min-w-0 rounded-xl border border-line bg-surface', className)}>
+      {title || actions ? (
+        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
+          <div className="min-w-0">
+            {title ? <h2 className="text-[14px] font-[550] text-ink">{title}</h2> : null}
+            {description ? <p className="mt-0.5 text-xs text-muted">{description}</p> : null}
+          </div>
           {actions}
         </header>
-      )}
-      <div className="p-4">{children}</div>
+      ) : null}
+      <div
+        className={cn(
+          'p-4',
+          !(title || actions) && '[&>.mc-table:first-child]:-mt-4 [&>.mc-table:first-child_thead_th:first-child]:rounded-tl-[11px] [&>.mc-table:first-child_thead_th:last-child]:rounded-tr-[11px]',
+          '[&>.mc-table:last-child]:-mb-4',
+        )}
+      >
+        <InPanel.Provider value>{children}</InPanel.Provider>
+      </div>
     </section>
   );
 }
 
-export function Badge({
-  tone = 'neutral',
-  children,
-  dot,
-}: {
-  tone?: 'neutral' | 'green' | 'amber' | 'red' | 'blue';
-  children: ReactNode;
-  dot?: boolean;
-}) {
-  const tones = {
-    neutral: 'bg-neutral-100 text-neutral-700 ring-neutral-200',
-    green: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-    amber: 'bg-amber-50 text-amber-800 ring-amber-200',
-    red: 'bg-red-50 text-red-700 ring-red-200',
-    blue: 'bg-sky-50 text-sky-700 ring-sky-200',
-  };
-  const dotTones = {
-    neutral: 'bg-neutral-400',
-    green: 'bg-emerald-500',
-    amber: 'bg-amber-500',
-    red: 'bg-red-500',
-    blue: 'bg-sky-500',
-  };
+// ── Badges ───────────────────────────────────────────────────────────────────
+
+const BADGE_TONES: Record<Tone, string> = {
+  neutral: 'bg-subtle text-neutral-700 ring-line',
+  green: 'bg-success/10 text-success ring-success/25',
+  amber: 'bg-warning/10 text-warning ring-warning/25',
+  red: 'bg-danger/10 text-danger ring-danger/25',
+  blue: 'bg-info/10 text-info ring-info/25',
+};
+const DOT_TONES: Record<Tone, string> = {
+  neutral: 'bg-neutral-400',
+  green: 'bg-success',
+  amber: 'bg-warning',
+  red: 'bg-danger',
+  blue: 'bg-info',
+};
+
+export function Badge({ tone = 'neutral', children, dot, icon }: { tone?: Tone; children: ReactNode; dot?: boolean; icon?: IconName }) {
   return (
-    <span
-      className={cn(
-        'mc-anim-scale-in inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset',
-        tones[tone],
-      )}
-    >
-      {dot ? <span className={cn('mc-anim-pulse-dot h-1.5 w-1.5 rounded-full', dotTones[tone])} /> : null}
+    <span className={cn('inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-px text-2xs font-medium ring-1 ring-inset', BADGE_TONES[tone])}>
+      {dot ? <span className={cn('h-1.5 w-1.5 rounded-full', DOT_TONES[tone])} /> : null}
+      {icon ? <Icon name={icon} size={11} strokeWidth={2.25} /> : null}
       {children}
     </span>
   );
 }
 
+const STATUS: Record<string, { tone: Tone; icon: IconName; label?: string }> = {
+  DRAFT: { tone: 'neutral', icon: 'circle' },
+  OPEN: { tone: 'blue', icon: 'circle' },
+  PENDING: { tone: 'amber', icon: 'pending' },
+  SUBMITTED: { tone: 'blue', icon: 'pending' },
+  APPROVED: { tone: 'green', icon: 'check' },
+  POSTED: { tone: 'green', icon: 'check' },
+  PAID: { tone: 'green', icon: 'check' },
+  ACTIVE: { tone: 'green', icon: 'check' },
+  AVAILABLE: { tone: 'green', icon: 'check' },
+  SALEABLE: { tone: 'green', icon: 'check' },
+  COMPLETED: { tone: 'green', icon: 'check' },
+  RECEIVED: { tone: 'green', icon: 'check' },
+  RECONCILED: { tone: 'green', icon: 'check' },
+  ISSUED: { tone: 'green', icon: 'check' },
+  TRIALING: { tone: 'blue', icon: 'pending', label: 'Trial' },
+  PARTIAL: { tone: 'amber', icon: 'pending' },
+  PARTIALLY_PAID: { tone: 'amber', icon: 'pending', label: 'Partially paid' },
+  PARTIALLY_RECEIVED: { tone: 'amber', icon: 'pending', label: 'Partially received' },
+  PARTIALLY_RETURNED: { tone: 'amber', icon: 'undo', label: 'Partially returned' },
+  RETURNED: { tone: 'neutral', icon: 'undo' },
+  IN_TRANSIT: { tone: 'blue', icon: 'transfers', label: 'In transit' },
+  DISPATCHED: { tone: 'blue', icon: 'transfers' },
+  UNPAID: { tone: 'amber', icon: 'pending' },
+  OVERDUE: { tone: 'red', icon: 'warning' },
+  PAST_DUE: { tone: 'red', icon: 'warning', label: 'Past due' },
+  REJECTED: { tone: 'red', icon: 'close' },
+  CANCELLED: { tone: 'neutral', icon: 'ban' },
+  VOID: { tone: 'neutral', icon: 'ban' },
+  EXPIRED: { tone: 'red', icon: 'expiry' },
+  EXPIRED_BLOCKED: { tone: 'red', icon: 'expiry', label: 'Expired' },
+  NEAR_EXPIRY: { tone: 'amber', icon: 'expiry', label: 'Near expiry' },
+  RECALLED: { tone: 'red', icon: 'danger' },
+  QUARANTINED: { tone: 'amber', icon: 'lock' },
+  DAMAGED: { tone: 'red', icon: 'warning' },
+  BLOCKED: { tone: 'red', icon: 'ban' },
+  SUSPENDED: { tone: 'red', icon: 'ban' },
+  INACTIVE: { tone: 'neutral', icon: 'ban' },
+  INVITED: { tone: 'blue', icon: 'mail' },
+  LOCKED: { tone: 'neutral', icon: 'lock' },
+};
+
+/** Domain status with tone, icon and readable label (never colour alone). */
+export function statusTone(status: string): Tone {
+  return STATUS[status.toUpperCase()]?.tone ?? 'neutral';
+}
+
+export function StatusBadge({ status, label, tone }: { status: string; label?: string; tone?: Tone }) {
+  const key = status.toUpperCase();
+  const meta = STATUS[key];
+  const text = label ?? meta?.label ?? key.charAt(0) + key.slice(1).toLowerCase().replace(/_/g, ' ');
+  return (
+    <Badge tone={tone ?? meta?.tone ?? 'neutral'} icon={meta?.icon} dot={!meta}>
+      {text}
+    </Badge>
+  );
+}
+
+// ── Feedback ─────────────────────────────────────────────────────────────────
+
 export function Spinner({ label }: { label?: string }) {
   return (
-    <div className="mc-anim-fade-in flex items-center gap-2.5 text-sm text-neutral-500" role="status">
-      <span className="relative flex h-4 w-4">
-        <span className="absolute h-4 w-4 animate-spin rounded-full border-2 border-neutral-200 border-t-brand-600" />
-      </span>
+    <div className="mc-anim-fade-in flex items-center gap-2 text-[13px] text-muted" role="status">
+      <Icon name="loading" size={15} className="animate-spin text-teal-ink" />
       {label ?? 'Loading…'}
     </div>
   );
@@ -213,15 +331,11 @@ export function Spinner({ label }: { label?: string }) {
 
 export function SkeletonRows({ rows = 4, cols = 5 }: { rows?: number; cols?: number }) {
   return (
-    <div className="space-y-2.5 py-1">
+    <div className="divide-y divide-line" aria-busy="true" aria-label="Loading">
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="flex gap-3" style={{ animationDelay: `${i * 60}ms` }}>
+        <div key={i} className="flex gap-4 py-2.5">
           {Array.from({ length: cols }, (_, j) => (
-            <div
-              key={j}
-              className="mc-skeleton h-4"
-              style={{ width: j === 0 ? '28%' : `${16 + ((i + j) % 3) * 6}%`, animationDelay: `${j * 90}ms` }}
-            />
+            <div key={j} className="mc-skeleton h-3.5" style={{ width: j === 0 ? '26%' : `${12 + ((i + j) % 3) * 5}%`, marginLeft: j === cols - 1 ? 'auto' : undefined }} />
           ))}
         </div>
       ))}
@@ -231,59 +345,91 @@ export function SkeletonRows({ rows = 4, cols = 5 }: { rows?: number; cols?: num
 
 export function EmptyState({ title, hint, action, icon = 'empty' }: { title: string; hint?: string; action?: ReactNode; icon?: IconName }) {
   return (
-    <div className="mc-anim-fade-up flex flex-col items-center gap-2.5 py-12 text-center">
-      <div className="mc-anim-float flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-600 shadow-sm ring-1 ring-brand-100">
-        <Icon name={icon} size={22} />
+    <div className="mc-anim-fade-in flex flex-col items-center gap-2 px-4 py-10 text-center">
+      <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-lg bg-subtle text-muted ring-1 ring-line">
+        <Icon name={icon} size={19} />
       </div>
-      <p className="text-sm font-medium text-neutral-700">{title}</p>
-      {hint ? <p className="max-w-md text-xs leading-relaxed text-neutral-500">{hint}</p> : null}
-      {action}
+      <p className="text-sm font-medium text-ink">{title}</p>
+      {hint ? <p className="max-w-md text-xs leading-relaxed text-muted">{hint}</p> : null}
+      {action ? <div className="mt-1">{action}</div> : null}
+    </div>
+  );
+}
+
+type AlertTone = 'info' | 'success' | 'warning' | 'danger';
+const ALERT_TONES: Record<AlertTone, { box: string; icon: IconName; iconColor: string }> = {
+  info: { box: 'border-info/30 bg-info/5 text-ink', icon: 'info', iconColor: 'text-info' },
+  success: { box: 'border-success/30 bg-success/5 text-ink', icon: 'checkCircle', iconColor: 'text-success' },
+  warning: { box: 'border-warning/30 bg-warning/5 text-ink', icon: 'warning', iconColor: 'text-warning' },
+  danger: { box: 'border-danger/30 bg-danger/5 text-ink', icon: 'danger', iconColor: 'text-danger' },
+};
+
+/** Inline notice for page- or section-level messages. */
+export function Alert({
+  tone = 'info',
+  title,
+  children,
+  action,
+  icon,
+  className,
+}: {
+  tone?: AlertTone;
+  title?: ReactNode;
+  children?: ReactNode;
+  action?: ReactNode;
+  icon?: IconName;
+  className?: string;
+}) {
+  const t = ALERT_TONES[tone];
+  return (
+    <div role={tone === 'danger' ? 'alert' : 'status'} className={cn('mc-anim-fade-in flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-[13px]', t.box, className)}>
+      <Icon name={icon ?? t.icon} size={16} className={cn('mt-px', t.iconColor)} />
+      <div className="min-w-0 flex-1 space-y-0.5">
+        {title ? <p className="font-medium">{title}</p> : null}
+        {children ? <div className={cn('leading-relaxed', Boolean(title) && 'text-xs opacity-90')}>{children}</div> : null}
+      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );
 }
 
 export function ErrorState({ message, retry }: { message: string; retry?: () => void }) {
   return (
-    <div className="mc-anim-scale-in flex flex-col items-center gap-2.5 rounded-xl border border-red-200 bg-gradient-to-b from-red-50 to-white py-9 text-center">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 text-red-600">
-        <Icon name="warning" size={20} />
-      </div>
-      <p className="text-sm font-medium text-red-800">{message}</p>
-      {retry ? (
-        <Button variant="secondary" onClick={retry}>
-          Try again
-        </Button>
-      ) : null}
-    </div>
+    <Alert
+      tone="danger"
+      title={message}
+      action={
+        retry ? (
+          <Button variant="secondary" size="sm" onClick={retry}>
+            <Icon name="refresh" size={13} /> Try again
+          </Button>
+        ) : undefined
+      }
+    >
+      Check your connection and try again. If it keeps happening, contact support.
+    </Alert>
   );
 }
 
 export function SuccessBanner({ children }: { children: ReactNode }) {
-  return (
-    <div className="mc-anim-fade-up flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 shadow-sm shadow-emerald-100">
-      <span className="mc-anim-pulse-dot h-1.5 w-1.5 rounded-full bg-emerald-500" />
-      {children}
-    </div>
-  );
+  return <Alert tone="success">{children}</Alert>;
 }
 
 export function ErrorBanner({ children }: { children: ReactNode }) {
-  return (
-    <div className="mc-anim-fade-up flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 shadow-sm shadow-red-100">
-      <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-      {children}
-    </div>
-  );
+  return <Alert tone="danger">{children}</Alert>;
 }
 
-export function Table({ head, children }: { head: ReactNode; children: ReactNode }) {
+// ── Tables ───────────────────────────────────────────────────────────────────
+
+export function Table({ head, children, sticky, flush }: { head: ReactNode; children: ReactNode; sticky?: boolean; flush?: boolean }) {
+  const inPanel = useContext(InPanel) && flush !== false;
   return (
-    <div className="mc-anim-fade-in overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <thead className="border-b border-neutral-200 text-xs uppercase tracking-wider text-neutral-500">
+    <div className={cn('mc-table mc-anim-fade-in overflow-x-auto', inPanel ? '-mx-4 [&_td:first-child]:pl-4 [&_td:last-child]:pr-4 [&_th:first-child]:pl-4 [&_th:last-child]:pr-4' : '-mx-px', sticky && 'max-h-[70vh] overflow-y-auto')}>
+      <table className="w-full border-separate border-spacing-0 text-left text-[13px]">
+        <thead className={cn('text-2xs font-semibold uppercase tracking-[0.06em] text-faint [&_th]:border-b [&_th]:border-line [&_th]:bg-surface', sticky && '[&_th]:sticky [&_th]:top-0 [&_th]:z-10')}>
           {head}
         </thead>
-        <tbody className="divide-y divide-neutral-100">{children}</tbody>
+        <tbody className="[&>tr:last-child>td]:border-b-0 [&_td]:border-b [&_td]:border-line/70">{children}</tbody>
       </table>
     </div>
   );
@@ -291,88 +437,213 @@ export function Table({ head, children }: { head: ReactNode; children: ReactNode
 
 export function Tr({ children, className, onClick }: { children: ReactNode; className?: string; onClick?: () => void }) {
   return (
-    <tr
-      onClick={onClick}
-      className={cn('transition-colors duration-150 hover:bg-brand-50/40', onClick && 'cursor-pointer', className)}
-    >
+    <tr onClick={onClick} className={cn('transition-colors duration-100 hover:bg-mint/35', onClick && 'cursor-pointer', className)}>
       {children}
     </tr>
   );
 }
 
-export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return (
-    <textarea
-      className={cn(
-        'w-full rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm shadow-inner shadow-neutral-100',
-        'outline-none transition-all duration-200 hover:border-neutral-400 focus:border-brand-500 focus:ring-3 focus:ring-brand-500/15',
-        className,
-      )}
-      {...props}
-    />
-  );
+export function Th({ children, right }: { children?: ReactNode; right?: boolean }) {
+  return <th className={cn('whitespace-nowrap px-3 py-2.5 font-semibold first:pl-3 last:pr-3', right && 'text-right')}>{children}</th>;
 }
 
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
+export function Td({ children, right, className }: { children?: ReactNode; right?: boolean; className?: string }) {
+  return <td className={cn('px-3 py-2.5 align-middle', right && 'text-right num', className)}>{children}</td>;
+}
+
+// ── Page structure ───────────────────────────────────────────────────────────
+
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+  filters,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  actions?: ReactNode;
+  filters?: ReactNode;
+}) {
   return (
-    <div className="mc-anim-fade-up flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight text-neutral-900">{title}</h1>
-        {subtitle ? <p className="mt-0.5 text-sm text-neutral-500">{subtitle}</p> : null}
+    <div className="mc-anim-fade-in space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+        <div className="min-w-0">
+          <h1 className="text-[1.75rem] font-semibold leading-tight tracking-tight text-ink sm:text-display">{title}</h1>
+          {subtitle ? <div className="mt-1.5 max-w-3xl text-[13px] text-muted">{subtitle}</div> : null}
+        </div>
+        {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+      {filters ? <div className="flex flex-wrap items-center gap-2">{filters}</div> : null}
     </div>
   );
 }
 
+// ── Metrics ──────────────────────────────────────────────────────────────────
+
+type MetricLayout = 'boxed' | 'bare' | null;
+const InMetricGroup = createContext<MetricLayout>(null);
+
+const countTiles = (children: ReactNode): number =>
+  Children.toArray(children).reduce<number>(
+    (n, c) => n + (isValidElement<{ children?: ReactNode }>(c) && c.type === Fragment ? countTiles(c.props.children) : 1),
+    0,
+  );
+
+/**
+ * A row of metrics separated by hairlines. `bare` drops the surrounding surface so the row sits
+ * directly on the canvas with vertical dividers only.
+ */
+export function MetricGroup({ children, className, columns, bare }: { children: ReactNode; className?: string; columns?: number; bare?: boolean }) {
+  const count = columns ?? countTiles(children);
+  return (
+    <InMetricGroup.Provider value={bare ? 'bare' : 'boxed'}>
+      <div
+        className={cn(
+          'mc-anim-fade-in grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-[repeat(var(--mc-cols),minmax(0,1fr))]',
+          bare
+            ? 'gap-y-5 border-y border-line py-4 lg:gap-y-0 lg:divide-x lg:divide-line'
+            : 'gap-px overflow-hidden rounded-xl border border-line bg-line min-[480px]:[&>*:last-child:nth-child(odd)]:col-span-2 lg:[&>*:last-child:nth-child(odd)]:col-span-1',
+          className,
+        )}
+        style={{ '--mc-cols': Math.max(1, count) } as CSSProperties}
+      >
+        {children}
+      </div>
+    </InMetricGroup.Provider>
+  );
+}
+
+const TONE_TEXT: Record<Tone, string> = {
+  neutral: 'text-muted',
+  green: 'text-success',
+  amber: 'text-warning',
+  red: 'text-danger',
+  blue: 'text-info',
+};
+
+/** Tiny inline trend line (no axes). Only pass real series. */
+export function Sparkline({ values, className, tone = 'brand' }: { values: number[]; className?: string; tone?: 'brand' | 'red' | 'amber' }) {
+  const id = useId();
+  if (values.length < 2) return null;
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const span = max - min || 1;
+  const pts = values.map((v, i) => [(i / (values.length - 1)) * 100, 36 - ((v - min) / span) * 32]);
+  const line = pts.map(([x, y]) => `${x!.toFixed(2)},${y!.toFixed(2)}`).join(' ');
+  const stroke = { brand: 'rgb(var(--mc-accent))', red: 'rgb(var(--mc-danger))', amber: 'rgb(var(--mc-warning))' }[tone];
+  return (
+    <svg viewBox="0 0 100 40" preserveAspectRatio="none" className={cn('h-10 w-full overflow-visible', className)} aria-hidden>
+      <defs>
+        <linearGradient id={id} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" style={{ stopColor: stroke, stopOpacity: 0.18 }} />
+          <stop offset="100%" style={{ stopColor: stroke, stopOpacity: 0 }} />
+        </linearGradient>
+      </defs>
+      <polygon points={`0,40 ${line} 100,40`} fill={`url(#${id})`} className="mc-anim-fade-in" />
+      <polyline points={line} fill="none" style={{ stroke }} strokeWidth="1.5" vectorEffect="non-scaling-stroke" className="mc-draw-line" />
+    </svg>
+  );
+}
+
+export type MetricVariant = 'default' | 'featured' | 'compact' | 'alert';
+
+/**
+ * One metric. `featured` is the page's lead number, `compact` an inline secondary figure and
+ * `alert` an operational exception marked with a semantic dot. `trend` and `spark` must come from
+ * real series; omit them otherwise.
+ */
 export function Stat({
   label,
   value,
   hint,
   tone = 'neutral',
-  delay,
   href,
   footer,
+  icon,
+  trend,
+  spark,
+  variant = 'default',
+  className,
 }: {
   label: string;
   value: ReactNode;
   hint?: ReactNode;
-  tone?: 'neutral' | 'green' | 'amber' | 'red' | 'blue';
+  tone?: Tone;
+  /** Kept for call-site compatibility; metrics no longer stagger in. */
   delay?: number;
   href?: string;
-  /** Extra content under the hint, e.g. a sparkline. */
+  /** Extra content under the hint, e.g. a meter. */
   footer?: ReactNode;
+  icon?: IconName;
+  trend?: { value: number; label?: string; positiveIsGood?: boolean };
+  spark?: number[];
+  variant?: MetricVariant;
+  className?: string;
 }) {
-  const accent = {
-    neutral: 'from-neutral-300 to-neutral-200',
-    green: 'from-emerald-400 to-emerald-300',
-    amber: 'from-amber-400 to-amber-300',
-    red: 'from-red-400 to-red-300',
-    blue: 'from-brand-500 to-brand-300',
-  }[tone];
+  const layout = useContext(InMetricGroup);
+  const featured = variant === 'featured';
+  const up = trend ? trend.value >= 0 : false;
+  const good = trend ? (trend.positiveIsGood === false ? !up : up) : false;
+  const classes = cn(
+    'group relative block h-full min-w-0 transition-colors duration-150',
+    layout === 'boxed' && 'bg-surface px-4 py-3.5',
+    layout === 'bare' && 'pr-4 lg:px-6 lg:first:pl-0 lg:last:pr-0',
+    layout === null && !featured && 'rounded-xl border border-line bg-surface px-4 py-3.5',
+    href && layout === 'boxed' && 'hover:bg-mint/40',
+    href && layout === null && !featured && 'hover:border-neutral-300',
+    href && 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60',
+    className,
+  );
   const body = (
-    <div
-      className={cn(
-        'mc-anim-fade-up group relative overflow-hidden rounded-xl border border-neutral-200/80 bg-white px-4 py-3 shadow-sm shadow-neutral-200/60',
-        'transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md',
-      )}
-      style={delay !== undefined ? { animationDelay: `${delay}ms` } : undefined}
-    >
-      <span className={cn('absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r', accent)} />
-      <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">{label}</p>
-      <p className="mt-1 text-xl font-semibold tabular-nums tracking-tight text-neutral-900">{value}</p>
-      {hint ? <p className="mt-0.5 text-xs text-neutral-500">{hint}</p> : null}
+    <>
+      <p className={cn('flex items-center gap-1.5 text-muted', featured ? 'text-[13px] font-medium' : 'text-xs')}>
+        {variant === 'alert' ? (
+          <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full', tone === 'neutral' ? 'bg-neutral-300' : DOT_TONES[tone])} />
+        ) : icon ? (
+          <Icon name={icon} size={featured ? 16 : 14} className="shrink-0 text-faint" />
+        ) : null}
+        <span className="min-w-0 truncate">{label}</span>
+        {href ? (
+          <span aria-hidden className="ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-line text-faint transition-colors group-hover:border-accent/50 group-hover:text-teal-ink">
+            <Icon name="chevronRight" size={10} strokeWidth={2.25} />
+          </span>
+        ) : null}
+      </p>
+      <p className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span
+          className={cn(
+            'num leading-tight',
+            featured ? 'text-metric-lg font-semibold text-ink' : variant === 'compact' ? 'text-lg font-medium text-ink' : 'text-metric font-[550]',
+            variant === 'alert' && tone !== 'neutral' ? TONE_TEXT[tone] : !featured && 'text-ink',
+          )}
+        >
+          {value}
+        </span>
+        {trend ? (
+          <span className={cn('inline-flex items-center gap-0.5 text-xs font-medium num', good ? 'text-success' : 'text-danger')}>
+            <Icon name={up ? 'arrowUp' : 'arrowDown'} size={12} strokeWidth={2.25} />
+            {Math.abs(trend.value).toFixed(Math.abs(trend.value) < 10 ? 1 : 0)}%
+            {trend.label ? <span className="font-normal text-faint">{trend.label}</span> : null}
+          </span>
+        ) : null}
+      </p>
+      {hint ? (
+        <p className={cn('mt-1 text-xs', variant !== 'alert' && tone !== 'neutral' && tone !== 'blue' ? TONE_TEXT[tone] : 'text-muted')}>{hint}</p>
+      ) : null}
+      {spark && spark.length > 1 ? <Sparkline values={spark} className={cn('mt-3', featured ? 'h-14' : 'h-8')} /> : null}
       {footer ? <div className="mt-2">{footer}</div> : null}
-    </div>
+    </>
   );
   return href ? (
-    <Link href={href} className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60">
+    <Link href={href} className={classes}>
       {body}
     </Link>
   ) : (
-    body
+    <div className={classes}>{body}</div>
   );
 }
+
+// ── Tabs ─────────────────────────────────────────────────────────────────────
 
 export function Tabs<T extends string>({
   tabs,
@@ -384,26 +655,57 @@ export function Tabs<T extends string>({
   onChange: (id: T) => void;
 }) {
   return (
-    <div className="mc-anim-fade-in inline-flex flex-wrap gap-1 rounded-xl border border-neutral-200 bg-neutral-50 p-1" role="tablist">
+    <div className="mc-anim-fade-in scrollbar-none flex max-w-full gap-1 overflow-x-auto border-b border-line" role="tablist">
       {tabs.map((t) => (
         <button
           key={t.id}
           role="tab"
+          type="button"
           aria-selected={value === t.id}
           onClick={() => onChange(t.id)}
           className={cn(
-            'rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200',
-            value === t.id ? 'bg-white text-brand-700 shadow-sm ring-1 ring-neutral-200' : 'text-neutral-600 hover:text-neutral-900',
+            '-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium transition-colors duration-150',
+            value === t.id ? 'border-accent text-brand-deep' : 'border-transparent text-muted hover:border-neutral-300 hover:text-ink',
           )}
         >
           {t.label}
           {t.count !== undefined ? (
-            <span className="ml-1.5 rounded-full bg-neutral-200/80 px-1.5 text-[10px] font-semibold text-neutral-600">{t.count}</span>
+            <span className={cn('rounded px-1.5 text-2xs font-semibold num', value === t.id ? 'bg-mint text-brand-deep' : 'bg-subtle text-muted')}>{t.count}</span>
           ) : null}
         </button>
       ))}
     </div>
   );
+}
+
+// ── Drawer ───────────────────────────────────────────────────────────────────
+
+/** Locks page scroll and restores focus to the opener while an overlay is open. */
+export function useOverlay(open: boolean, panel: React.RefObject<HTMLElement | null>) {
+  // Captured during render: children with autoFocus move focus before effects run.
+  const openerRef = useRef<HTMLElement | null>(null);
+  if (!open) openerRef.current = null;
+  else if (!openerRef.current && typeof document !== 'undefined') openerRef.current = document.activeElement as HTMLElement | null;
+  useEffect(() => {
+    if (!open) return;
+    const opener = openerRef.current;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const t = setTimeout(() => {
+      const el = panel.current;
+      if (el && !el.contains(document.activeElement)) {
+        const first = el.querySelector<HTMLElement>('input:not([disabled]),select:not([disabled]),textarea:not([disabled])');
+        (first ?? el).focus({ preventScroll: true });
+      }
+    }, 20);
+    return () => {
+      clearTimeout(t);
+      document.body.style.overflow = prevOverflow;
+      setTimeout(() => {
+        if (opener && opener !== document.body && document.contains(opener)) opener.focus({ preventScroll: true });
+      }, 0);
+    };
+  }, [open, panel]);
 }
 
 export function Drawer({
@@ -421,6 +723,8 @@ export function Drawer({
   children: ReactNode;
   width?: string;
 }) {
+  const panel = useRef<HTMLElement>(null);
+  useOverlay(open, panel);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -429,29 +733,19 @@ export function Drawer({
   }, [open, onClose]);
   if (!open || typeof document === 'undefined') return null;
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={title}>
-      <button aria-label="Close" className="mc-anim-fade-in absolute inset-0 bg-neutral-900/30 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className={cn('mc-anim-drawer relative flex h-full w-full flex-col bg-white shadow-2xl', width)}>
-        <header className="flex items-start justify-between gap-3 border-b border-neutral-100 px-5 py-4">
-          <div>
-            <h2 className="text-base font-semibold tracking-tight text-neutral-900">{title}</h2>
-            {subtitle ? <div className="mt-0.5 text-xs text-neutral-500">{subtitle}</div> : null}
+    <div className="fixed inset-0 z-drawer flex justify-end" role="dialog" aria-modal="true" aria-label={title}>
+      <button aria-label="Close" tabIndex={-1} className="mc-anim-fade-in absolute inset-0 bg-neutral-950/25" onClick={onClose} />
+      <aside ref={panel} tabIndex={-1} className={cn('mc-anim-drawer relative flex h-full w-full flex-col bg-surface shadow-overlay outline-none', width)}>
+        <header className="flex items-start justify-between gap-3 border-b border-line px-5 py-3.5">
+          <div className="min-w-0">
+            <h2 className="truncate text-section font-[550] text-ink">{title}</h2>
+            {subtitle ? <div className="mt-0.5 text-xs text-muted">{subtitle}</div> : null}
           </div>
-          <Button variant="ghost" className="px-2" onClick={onClose} aria-label="Close drawer">
-            <Icon name="close" size={18} />
-          </Button>
+          <IconButton icon="close" label="Close drawer" size="sm" onClick={onClose} />
         </header>
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">{children}</div>
       </aside>
     </div>,
     document.body,
   );
-}
-
-export function Th({ children, right }: { children?: ReactNode; right?: boolean }) {
-  return <th className={cn('px-2 py-2 font-medium', right && 'text-right')}>{children}</th>;
-}
-
-export function Td({ children, right, className }: { children?: ReactNode; right?: boolean; className?: string }) {
-  return <td className={cn('px-2 py-2', right && 'text-right tabular-nums', className)}>{children}</td>;
 }

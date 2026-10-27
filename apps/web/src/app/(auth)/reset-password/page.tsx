@@ -11,7 +11,7 @@ import { api, ApiClientError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { AuthShell, AuthStatus, PasswordChecklist, PasswordInput, authLinkClass, useQueryParam } from '@/components/auth';
 import { Icon } from '@/components/icons';
-import { Button, Field, Input } from '@/components/ui';
+import { Button, Field, Input, Alert } from '@/components/ui';
 
 const schema = z
   .object({
@@ -93,7 +93,7 @@ export default function ResetPasswordPage() {
       ) : (
         <form className="space-y-4" onSubmit={onSubmit} noValidate>
           {fromLink ? (
-            <p className="rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-800">Reset link detected — just choose your new password.</p>
+            <Alert tone="info">Reset link detected — just choose your new password.</Alert>
           ) : (
             <Field label="Reset link or code" error={errors.token?.message} hint="Paste the link from the reset email">
               <Input autoComplete="off" spellCheck={false} {...register('token')} />

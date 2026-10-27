@@ -67,7 +67,7 @@ export default function VerifyEmailPage() {
       ) : state === 'verified' ? (
         <AuthStatus tone="green" icon="verified" title="Your email is verified">
           <p>Password resets, invitations and invoice copies will reach you here.</p>
-          <Link href={continueHref} className="mt-1 inline-block rounded-lg bg-brand-600 px-4 py-1.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700">
+          <Link href={continueHref} className="mt-1 inline-flex h-control items-center rounded-md bg-primary px-4 text-sm font-medium text-white transition-colors hover:bg-primary-hover">
             {user ? 'Go to dashboard' : 'Sign in'}
           </Link>
         </AuthStatus>

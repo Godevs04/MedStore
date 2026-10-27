@@ -11,7 +11,7 @@ import { api, ApiClientError } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { toast } from '@/lib/toast';
 import { AuthShell, PasswordInput, authLinkClass, safeNext, useQueryParam } from '@/components/auth';
-import { Button, Field, Input } from '@/components/ui';
+import { Button, Field, Input, Alert } from '@/components/ui';
 
 type Form = z.infer<typeof loginRequestSchema>;
 
@@ -74,9 +74,9 @@ export default function LoginPage() {
       }
     >
       {reset.value === '1' ? (
-        <p className="mc-anim-fade-in mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+        <Alert tone="success" className="mb-4">
           Password updated. Sign in with your new password — other devices were signed out.
-        </p>
+        </Alert>
       ) : null}
       <form className="space-y-4" onSubmit={onSubmit} noValidate>
         <Field label="Email" error={errors.email?.message}>
@@ -91,14 +91,12 @@ export default function LoginPage() {
           </Link>
         </div>
         {formError ? (
-          <p role="alert" className="mc-anim-shake rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
-            {formError}
-          </p>
+          <Alert tone="danger">{formError}</Alert>
         ) : null}
         <Button type="submit" className="w-full py-2" disabled={isSubmitting}>
           {isSubmitting ? 'Signing in…' : 'Sign in'}
         </Button>
-        <p className="text-center text-[11px] text-neutral-400">
+        <p className="text-center text-2xs text-faint">
           Got an invitation?{' '}
           <Link className={authLinkClass} href="/accept-invitation">
             Accept it here

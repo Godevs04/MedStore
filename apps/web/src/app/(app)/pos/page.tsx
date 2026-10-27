@@ -8,7 +8,7 @@ import { prescriptionSchema } from '@medicore/validation';
 import { api, ApiClientError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Combobox, ConfirmDialog, Kbd, MoneyInput, QtyInput, useDebouncedValue, useFieldErrors, type ComboItem } from '@/components/kit';
-import { Badge, Button, Card, Field, Input, Select, cn, fmtDate, money } from '@/components/ui';
+import { Alert, Badge, Button, Card, Field, IconButton, Input, PageHeader, Select, cn, fmtDate, money } from '@/components/ui';
 import { HeldBillsDrawer, QuickAddCustomer, SubstitutesPanel, type CustomerOption, type HeldBill, type Substitute } from './parts';
 
 interface ProductOption {
@@ -380,22 +380,26 @@ export default function PosPage() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4">
-      <div className="mc-anim-fade-up flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">POS billing</h1>
-          <p className="flex flex-wrap items-center gap-1 text-xs text-neutral-500">
-            <Kbd>F2</Kbd> search · <Kbd><Icon name="arrowUp" size={10} strokeWidth={2.25} /><Icon name="arrowDown" size={10} strokeWidth={2.25} /></Kbd> <Kbd>Enter</Kbd> add · <Kbd>F8</Kbd> hold · <Kbd>F9</Kbd> charge · scan a barcode anytime
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+    <div className="space-y-6">
+      <PageHeader
+        title="POS billing"
+        subtitle={
+          <>
+            <span className="sm:hidden">Scan a barcode or search to add items.</span>
+            <span className="hidden flex-wrap items-center gap-1 sm:flex">
+              <Kbd>F2</Kbd> search · <Kbd><Icon name="arrowUp" size={10} strokeWidth={2.25} /><Icon name="arrowDown" size={10} strokeWidth={2.25} /></Kbd> <Kbd>Enter</Kbd> add · <Kbd>F8</Kbd> hold · <Kbd>F9</Kbd> charge · scan a barcode anytime
+            </span>
+          </>
+        }
+        actions={
+          <>
           <Button variant="secondary" onClick={() => setHeldOpen(true)}>
             <Icon name="pause" size={15} /> Held bills
-            {heldCount.data?.length ? <span className="mc-anim-pop rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white">{heldCount.data.length}</span> : null}
+            {heldCount.data?.length ? <span className="num rounded bg-warning px-1.5 text-2xs font-semibold text-white">{heldCount.data.length}</span> : null}
           </Button>
-          <span className="text-xs text-neutral-500">Billing from</span>
+          <span className="text-xs text-muted">Billing from</span>
           <Select
-            className="w-64"
+            className="w-full sm:w-64"
             value={warehouseId}
             onChange={(e) => {
               setWarehouseId(e.target.value);
@@ -407,17 +411,18 @@ export default function PosPage() {
               <option key={w.id} value={w.id}>{w.label}</option>
             ))}
           </Select>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         <div className="space-y-4 lg:col-span-8">
-          <Card className="relative z-30">
+          <div className="relative z-30">
             <div className="relative">
               <Input
                 ref={searchRef}
                 autoFocus
-                className="py-2.5 pl-9 text-base"
+                className="h-11 pl-10 text-[15px]"
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
@@ -446,15 +451,15 @@ export default function PosPage() {
                 placeholder="Search by name, generic, SKU — or scan barcode"
                 aria-label="Search product"
               />
-              <Icon name="search" size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+              <Icon name="search" size={17} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
               {search.trim() ? (
-                <div className="mc-anim-scale-in absolute inset-x-0 top-full z-20 mt-1 max-h-96 overflow-y-auto rounded-xl border border-neutral-200 bg-white p-1 shadow-xl">
+                <div className="mc-anim-drop absolute inset-x-0 top-full z-dropdown mt-1 max-h-96 overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-pop">
                   {products.isLoading || search.trim() !== debouncedSearch ? (
                     <div className="space-y-1 p-1">
-                      {[0, 1, 2].map((i) => <div key={i} className="mc-skeleton h-11 rounded-lg" style={{ animationDelay: `${i * 70}ms` }} />)}
+                      {[0, 1, 2].map((i) => <div key={i} className="mc-skeleton h-11 rounded-md" />)}
                     </div>
                   ) : results.length === 0 ? (
-                    <p className="px-3 py-3 text-center text-xs text-neutral-400">No matching active products</p>
+                    <p className="px-3 py-3 text-center text-xs text-muted">No matching active products</p>
                   ) : (
                     results.map((p, i) => (
                       <button
@@ -462,31 +467,31 @@ export default function PosPage() {
                         onMouseEnter={() => setHighlight(i)}
                         onClick={() => addToCart(p)}
                         className={cn(
-                          'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors',
-                          i === highlight ? 'bg-brand-50' : 'hover:bg-neutral-50',
+                          'flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-[13px] transition-colors',
+                          i === highlight ? 'bg-mint' : 'hover:bg-subtle',
                         )}
                       >
                         <span className="min-w-0">
                           <span className="flex flex-wrap items-center gap-1.5">
-                            <span className="truncate font-medium text-neutral-800">{[p.name, p.strength].filter(Boolean).join(' ')}</span>
+                            <span className="truncate font-medium text-ink">{[p.name, p.strength].filter(Boolean).join(' ')}</span>
                             {p.prescriptionClass && p.prescriptionClass !== 'OTC' ? <Badge tone="amber">{p.prescriptionClass.replace('_', ' ')}</Badge> : null}
                             {p.requiresRefrigeration ? <Badge tone="blue"><Icon name="cold" size={11} /> Cold chain</Badge> : null}
                             {p.taxResolved === false ? <Badge tone="red">No GST rate</Badge> : null}
                           </span>
-                          <span className="block truncate text-xs text-neutral-500">
+                          <span className="block truncate text-xs text-muted">
                             <span className="font-mono">{p.sku}</span>
                             {p.genericName ? ` · ${p.genericName}` : ''}
                             {p.rackLocation ? ` · Rack ${p.rackLocation}` : ''}
                           </span>
                         </span>
                         <span className="shrink-0 text-right">
-                          <span className="block font-semibold tabular-nums text-brand-700">{money(p.sellingPrice ?? p.mrp)}</span>
+                          <span className="num block font-semibold text-ink">{money(p.sellingPrice ?? p.mrp)}</span>
                           {p.onHand !== undefined ? (
-                            <span className={cn('block text-[11px] font-medium tabular-nums', p.onHand > 0 ? 'text-emerald-700' : 'text-red-600')}>
+                            <span className={cn('num block text-2xs font-medium', p.onHand > 0 ? 'text-success' : 'text-danger')}>
                               {p.onHand > 0 ? `${p.onHand.toLocaleString('en-IN')} in stock` : 'Out of stock'}
                             </span>
                           ) : p.mrp ? (
-                            <span className="block text-[11px] text-neutral-400">MRP {money(p.mrp)}</span>
+                            <span className="num block text-2xs text-muted">MRP {money(p.mrp)}</span>
                           ) : null}
                         </span>
                       </button>
@@ -495,7 +500,7 @@ export default function PosPage() {
                 </div>
               ) : null}
             </div>
-          </Card>
+          </div>
 
           <Card
             title={`Cart · ${cart.length} ${cart.length === 1 ? 'line' : 'lines'}`}
@@ -510,12 +515,12 @@ export default function PosPage() {
           >
             {cart.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-10 text-center">
-                <span className="mc-anim-float flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-700 ring-1 ring-brand-100"><Icon name="pos" size={24} /></span>
-                <p className="text-sm text-neutral-500">Search or scan to start a bill. Batches are picked first-expiry-first-out automatically.</p>
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-subtle text-muted"><Icon name="barcode" size={20} /></span>
+                <p className="max-w-sm text-[13px] text-muted">Search or scan to start a bill. Batches are picked first-expiry-first-out automatically.</p>
               </div>
             ) : (
-              <div className="space-y-2">
-                <div className="hidden grid-cols-12 gap-2 px-2 text-[11px] font-medium uppercase tracking-wider text-neutral-400 md:grid">
+              <div className="divide-y divide-line">
+                <div className="hidden grid-cols-12 gap-2 px-2 pb-2 text-2xs font-medium uppercase tracking-wide text-muted md:grid">
                   <span className="col-span-4">Item · batch</span>
                   <span className="col-span-2 text-right">Qty</span>
                   <span className="col-span-2 text-right">Rate</span>
@@ -528,14 +533,14 @@ export default function PosPage() {
                   const issue = lineIssues(l);
                   const stockIssue = issue === 'No saleable stock' || issue?.startsWith('Only ');
                   return (
-                    <div key={l.key} className={cn('mc-anim-fade-up rounded-xl border px-3 py-2.5 transition-colors', issue ? 'border-red-200 bg-red-50/40' : 'border-neutral-200 bg-neutral-50/40')}>
+                    <div key={l.key} className={cn('mc-anim-fade-in px-2 py-2.5 transition-colors', issue && 'bg-danger/[0.04]')}>
                       <div className="grid grid-cols-12 items-start gap-2">
                         <div className="col-span-12 min-w-0 md:col-span-4">
                           <div className="flex items-center gap-1.5">
-                            <span className="truncate text-sm font-medium text-neutral-800">{l.name}</span>
+                            <span className="truncate text-[13px] font-medium text-ink">{l.name}</span>
                             {l.prescriptionClass && l.prescriptionClass !== 'OTC' ? <Badge tone="amber">{l.prescriptionClass.replace('_', ' ')}</Badge> : null}
                           </div>
-                          <Select className="mt-1 py-1 text-xs" value={l.batchId} onChange={(e) => updateLine(l.key, { batchId: e.target.value })} aria-label="Batch">
+                          <Select className="mt-1 h-control-sm text-xs" value={l.batchId} onChange={(e) => updateLine(l.key, { batchId: e.target.value })} aria-label="Batch">
                             <option value="">
                               Auto FEFO{fefo ? ` · ${fefo.batchNumber} · exp ${fmtDate(fefo.expiryDate)} · ${fefo.onHand} left` : ''}
                             </option>
@@ -548,28 +553,28 @@ export default function PosPage() {
                         </div>
                         <div className="col-span-3 md:col-span-2">
                           <div className="flex items-center justify-end gap-1">
-                            <button className="h-7 w-7 rounded-md border border-neutral-200 bg-white text-neutral-600 hover:border-brand-300" onClick={() => updateLine(l.key, { quantity: String(Math.max(1, (Number(l.quantity) || 1) - 1)) })} aria-label="Decrease">−</button>
+                            <button className="h-8 w-8 shrink-0 rounded-md border border-line bg-surface text-neutral-600 transition-colors hover:border-neutral-300 hover:text-ink" onClick={() => updateLine(l.key, { quantity: String(Math.max(1, (Number(l.quantity) || 1) - 1)) })} aria-label="Decrease">−</button>
                             <QtyInput className="w-14 px-1.5 text-center" value={l.quantity} onChange={(v) => updateLine(l.key, { quantity: v })} aria-label="Quantity" invalid={!(Number(l.quantity) > 0)} />
-                            <button className="h-7 w-7 rounded-md border border-neutral-200 bg-white text-neutral-600 hover:border-brand-300" onClick={() => updateLine(l.key, { quantity: String((Number(l.quantity) || 0) + 1) })} aria-label="Increase">+</button>
+                            <button className="h-8 w-8 shrink-0 rounded-md border border-line bg-surface text-neutral-600 transition-colors hover:border-neutral-300 hover:text-ink" onClick={() => updateLine(l.key, { quantity: String((Number(l.quantity) || 0) + 1) })} aria-label="Increase">+</button>
                           </div>
                         </div>
                         <div className="col-span-3 md:col-span-2">
                           <MoneyInput value={l.unitPrice} onChange={(v) => updateLine(l.key, { unitPrice: v })} aria-label="Unit price" className="[&_input]:text-right" invalid={Boolean(l.mrp && toPaise(l.unitPrice) > toPaise(l.mrp))} />
-                          {l.mrp ? <p className="mt-0.5 text-right text-[10px] text-neutral-400">MRP {money(l.mrp)}</p> : null}
+                          {l.mrp ? <p className="num mt-0.5 text-right text-2xs text-muted">MRP {money(l.mrp)}</p> : null}
                         </div>
                         <div className="col-span-3 md:col-span-2">
                           <MoneyInput value={l.discount} onChange={(v) => updateLine(l.key, { discount: v })} aria-label="Line discount" className="[&_input]:text-right" />
                         </div>
                         <div className="col-span-3 flex items-center justify-end gap-1 md:col-span-2">
-                          <span className="text-sm font-semibold tabular-nums text-neutral-900">{money(rupees(linePaise(l)))}</span>
-                          <Button variant="ghost" className="px-2" onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))} aria-label="Remove line"><Icon name="close" size={14} /></Button>
+                          <span className="num text-[13px] font-semibold text-ink">{money(rupees(linePaise(l)))}</span>
+                          <IconButton icon="close" label="Remove line" size="sm" onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))} />
                         </div>
                       </div>
                       {issue ? (
-                        <p className="mc-anim-shake mt-1 flex flex-wrap items-center gap-2 text-xs font-medium text-red-600">
+                        <p className="mt-1.5 flex flex-wrap items-center gap-2 text-xs font-medium text-danger">
                           <Icon name="warning" size={13} /> {issue}
                           {stockIssue && warehouseId ? (
-                            <button className="rounded-md bg-white px-1.5 py-0.5 text-[11px] font-semibold text-brand-700 ring-1 ring-brand-200 hover:bg-brand-50" onClick={() => setSubstitutesFor(substitutesFor === l.key ? null : l.key)}>
+                            <button className="rounded-md bg-surface px-1.5 py-0.5 text-2xs font-semibold text-teal-ink ring-1 ring-line hover:bg-mint" onClick={() => setSubstitutesFor(substitutesFor === l.key ? null : l.key)}>
                               Show substitutes
                             </button>
                           ) : null}
@@ -586,7 +591,7 @@ export default function PosPage() {
           </Card>
 
           {needsRx ? (
-            <Card title="Schedule H1 prescription (Drugs Rules 65(3)(h) register)" className="border-amber-200">
+            <Card title="Schedule H1 prescription" description="Written to the statutory H1 register (Drugs Rules 65(3)(h)) with the invoice and batch.">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <Field label="Patient name" required error={rxErrors.errors.patientName}>
                   <Input value={prescription.patientName} onChange={setRx('patientName')} />
@@ -604,7 +609,6 @@ export default function PosPage() {
                   <Input value={prescription.prescriberAddress} onChange={setRx('prescriberAddress')} />
                 </Field>
               </div>
-              <p className="mt-2 text-xs text-amber-700">These details are written to the statutory H1 register with the invoice and batch.</p>
             </Card>
           ) : null}
         </div>
@@ -621,16 +625,16 @@ export default function PosPage() {
                 placeholder="Walk-in — search name or mobile"
                 emptyText="No customer found"
                 footer={
-                  <button type="button" className="w-full rounded-md px-2 py-1.5 text-left text-xs font-semibold text-brand-700 hover:bg-brand-50" onMouseDown={(e) => e.preventDefault()} onClick={() => setQuickAdd(true)}>
+                  <button type="button" className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs font-semibold text-teal-ink hover:bg-mint" onMouseDown={(e) => e.preventDefault()} onClick={() => setQuickAdd(true)}>
                     <Icon name="plus" size={14} strokeWidth={2.25} /> Add new customer{customerQuery.trim() ? ` “${customerQuery.trim()}”` : ''}
                   </button>
                 }
               />
               {customer ? (
                 outstanding.data ? (
-                  <div className="mc-anim-fade-in flex justify-between rounded-lg bg-neutral-50 px-3 py-1.5 text-xs">
-                    <span className="text-neutral-500">Outstanding {money(outstanding.data.outstanding)}</span>
-                    <span className="font-medium text-neutral-700">
+                  <div className="mc-anim-fade-in flex flex-wrap justify-between gap-1 rounded-md bg-subtle px-3 py-1.5 text-xs">
+                    <span className="num text-muted">Outstanding {money(outstanding.data.outstanding)}</span>
+                    <span className="num font-medium text-ink">
                       {outstanding.data.availableCredit != null ? `Credit available ${money(outstanding.data.availableCredit)}` : 'No credit limit set'}
                     </span>
                   </div>
@@ -643,12 +647,12 @@ export default function PosPage() {
 
           <Card title="Payment">
             <div className="space-y-3">
-              <dl className="space-y-1 rounded-xl bg-gradient-to-b from-neutral-50 to-white px-3 py-2.5 text-sm ring-1 ring-neutral-100">
-                <div className="flex justify-between text-neutral-500"><dt>Items (incl. GST)</dt><dd className="tabular-nums">{money(rupees(grossPaise))}</dd></div>
-                <div className="flex justify-between text-neutral-500"><dt>Round off</dt><dd className="tabular-nums">{roundOffPaise >= 0 ? '+' : '−'}{money(rupees(Math.abs(roundOffPaise)))}</dd></div>
-                <div className="flex items-baseline justify-between border-t border-neutral-100 pt-1.5">
-                  <dt className="font-medium text-neutral-700">Total due</dt>
-                  <dd key={totalPaise} className="mc-anim-pop text-2xl font-bold tabular-nums tracking-tight text-neutral-900">{money(rupees(totalPaise))}</dd>
+              <dl className="space-y-1 rounded-lg bg-subtle px-3 py-2.5 text-[13px]">
+                <div className="flex justify-between text-muted"><dt>Items (incl. GST)</dt><dd className="num">{money(rupees(grossPaise))}</dd></div>
+                <div className="flex justify-between text-muted"><dt>Round off</dt><dd className="num">{roundOffPaise >= 0 ? '+' : '−'}{money(rupees(Math.abs(roundOffPaise)))}</dd></div>
+                <div className="flex items-baseline justify-between border-t border-line pt-1.5">
+                  <dt className="font-medium text-ink">Total due</dt>
+                  <dd className="num text-metric-lg font-semibold text-brand-deep">{money(rupees(totalPaise))}</dd>
                 </div>
               </dl>
 
@@ -676,23 +680,23 @@ export default function PosPage() {
               </div>
 
               {changePaise > 0 ? (
-                <div className="mc-anim-scale-in flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
-                  <span className="text-sm font-medium text-emerald-800">Change due</span>
-                  <span className="text-lg font-bold tabular-nums text-emerald-700">{money(rupees(changePaise))}</span>
+                <div className="mc-anim-fade-in flex items-center justify-between rounded-lg bg-success/10 px-3 py-2 text-success">
+                  <span className="text-[13px] font-medium">Change due</span>
+                  <span className="num text-lg font-medium">{money(rupees(changePaise))}</span>
                 </div>
               ) : null}
               {creditPaise > 0 && cart.length > 0 ? (
-                <div className={cn('mc-anim-fade-up rounded-xl border px-3 py-2 text-xs', creditBlocked ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-800')}>
-                  On credit: <span className="font-semibold">{money(rupees(creditPaise))}</span>
+                <Alert tone={creditBlocked ? 'danger' : 'warning'}>
+                  On credit: <span className="num font-semibold">{money(rupees(creditPaise))}</span>
                   {!customerId ? ' — select a registered customer to bill on credit.' : creditBlocked ? ' — exceeds available credit.' : ''}
-                </div>
+                </Alert>
               ) : null}
-              {overpaidNonCash ? <p className="mc-anim-shake text-xs font-medium text-red-600">UPI + card exceed the total due.</p> : null}
+              {overpaidNonCash ? <p className="flex items-center gap-1.5 text-xs font-medium text-danger"><Icon name="warning" size={13} /> UPI + card exceed the total due.</p> : null}
 
-              <Button className="w-full py-3 text-base" disabled={!canCharge} onClick={charge}>
+              <Button className="h-11 w-full text-[15px]" disabled={!canCharge} onClick={charge}>
                 {invoice.isPending ? 'Posting…' : `Charge ${money(rupees(totalPaise))}`}
               </Button>
-              <p className="text-center text-[11px] text-neutral-400">Posting is idempotent — retrying after a network error never double-bills.</p>
+              <p className="text-center text-2xs text-muted">Posting is idempotent — retrying after a network error never double-bills.</p>
             </div>
           </Card>
         </div>

@@ -18,7 +18,7 @@ import { useSession } from '@/lib/session';
 import { toast } from '@/lib/toast';
 import { useCan } from '@/lib/stock';
 import { ConfirmDialog, FormSection, useFieldErrors } from '@/components/kit';
-import { Button, Card, ErrorState, Field, Input, PageHeader, Select, SkeletonRows, Textarea, cn, todayIso } from '@/components/ui';
+import { Button, Card, ErrorState, Field, Input, PageHeader, Select, SkeletonRows, Textarea, cn, todayIso, Alert } from '@/components/ui';
 
 interface OrgProfile {
   name: string;
@@ -228,12 +228,12 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4 pb-20">
+    <div className="max-w-4xl space-y-6 pb-20">
       <PageHeader title="Organisation settings" subtitle="Business identity, GST registration, financial year and invoice printing." />
       <fieldset disabled={!canEdit || save.isPending} className="space-y-4">
         <Card>
           <div className="space-y-4">
-            <FormSection title="Identity" hint="Shown on invoices, reports and e-mails" delay={0}>
+            <FormSection title="Identity" hint="Shown on invoices, reports and e-mails">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="Trade name" required error={errors.name}>
                   <Input value={form.name} maxLength={160} onChange={(e) => set('name', e.target.value)} />
@@ -250,7 +250,7 @@ export default function SettingsPage() {
               </div>
             </FormSection>
 
-            <FormSection title="Registered address" hint="Place of supply for GST is derived from this state" delay={40}>
+            <FormSection title="Registered address" hint="Place of supply for GST is derived from this state">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="Address line 1" required error={errors.addressLine1} className="sm:col-span-2">
                   <Input value={form.addressLine1} maxLength={200} onChange={(e) => set('addressLine1', e.target.value)} placeholder="Shop no., building, street" />
@@ -277,7 +277,7 @@ export default function SettingsPage() {
               </div>
             </FormSection>
 
-            <FormSection title="GST registration" hint="MediCore checks the GSTIN format, check digit, state and PAN — not live registration status" delay={80}>
+            <FormSection title="GST registration" hint="MediCore checks the GSTIN format, check digit, state and PAN — not live registration status">
               <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                 {REGISTRATIONS.map((r) => (
                   <button
@@ -289,12 +289,12 @@ export default function SettingsPage() {
                       set('gstRegistrationStatus', r.id);
                     }}
                     className={cn(
-                      'rounded-xl border px-3 py-2 text-left transition-all active:scale-[0.98]',
-                      form.gstRegistrationStatus === r.id ? 'border-brand-400 bg-brand-50 shadow-sm ring-1 ring-brand-200' : 'border-neutral-200 bg-white hover:border-brand-200',
+                      'rounded-lg border px-3 py-2 text-left transition-colors',
+                      form.gstRegistrationStatus === r.id ? 'border-accent bg-mint/60 ring-1 ring-accent' : 'border-line bg-surface hover:border-neutral-300 hover:bg-subtle/50',
                     )}
                   >
-                    <span className="block text-sm font-semibold text-neutral-800">{r.label}</span>
-                    <span className="block text-[11px] leading-snug text-neutral-500">{r.hint}</span>
+                    <span className="block text-sm font-semibold text-ink">{r.label}</span>
+                    <span className="block text-2xs leading-snug text-muted">{r.hint}</span>
                   </button>
                 ))}
               </div>
@@ -318,7 +318,7 @@ export default function SettingsPage() {
               </div>
             </FormSection>
 
-            <FormSection title="Financial year" hint="Indian statutory books run April–March (Income Tax Act s.3)" delay={120}>
+            <FormSection title="Financial year" hint="Indian statutory books run April–March (Income Tax Act s.3)">
               <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2">
                 <Field label="Year starts in" error={errors.financialYearStartMonth}>
                   <Select value={String(form.financialYearStartMonth)} onChange={(e) => set('financialYearStartMonth', Number(e.target.value))}>
@@ -327,16 +327,16 @@ export default function SettingsPage() {
                     ))}
                   </Select>
                 </Field>
-                <p className="rounded-lg bg-white px-3 py-2 text-xs text-neutral-600 ring-1 ring-neutral-200">
-                  Current year: <span className="font-semibold text-neutral-800">{fy.label}</span> · {new Date(fy.from).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} – {new Date(fy.to).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                <p className="rounded-md bg-subtle px-3 py-2 text-xs text-neutral-600">
+                  Current year: <span className="font-semibold text-ink">{fy.label}</span> · {new Date(fy.from).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} – {new Date(fy.to).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </p>
               </div>
               {form.financialYearStartMonth !== 4 ? (
-                <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">A non-April year changes invoice numbering series and report periods. GST returns are still filed for April–March.</p>
+                <Alert tone="warning">A non-April year changes invoice numbering series and report periods. GST returns are still filed for April–March.</Alert>
               ) : null}
             </FormSection>
 
-            <FormSection title="Invoice & print" hint="Applies to every new bill" delay={160}>
+            <FormSection title="Invoice & print" hint="Applies to every new bill">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="Default print format" error={errors.defaultPrintFormat}>
                   <Select value={form.defaultPrintFormat} onChange={(e) => set('defaultPrintFormat', e.target.value as Form['defaultPrintFormat'])}>
@@ -370,10 +370,10 @@ export default function SettingsPage() {
       </fieldset>
 
       {canEdit ? (
-        <div inert={!dirty} aria-hidden={!dirty} className={cn('fixed inset-x-0 bottom-0 z-20 border-t border-neutral-200 bg-white/95 px-4 py-3 backdrop-blur transition-transform duration-300', dirty ? 'translate-y-0' : 'translate-y-full')}>
+        <div inert={!dirty} aria-hidden={!dirty} className={cn('fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface px-4 py-3 shadow-overlay transition-transform duration-200', dirty ? 'translate-y-0' : 'translate-y-full')}>
           <div className="mx-auto flex max-w-4xl items-center justify-between gap-3">
             <p className="text-sm text-neutral-600">
-              <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-amber-500" />
+              <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-warning" />
               {dirtyKeys.length} unsaved change{dirtyKeys.length === 1 ? '' : 's'}
             </p>
             <div className="flex gap-2">

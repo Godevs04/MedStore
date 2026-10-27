@@ -24,7 +24,7 @@ import {
   type PageInfo,
   type SortState,
 } from '@/components/kit';
-import { Badge, Button, Card, Drawer, EmptyState, ErrorState, Field, Input, PageHeader, Select, SkeletonRows, Stat, Table, Tabs, Td, Th, Textarea, Tr, cn, money } from '@/components/ui';
+import { Badge, Button, Card, Drawer, EmptyState, ErrorState, Field, Input, PageHeader, Select, SkeletonRows, Stat, Table, Tabs, Td, Th, Textarea, Tr, cn, money, Alert } from '@/components/ui';
 
 interface ProductRow {
   id: string;
@@ -280,9 +280,9 @@ function ProductForm({
   return (
     <div className="space-y-4">
       {mode === 'update' && taxResolved === false ? (
-        <p className="mc-anim-fade-in rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700 ring-1 ring-red-200">
+        <Alert tone="danger">
           No active GST rate matches HSN {f.hsnCode || '(blank)'} — POS will refuse to bill this product until you fix the HSN or add a rate in Configuration.
-        </p>
+        </Alert>
       ) : null}
       <FormSection title="Identity">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -290,7 +290,7 @@ function ProductForm({
             <Input value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="Dolo 650 Tablet" autoFocus={mode === 'create'} />
           </Field>
           {dupMatches.length > 0 ? (
-            <p className="mc-anim-fade-in -mt-1 text-[11px] font-medium text-amber-700 sm:col-span-2">
+            <p className="mc-anim-fade-in -mt-1 text-2xs font-medium text-warning sm:col-span-2">
               <Icon name="warning" size={13} /> Similar product exists: {dupMatches.map((m) => `${m.name}${m.strength ? ` ${m.strength}` : ''}`).join(', ')}. Check before creating a duplicate.
             </p>
           ) : null}
@@ -363,10 +363,10 @@ function ProductForm({
           </Field>
           <div className="col-span-1 flex items-end sm:col-span-3">
             {margin !== null ? (
-              <div className="mc-anim-fade-in w-full rounded-lg bg-white px-3 py-2 ring-1 ring-neutral-200">
+              <div className="mc-anim-fade-in w-full rounded-lg bg-subtle px-3 py-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-neutral-500">Gross margin on selling price</span>
-                  <span className={cn('font-semibold tabular-nums', margin < 0 ? 'text-red-600' : margin < 10 ? 'text-amber-700' : 'text-emerald-700')}>{margin.toFixed(1)}%</span>
+                  <span className="text-muted">Gross margin on selling price</span>
+                  <span className={cn('font-semibold num', margin < 0 ? 'text-danger' : margin < 10 ? 'text-warning' : 'text-success')}>{margin.toFixed(1)}%</span>
                 </div>
               </div>
             ) : null}
@@ -390,7 +390,7 @@ function ProductForm({
             <Input value={f.rackLocation} onChange={(e) => set('rackLocation', e.target.value.toUpperCase())} placeholder="A-03" />
           </Field>
           <label className="flex items-center gap-2 text-sm text-neutral-700 sm:col-span-2">
-            <input type="checkbox" checked={f.requiresRefrigeration} onChange={(e) => set('requiresRefrigeration', e.target.checked)} className="h-4 w-4 rounded border-neutral-300 text-brand-600" />
+            <input type="checkbox" checked={f.requiresRefrigeration} onChange={(e) => set('requiresRefrigeration', e.target.checked)} className="h-4 w-4 rounded border-neutral-300 text-teal-ink" />
             Cold chain — store at 2–8 °C
           </label>
           <Field label="Storage instructions" error={errors.storageInstructions} className="sm:col-span-2">
@@ -400,7 +400,7 @@ function ProductForm({
       </FormSection>
 
       <FormSection title="Stock levels & barcodes">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label="Reorder level" error={errors.reorderLevel} hint="Shows in reorder suggestions">
             <QtyInput value={f.reorderLevel} onChange={(v) => set('reorderLevel', v)} invalid={Boolean(errors.reorderLevel)} />
           </Field>
@@ -410,7 +410,7 @@ function ProductForm({
           <Field label="Min order qty" error={errors.minOrderQuantity}>
             <QtyInput value={f.minOrderQuantity} onChange={(v) => set('minOrderQuantity', v)} invalid={Boolean(errors.minOrderQuantity)} />
           </Field>
-          <Field label="Barcodes" error={errors.barcodes ?? errors['barcodes.0']} hint="Up to 10, separated by commas" className="col-span-3">
+          <Field label="Barcodes" error={errors.barcodes ?? errors['barcodes.0']} hint="Up to 10, separated by commas" className="sm:col-span-3">
             <Input value={f.barcodes} onChange={(e) => set('barcodes', e.target.value)} placeholder="8901234567890" className="font-mono" />
           </Field>
         </div>
@@ -468,25 +468,25 @@ function ProductHistory({ productId }: { productId: string }) {
   if (items.length === 0) return <EmptyState title="No changes recorded" />;
   const tone = (t: string) => (t === 'CREATED' ? 'green' : t === 'DEACTIVATED' ? 'red' : t === 'REACTIVATED' ? 'blue' : 'neutral');
   return (
-    <ol className="relative space-y-3 border-l border-neutral-200 pl-4">
-      {items.map((h, i) => (
-        <li key={h.id} className="mc-anim-fade-up relative" style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}>
-          <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-brand-500 ring-4 ring-white" />
+    <ol className="relative space-y-3 border-l border-line pl-4">
+      {items.map((h) => (
+        <li key={h.id} className="relative">
+          <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-accent ring-4 ring-surface" />
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <Badge tone={tone(h.changeType)}>{h.changeType.charAt(0) + h.changeType.slice(1).toLowerCase()}</Badge>
-            <span className="text-neutral-500">{new Date(h.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
-            <span className="text-neutral-400">by {h.actorName ?? 'system'}</span>
+            <span className="text-muted">{new Date(h.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+            <span className="text-faint">by {h.actorName ?? 'system'}</span>
           </div>
           {h.details?.changes && Object.keys(h.details.changes).length > 0 ? (
             <ul className="mt-1.5 space-y-0.5 text-xs">
               {Object.entries(h.details.changes).map(([k, c]) => (
                 <li key={k} className="text-neutral-600">
-                  <span className="font-medium text-neutral-800">{FIELD_LABEL[k] ?? k}</span>: <span className="text-neutral-400 line-through">{show(c.from)}</span> → <span className="font-medium">{show(c.to)}</span>
+                  <span className="font-medium text-ink">{FIELD_LABEL[k] ?? k}</span>: <span className="text-faint line-through">{show(c.from)}</span> → <span className="font-medium">{show(c.to)}</span>
                 </li>
               ))}
             </ul>
           ) : h.details?.fields?.length ? (
-            <p className="mt-1 text-xs text-neutral-500">Fields: {h.details.fields.map((k) => FIELD_LABEL[k] ?? k).join(', ')}</p>
+            <p className="mt-1 text-xs text-muted">Fields: {h.details.fields.map((k) => FIELD_LABEL[k] ?? k).join(', ')}</p>
           ) : null}
         </li>
       ))}
@@ -627,7 +627,7 @@ function ProductsInner() {
   const filtered = Boolean(dSearch || klass || categoryId || status !== 'ACTIVE');
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Product catalog"
         subtitle="Medicines and SKUs with schedule, HSN-based GST, pricing ladder and live stock."
@@ -645,7 +645,7 @@ function ProductsInner() {
               }}
               className="relative"
             >
-              <Icon name="barcode" size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+              <Icon name="barcode" size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
               <Input value={scan} onChange={(e) => setScan(e.target.value)} placeholder="Scan barcode…" className="w-44 pl-8 font-mono" aria-label="Scan barcode" />
             </form>
             {can('products.create') ? <Button onClick={() => setCreating('')}><Icon name="plus" size={15} strokeWidth={2.25} /> New product</Button> : null}
@@ -654,30 +654,30 @@ function ProductsInner() {
       />
 
       {s ? (
-        <KpiGrid cols={4}>
-          <Stat label="Active products" value={s.products.active.toLocaleString('en-IN')} hint={`${s.products.inactive} inactive`} tone="blue" />
+        <KpiGrid bare cols={4}>
+          <Stat icon="products" label="Active products" value={s.products.active.toLocaleString('en-IN')} hint={`${s.products.inactive} inactive`} />
           <Stat
+            variant="alert"
             label="Out of stock"
             value={s.products.outOfStock.toLocaleString('en-IN')}
             hint={`${s.products.inStock} in stock`}
-            tone={s.products.outOfStock > 0 ? 'amber' : 'green'}
-            delay={60}
+            tone={s.products.outOfStock > 0 ? 'amber' : 'neutral'}
           />
           <Stat
+            variant="alert"
             label="Below reorder level"
             value={s.products.belowReorder.toLocaleString('en-IN')}
-            hint="Open reorder suggestions →"
-            tone={s.products.belowReorder > 0 ? 'red' : 'green'}
+            hint="Open reorder suggestions"
+            tone={s.products.belowReorder > 0 ? 'red' : 'neutral'}
             href="/purchasing"
-            delay={120}
           />
-          <Stat label="Stock value (cost)" value={money(s.value.cost)} hint={`MRP value ${money(s.value.mrp)} · margin ${money(s.value.potentialMargin)}`} tone="green" delay={180} />
+          <Stat icon="rupee" label="Stock value (cost)" value={money(s.value.cost)} hint={`MRP value ${money(s.value.mrp)} · margin ${money(s.value.potentialMargin)}`} />
         </KpiGrid>
       ) : null}
 
       <Card
         title={`Products (${products.data?.pageInfo.totalItems ?? 0})`}
-        actions={<SearchInput value={search} onChange={setSearch} placeholder="Name, generic, brand or SKU…" className="w-72" />}
+        actions={<SearchInput value={search} onChange={setSearch} placeholder="Name, generic, brand or SKU…" className="w-full sm:w-72" />}
       >
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <FilterChips
@@ -689,7 +689,7 @@ function ProductsInner() {
             value={status}
             onChange={setStatus}
           />
-          <span className="h-4 w-px bg-neutral-200" />
+          <span className="hidden h-4 w-px bg-line sm:block" />
           <FilterChips
             options={PRESCRIPTION_CLASSES.map((c) => ({ id: c, label: CLASS_LABEL[c] ?? c, tone: c === 'OTC' ? ('green' as const) : ('amber' as const) }))}
             value={klass}
@@ -697,7 +697,7 @@ function ProductsInner() {
             allLabel="Any schedule"
           />
           {categories.length > 0 ? (
-            <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="w-44" aria-label="Category">
+            <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="w-full sm:w-44" aria-label="Category">
               <option value="">All categories</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -745,24 +745,24 @@ function ProductsInner() {
                 return (
                   <Tr key={p.id} className="mc-anim-fade-in" onClick={() => setEditing(p)}>
                     <Td>
-                      <div className="flex items-center gap-1.5 font-medium text-neutral-800">
+                      <div className="flex items-center gap-1.5 font-medium text-ink">
                         {p.name}
                         {p.requiresRefrigeration ? (
-                          <span title="Cold chain 2–8 °C" className="text-sky-600">
+                          <span title="Cold chain 2–8 °C" className="text-info">
                             <Icon name="cold" size={13} label="Cold chain" />
                           </span>
                         ) : null}
                       </div>
-                      <div className="text-xs text-neutral-500">
+                      <div className="text-xs text-muted">
                         {[p.genericName, p.strength, p.dosageForm?.toLowerCase(), p.rackLocation ? `Rack ${p.rackLocation}` : null].filter(Boolean).join(' · ') || '—'}
                       </div>
                     </Td>
                     <Td className="font-mono text-xs">{p.sku}</Td>
-                    <Td>{p.prescriptionClass ? <Badge tone={p.prescriptionClass === 'OTC' ? 'green' : p.prescriptionClass === 'PRESCRIPTION_ONLY' ? 'blue' : 'amber'}>{CLASS_LABEL[p.prescriptionClass]}</Badge> : <span className="text-neutral-400">—</span>}</Td>
+                    <Td>{p.prescriptionClass ? <Badge tone={p.prescriptionClass === 'OTC' ? 'green' : p.prescriptionClass === 'PRESCRIPTION_ONLY' ? 'blue' : 'amber'}>{CLASS_LABEL[p.prescriptionClass]}</Badge> : <span className="text-faint">—</span>}</Td>
                     <Td>
                       {p.taxResolved ? (
                         <span className="text-xs text-neutral-600">
-                          {Number(p.gstPercent)}% <span className="font-mono text-neutral-400">· {p.hsnCode}</span>
+                          {Number(p.gstPercent)}% <span className="font-mono text-faint">· {p.hsnCode}</span>
                         </span>
                       ) : (
                         <Badge tone="red" dot>
@@ -772,12 +772,12 @@ function ProductsInner() {
                     </Td>
                     <Td right>{p.mrp ? money(p.mrp) : '—'}</Td>
                     <Td right>{p.sellingPrice ? money(p.sellingPrice) : '—'}</Td>
-                    <Td right className={cn('text-xs', m === null ? 'text-neutral-400' : m < 0 ? 'font-semibold text-red-600' : m < 10 ? 'text-amber-700' : 'text-emerald-700')}>
+                    <Td right className={cn('text-xs', m === null ? 'text-faint' : m < 0 ? 'font-semibold text-danger' : m < 10 ? 'text-warning' : 'text-success')}>
                       {m === null ? '—' : `${m.toFixed(1)}%`}
                     </Td>
                     <Td right>
-                      <span className={cn('font-medium', (p.onHand ?? 0) <= 0 ? 'text-neutral-400' : low ? 'text-red-600' : 'text-neutral-800')}>{qtyFmt(p.onHand ?? 0)}</span>
-                      {low ? <div className="text-[10px] text-red-600">≤ reorder {p.reorderLevel}</div> : null}
+                      <span className={cn('font-medium', (p.onHand ?? 0) <= 0 ? 'text-faint' : low ? 'text-danger' : 'text-ink')}>{qtyFmt(p.onHand ?? 0)}</span>
+                      {low ? <div className="text-[10px] text-danger">≤ reorder {p.reorderLevel}</div> : null}
                     </Td>
                     <Td>
                       <Badge tone={p.status === 'ACTIVE' ? 'green' : p.status === 'DRAFT' ? 'amber' : 'neutral'}>{p.status.toLowerCase()}</Badge>
@@ -835,7 +835,7 @@ function ProductsInner() {
         message={
           <>
             It will be hidden from POS, purchasing and reorder suggestions. Existing stock and history stay; you can reactivate it any time.
-            {confirmDeactivate?.onHand ? <span className="mt-1 block font-medium text-amber-700">{qtyFmt(confirmDeactivate.onHand)} units are still on hand.</span> : null}
+            {confirmDeactivate?.onHand ? <span className="mt-1 block font-medium text-warning">{qtyFmt(confirmDeactivate.onHand)} units are still on hand.</span> : null}
           </>
         }
         confirmLabel="Deactivate"

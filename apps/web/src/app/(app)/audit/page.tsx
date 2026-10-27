@@ -7,7 +7,7 @@ import { api, ApiClientError, downloadCsv } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { useCan } from '@/lib/stock';
 import { DateRangePicker, Pagination, SearchInput, datePresets, useDebouncedValue, type DateRange, type PageInfo } from '@/components/kit';
-import { Badge, Button, Card, Drawer, EmptyState, ErrorState, PageHeader, Select, SkeletonRows, Stat, Table, cn } from '@/components/ui';
+import { Badge, Button, Card, Drawer, EmptyState, ErrorState, PageHeader, Select, SkeletonRows, Stat, Table, cn, MetricGroup } from '@/components/ui';
 
 interface AuditRow {
   id: string;
@@ -139,7 +139,7 @@ export default function AuditPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Audit log"
         subtitle="Append-only record of every sensitive action in this organisation — kept for statutory and DPDP Act accountability."
@@ -153,12 +153,12 @@ export default function AuditPage() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Events in range" value={(audit.data?.pageInfo.totalItems ?? 0).toLocaleString('en-IN')} tone="blue" />
-        <Stat label="Sign-in & access (this page)" value={summary.counts.security} delay={60} />
-        <Stat label="Failures & removals (this page)" value={summary.counts.danger} tone={summary.counts.danger ? 'amber' : 'green'} delay={120} />
-        <Stat label="Distinct actors (this page)" value={summary.actors} delay={180} />
-      </div>
+      <MetricGroup bare>
+        <Stat label="Events in range" value={(audit.data?.pageInfo.totalItems ?? 0).toLocaleString('en-IN')} />
+        <Stat label="Sign-in & access (this page)" value={summary.counts.security} />
+        <Stat label="Failures & removals (this page)" value={summary.counts.danger} tone={summary.counts.danger ? 'amber' : 'green'} />
+        <Stat label="Distinct actors (this page)" value={summary.actors} />
+      </MetricGroup>
 
       <Card>
         <div className="space-y-3">
@@ -187,9 +187,9 @@ export default function AuditPage() {
             </Select>
           </div>
           {activeFilters ? (
-            <div className="flex items-center gap-2 text-xs text-neutral-500">
+            <div className="flex items-center gap-2 text-xs text-muted">
               <span>{activeFilters} filter{activeFilters === 1 ? '' : 's'} applied</span>
-              <button type="button" className="font-medium text-brand-700 hover:underline" onClick={reset}>Clear</button>
+              <button type="button" className="font-medium text-teal-ink hover:underline" onClick={reset}>Clear</button>
             </div>
           ) : null}
         </div>
@@ -218,20 +218,20 @@ export default function AuditPage() {
               {items.map((row) => {
                 const cat = categoryOf(row.event);
                 return (
-                  <tr key={row.id} className="cursor-pointer transition-colors hover:bg-brand-50/40" onClick={() => setSelected(row)}>
-                    <td className="whitespace-nowrap px-3 py-2 text-xs tabular-nums text-neutral-500">{fmtWhen(row.createdAt)}</td>
+                  <tr key={row.id} className="cursor-pointer transition-colors hover:bg-subtle/60" onClick={() => setSelected(row)}>
+                    <td className="whitespace-nowrap px-3 py-2 text-xs num text-muted">{fmtWhen(row.createdAt)}</td>
                     <td className="px-3 py-2">
                       <Badge tone={CATEGORY_TONE[cat]} dot>{eventLabel(row.event)}</Badge>
                     </td>
-                    <td className="px-3 py-2 text-xs text-neutral-700">{row.actorEmail ?? <span className="text-neutral-400">system</span>}</td>
-                    <td className="px-3 py-2 text-xs text-neutral-500">
+                    <td className="px-3 py-2 text-xs text-neutral-700">{row.actorEmail ?? <span className="text-faint">system</span>}</td>
+                    <td className="px-3 py-2 text-xs text-muted">
                       {row.entityType ? (
                         <>
-                          {entityLabel(row.entityType)} <span className="font-mono text-neutral-400">{row.entityId?.slice(0, 8) ?? ''}</span>
+                          {entityLabel(row.entityType)} <span className="font-mono text-faint">{row.entityId?.slice(0, 8) ?? ''}</span>
                         </>
                       ) : '—'}
                     </td>
-                    <td className="px-3 py-2 text-xs text-neutral-500">{row.ipAddress ?? '—'}</td>
+                    <td className="px-3 py-2 text-xs text-muted">{row.ipAddress ?? '—'}</td>
                   </tr>
                 );
               })}
@@ -270,26 +270,26 @@ function AuditDetail({ row, onFilterEntity }: { row: AuditRow; onFilterEntity: (
   ];
   return (
     <div className="space-y-4">
-      <dl className="divide-y divide-neutral-100 rounded-xl border border-neutral-200">
+      <dl className="divide-y divide-line rounded-lg border border-line">
         {facts.map(([k, v]) => (
           <div key={k} className="flex items-start justify-between gap-4 px-3 py-2 text-sm">
-            <dt className="shrink-0 text-neutral-500">{k}</dt>
-            <dd className="break-all text-right text-neutral-800">{v}</dd>
+            <dt className="shrink-0 text-muted">{k}</dt>
+            <dd className="break-all text-right text-ink">{v}</dd>
           </div>
         ))}
       </dl>
-      {row.userAgent ? <p className="break-all rounded-lg bg-neutral-50 px-3 py-2 font-mono text-[11px] text-neutral-500">{row.userAgent}</p> : null}
+      {row.userAgent ? <p className="break-all rounded-lg bg-subtle px-3 py-2 font-mono text-2xs text-muted">{row.userAgent}</p> : null}
       <div>
         <div className="mb-1.5 flex items-center justify-between">
-          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Details</p>
-          {details ? <button type="button" className="text-xs font-medium text-brand-700 hover:underline" onClick={() => copy(JSON.stringify(details, null, 2))}>Copy JSON</button> : null}
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted">Details</p>
+          {details ? <button type="button" className="text-xs font-medium text-teal-ink hover:underline" onClick={() => copy(JSON.stringify(details, null, 2))}>Copy JSON</button> : null}
         </div>
         {details && Object.keys(details).length ? (
-          <pre className="max-h-80 overflow-auto rounded-xl bg-neutral-900 p-3 text-[11px] leading-relaxed text-emerald-200">{JSON.stringify(details, null, 2)}</pre>
+          <pre className="max-h-80 overflow-auto rounded-lg border border-line bg-subtle p-3 text-2xs leading-relaxed text-ink">{JSON.stringify(details, null, 2)}</pre>
         ) : (
-          <p className="text-sm text-neutral-500">No additional details were recorded.</p>
+          <p className="text-sm text-muted">No additional details were recorded.</p>
         )}
-        <p className="mt-2 text-[11px] text-neutral-400">Details are redacted at write time — passwords, tokens and patient health data are never stored.</p>
+        <p className="mt-2 text-2xs text-faint">Details are redacted at write time — passwords, tokens and patient health data are never stored.</p>
       </div>
       {row.entityType && row.entityId ? (
         <Button variant="secondary" className="w-full" onClick={() => onFilterEntity(row.entityType as string, row.entityId as string)}>

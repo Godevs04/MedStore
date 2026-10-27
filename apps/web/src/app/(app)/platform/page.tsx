@@ -96,18 +96,18 @@ function UsagePanel({ tenantId }: { tenantId: string }) {
     return [...map.entries()];
   }, [usage.data]);
   return (
-    <Card title="Usage history" actions={usage.data ? <span className="text-xs text-neutral-500">{usage.data.auditEvents.toLocaleString('en-IN')} audit events</span> : undefined}>
+    <Card title="Usage history" actions={usage.data ? <span className="text-xs text-muted">{usage.data.auditEvents.toLocaleString('en-IN')} audit events</span> : undefined}>
       {usage.isLoading ? (
         <SkeletonRows rows={3} cols={2} />
       ) : usage.error ? (
         <ErrorState message="Failed to load usage." retry={() => void usage.refetch()} />
       ) : byMetric.length === 0 ? (
-        <p className="text-sm text-neutral-500">No metered usage recorded yet.</p>
+        <p className="text-sm text-muted">No metered usage recorded yet.</p>
       ) : (
         <div className="space-y-4">
           {byMetric.map(([metric, data]) => (
             <div key={metric}>
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">{metricLabel(metric)}</p>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted">{metricLabel(metric)}</p>
               <BarChart data={data} height={120} />
             </div>
           ))}
@@ -243,12 +243,12 @@ function PlanEditor({ plan }: { plan: Plan }) {
           </Field>
         ))}
       </div>
-      <p className="mt-1 text-[11px] text-neutral-400">Use -1 for unlimited.</p>
+      <p className="mt-1 text-2xs text-faint">Use -1 for unlimited.</p>
       <div className="mt-3">
         <p className="mb-1.5 text-xs font-medium text-neutral-600">Modules</p>
         <div className="flex flex-wrap gap-1.5">
           <button
-            className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${all ? 'border-brand-400 bg-brand-50 text-brand-700' : 'border-neutral-200 text-neutral-500'}`}
+            className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${all ? 'border-accent/40 bg-mint text-teal-ink' : 'border-line text-muted'}`}
             onClick={() => setLimits((l) => ({ ...l, modules: all ? [] : ['*'] }))}
           >
             All modules
@@ -257,7 +257,7 @@ function PlanEditor({ plan }: { plan: Plan }) {
             <button
               key={m}
               disabled={all}
-              className={`rounded-full border px-2.5 py-1 text-xs capitalize transition-colors disabled:opacity-40 ${mods.includes(m) ? 'border-brand-400 bg-brand-50 text-brand-700' : 'border-neutral-200 text-neutral-500'}`}
+              className={`rounded-md border px-2.5 py-1 text-xs capitalize transition-colors disabled:opacity-40 ${mods.includes(m) ? 'border-accent/40 bg-mint text-teal-ink' : 'border-line text-muted'}`}
               onClick={() => toggle(m)}
             >
               {m}
@@ -271,7 +271,7 @@ function PlanEditor({ plan }: { plan: Plan }) {
       </label>
       <div className="mt-3">
         <Button disabled={invalid || save.isPending} onClick={() => save.mutate()}>{save.isPending ? 'Saving…' : 'Save limits'}</Button>
-        {invalid ? <span className="ml-2 text-xs text-red-600">Every limit must be a whole number (−1 = unlimited).</span> : null}
+        {invalid ? <span className="ml-2 text-xs text-danger">Every limit must be a whole number (−1 = unlimited).</span> : null}
       </div>
     </Card>
   );
@@ -318,14 +318,14 @@ export default function PlatformPage() {
   const selectedFresh = selected ? (tenants.data?.items.find((t) => t.id === selected.id) ?? selected) : null;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-6">
       <PageHeader title="Platform console" subtitle="Tenants, subscriptions and plan limits across MediCore. Tenant business records are never shown here." />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Stat label="Tenants" value={o?.tenants ?? '…'} hint={o ? `+${o.newThisMonth} this month` : undefined} tone="blue" />
-        <Stat label="Users" value={o?.users ?? '…'} delay={50} />
-        <Stat label="Invoices this month" value={o ? o.invoicesThisMonth.toLocaleString('en-IN') : '…'} tone="green" delay={100} />
-        <Stat label="Paying" value={o?.byStatus.find((s) => s.status === 'ACTIVE')?.count ?? 0} hint={`${o?.byStatus.find((s) => s.status === 'TRIALING')?.count ?? 0} on trial`} delay={150} />
-        <Stat label="Suspended" value={o?.suspended ?? '…'} tone={o?.suspended ? 'red' : 'neutral'} delay={200} />
+        <Stat label="Tenants" value={o?.tenants ?? '…'} hint={o ? `+${o.newThisMonth} this month` : undefined} />
+        <Stat label="Users" value={o?.users ?? '…'} />
+        <Stat label="Invoices this month" value={o ? o.invoicesThisMonth.toLocaleString('en-IN') : '…'} />
+        <Stat label="Paying" value={o?.byStatus.find((s) => s.status === 'ACTIVE')?.count ?? 0} hint={`${o?.byStatus.find((s) => s.status === 'TRIALING')?.count ?? 0} on trial`} />
+        <Stat variant="alert" label="Suspended" value={o?.suspended ?? '…'} tone={o?.suspended ? 'red' : 'neutral'} />
       </div>
       {o && (o.byPlan.length || o.byStatus.length) ? (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -344,13 +344,13 @@ export default function PlatformPage() {
           <div className="mb-3 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <SearchInput value={search} onChange={setSearch} placeholder="Search name, slug or GSTIN…" className="min-w-[220px] flex-1" />
-              <Select className="w-44" value={planKey} onChange={(e) => setPlanKey(e.target.value)} aria-label="Plan">
+              <Select className="w-full sm:w-44" value={planKey} onChange={(e) => setPlanKey(e.target.value)} aria-label="Plan">
                 <option value="">All plans</option>
                 {(plans.data?.map((p) => [p.key, p.name] as const) ?? PLAN_KEYS.map((k) => [k, k] as const)).map(([k, n]) => (
                   <option key={k} value={k}>{n}</option>
                 ))}
               </Select>
-              <Select className="w-40" value={suspended} onChange={(e) => setSuspended(e.target.value as typeof suspended)} aria-label="Access">
+              <Select className="w-full sm:w-40" value={suspended} onChange={(e) => setSuspended(e.target.value as typeof suspended)} aria-label="Access">
                 <option value="">Any access</option>
                 <option value="false">Active access</option>
                 <option value="true">Suspended</option>
@@ -379,16 +379,16 @@ export default function PlatformPage() {
             <Table head={<tr><Th>Organization</Th><Th>Plan</Th><Th>Status</Th><Th right>Users</Th><Th right>Branches</Th><Th right>Invoices</Th><Th>Joined</Th></tr>}>
               {tenants.data?.items.map((t) => (
                 <Tr key={t.id} onClick={() => setSelected(t)}>
-                  <Td className="text-sm font-medium text-brand-800">
+                  <Td className="text-sm font-medium text-brand-deep">
                     {t.name}
-                    {!t.setupCompletedAt ? <span className="ml-1.5 text-[10px] text-amber-600">setup pending</span> : null}
+                    {!t.setupCompletedAt ? <span className="ml-1.5 text-[10px] text-warning">setup pending</span> : null}
                   </Td>
                   <Td className="text-sm">{t.subscription?.plan ?? '—'}</Td>
                   <Td>{statusBadge(t)}</Td>
                   <Td right>{t.memberships}</Td>
                   <Td right>{t.branches}</Td>
                   <Td right>{t.invoices.toLocaleString('en-IN')}</Td>
-                  <Td className="text-xs text-neutral-500">{fmtDate(t.createdAt)}</Td>
+                  <Td className="text-xs text-muted">{fmtDate(t.createdAt)}</Td>
                 </Tr>
               ))}
             </Table>

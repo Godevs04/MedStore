@@ -8,7 +8,7 @@ import { api, ApiClientError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { useCan } from '@/lib/stock';
 import { ConfirmDialog, FilterChips, KpiGrid, Meter, Pagination, SearchInput, useDebouncedValue, useFieldErrors, type PageInfo } from '@/components/kit';
-import { Badge, Button, Card, Drawer, EmptyState, ErrorState, Field, Input, PageHeader, Select, SkeletonRows, Stat, Table, Td, Th, Tr, cn } from '@/components/ui';
+import { Badge, Button, Card, Drawer, EmptyState, ErrorState, Field, Input, PageHeader, Select, SkeletonRows, Stat, Table, Td, Th, Tr, cn, Alert, StatusBadge } from '@/components/ui';
 
 interface Member {
   id: string;
@@ -53,17 +53,17 @@ function since(iso: string | null) {
 }
 
 function BranchPicker({ branches, value, onChange }: { branches: Branch[]; value: string[]; onChange: (ids: string[]) => void }) {
-  if (branches.length === 0) return <p className="text-xs text-neutral-500">No branches yet.</p>;
+  if (branches.length === 0) return <p className="text-xs text-muted">No branches yet.</p>;
   const toggle = (id: string) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
   return (
     <div className="space-y-1.5">
-      <div className="flex gap-2 text-[11px]">
-        <button type="button" className="font-medium text-brand-700 hover:underline" onClick={() => onChange(branches.map((b) => b.id))}>Select all</button>
-        <button type="button" className="text-neutral-500 hover:underline" onClick={() => onChange([])}>Clear</button>
+      <div className="flex gap-2 text-2xs">
+        <button type="button" className="font-medium text-teal-ink hover:underline" onClick={() => onChange(branches.map((b) => b.id))}>Select all</button>
+        <button type="button" className="text-muted hover:underline" onClick={() => onChange([])}>Clear</button>
       </div>
       <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
         {branches.map((b) => (
-          <label key={b.id} className={cn('flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors', value.includes(b.id) ? 'border-brand-300 bg-brand-50/60' : 'border-neutral-200 hover:bg-neutral-50')}>
+          <label key={b.id} className={cn('flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-[13px] transition-colors', value.includes(b.id) ? 'border-accent/40 bg-mint/60' : 'border-line hover:bg-subtle')}>
             <input type="checkbox" className="accent-brand-600" checked={value.includes(b.id)} onChange={() => toggle(b.id)} />
             <span className="truncate">{b.name}</span>
             {!b.isActive ? <Badge tone="neutral">inactive</Badge> : null}
@@ -136,7 +136,7 @@ function BranchesDrawer({ member, branches, onClose, onDone }: { member: Member;
   return (
     <Drawer open onClose={onClose} title={`Branches · ${member.user.fullName}`} subtitle={member.isOwner ? 'Owners can always access every branch' : 'Pick where this person can work'} width="max-w-lg">
       <BranchPicker branches={branches} value={ids} onChange={setIds} />
-      {ids.length === 0 && !member.isOwner ? <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">With no branch assigned they can sign in but cannot bill or move stock.</p> : null}
+      {ids.length === 0 && !member.isOwner ? <Alert tone="warning">With no branch assigned they can sign in but cannot bill or move stock.</Alert> : null}
       <div className="flex justify-end gap-2 pt-2">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
         <Button disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? 'Saving…' : 'Save access'}</Button>
@@ -219,29 +219,27 @@ export default function UsersPage() {
   const resetPage = () => setPage(1);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Users"
         subtitle="Invite staff, assign roles and branches, and control access."
         actions={canManage ? <Button onClick={() => setInviting(true)}><Icon name="plus" size={15} strokeWidth={2.25} /> Invite user</Button> : null}
       />
-      <KpiGrid cols={4}>
-        <Stat label="Active" value={counts.ACTIVE} tone="green" />
-        <Stat label="Pending invites" value={counts.INVITED} hint="Links expire after 7 days" tone="amber" delay={60} />
-        <Stat label="Suspended" value={counts.SUSPENDED} tone="red" delay={120} />
-        <Card delay={180}>
-          <p className="text-xs font-medium text-neutral-500">Seats on your plan</p>
-          {seats ? (
-            <Meter value={seats.limit && seats.limit > 0 ? (seats.used / seats.limit) * 100 : 0} tone={seats.limit && seats.used >= seats.limit ? 'red' : 'green'} label={seats.limit && seats.limit > 0 ? `${seats.used} of ${seats.limit} used` : `${seats.used} used · unlimited`} />
-          ) : (
-            <p className="mt-2 text-sm text-neutral-400">…</p>
-          )}
-        </Card>
+      <KpiGrid bare cols={4}>
+        <Stat label="Active" value={counts.ACTIVE} />
+        <Stat label="Pending invites" value={counts.INVITED} hint="Links expire after 7 days" tone={counts.INVITED > 0 ? 'amber' : 'neutral'} />
+        <Stat variant="alert" label="Suspended" value={counts.SUSPENDED} tone={counts.SUSPENDED > 0 ? 'red' : 'neutral'} />
+        <Stat
+          label="Seats on your plan"
+          value={seats ? (seats.limit && seats.limit > 0 ? `${seats.used} / ${seats.limit}` : seats.used) : '…'}
+          hint={seats && !(seats.limit && seats.limit > 0) ? 'Unlimited' : undefined}
+          footer={seats && seats.limit && seats.limit > 0 ? <Meter value={(seats.used / seats.limit) * 100} tone={seats.used >= seats.limit ? 'red' : 'green'} /> : undefined}
+        />
       </KpiGrid>
 
       <Card>
         <div className="flex flex-wrap items-center gap-2">
-          <SearchInput value={search} onChange={(v) => { setSearch(v); resetPage(); }} placeholder="Name or email" className="w-56" />
+          <SearchInput value={search} onChange={(v) => { setSearch(v); resetPage(); }} placeholder="Name or email" className="w-full sm:w-56" />
           <FilterChips
             options={[
               { id: 'ACTIVE', label: 'Active', count: counts.ACTIVE, tone: 'green' },
@@ -251,14 +249,14 @@ export default function UsersPage() {
             value={status}
             onChange={(v) => { setStatus(v); resetPage(); }}
           />
-          <Select value={roleId} onChange={(e) => { setRoleId(e.target.value); resetPage(); }} className="w-44" aria-label="Role">
+          <Select value={roleId} onChange={(e) => { setRoleId(e.target.value); resetPage(); }} className="w-full sm:w-44" aria-label="Role">
             <option value="">All roles</option>
             {(roles.data ?? []).map((r) => (
               <option key={r.id} value={r.id}>{r.name}</option>
             ))}
           </Select>
           {branchList.length > 1 ? (
-            <Select value={branchId} onChange={(e) => { setBranchId(e.target.value); resetPage(); }} className="w-44" aria-label="Branch">
+            <Select value={branchId} onChange={(e) => { setBranchId(e.target.value); resetPage(); }} className="w-full sm:w-44" aria-label="Branch">
               <option value="">All branches</option>
               {branchList.map((b) => (
                 <option key={b.id} value={b.id}>{b.name}</option>
@@ -280,10 +278,10 @@ export default function UsersPage() {
                 <Tr key={m.id}>
                   <Td>
                     <div className="flex items-center gap-2.5">
-                      <span className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold', m.isOwner ? 'bg-emerald-100 text-emerald-700' : 'bg-brand-100 text-brand-700')}>{initials(m.user.fullName || m.user.email)}</span>
+                      <span className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold', m.isOwner ? 'bg-success/15 text-success' : 'bg-brand-100 text-teal-ink')}>{initials(m.user.fullName || m.user.email)}</span>
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-neutral-800">{m.user.fullName || '—'}</div>
-                        <div className="truncate text-xs text-neutral-500">{m.user.email}</div>
+                        <div className="truncate text-sm font-medium text-ink">{m.user.fullName || '—'}</div>
+                        <div className="truncate text-xs text-muted">{m.user.email}</div>
                       </div>
                     </div>
                   </Td>
@@ -303,30 +301,30 @@ export default function UsersPage() {
                   </Td>
                   <Td>
                     {m.isOwner ? (
-                      <span className="text-xs text-neutral-400">All branches</span>
+                      <span className="text-xs text-faint">All branches</span>
                     ) : (
                       <button type="button" disabled={!canManage || !branchList.length} onClick={() => setBranchFor(m)} className="flex max-w-56 flex-wrap gap-1 text-left disabled:cursor-default">
-                        {m.branchAssignments.length ? m.branchAssignments.map((a) => <Badge key={a.branch.id}>{a.branch.name}</Badge>) : <span className="text-xs text-amber-700">{canManage ? '+ Assign branch' : 'None'}</span>}
+                        {m.branchAssignments.length ? m.branchAssignments.map((a) => <Badge key={a.branch.id}>{a.branch.name}</Badge>) : <span className="text-xs text-warning">{canManage ? '+ Assign branch' : 'None'}</span>}
                       </button>
                     )}
                   </Td>
                   <Td>
-                    <Badge tone={STATUS_TONE[m.status]} dot>{STATUS_LABEL[m.status]}</Badge>
-                    {m.status === 'INVITED' ? <span className="block text-[10px] text-neutral-400">sent {since(m.invitedAt)}</span> : null}
+                    <StatusBadge status={m.status} label={STATUS_LABEL[m.status]} tone={STATUS_TONE[m.status]} />
+                    {m.status === 'INVITED' ? <span className="block text-[10px] text-faint">sent {since(m.invitedAt)}</span> : null}
                   </Td>
-                  <Td className="text-xs text-neutral-500" >{since(m.user.lastLoginAt)}</Td>
+                  <Td className="text-xs text-muted" >{since(m.user.lastLoginAt)}</Td>
                   <Td right>
                     {canManage && !m.isOwner ? (
                       <span className="flex justify-end gap-1">
                         {m.status === 'INVITED' ? (
                           <>
                             <Button variant="ghost" className="text-xs" disabled={resend.isPending} onClick={() => resend.mutate(m)}>Resend</Button>
-                            <Button variant="ghost" className="text-xs text-red-600" onClick={() => setConfirm({ kind: 'revoke', member: m })}>Revoke</Button>
+                            <Button variant="ghost" className="text-xs text-danger" onClick={() => setConfirm({ kind: 'revoke', member: m })}>Revoke</Button>
                           </>
                         ) : m.status === 'SUSPENDED' ? (
                           <Button variant="secondary" className="text-xs" disabled={setMemberStatus.isPending} onClick={() => setMemberStatus.mutate({ member: m, status: 'ACTIVE' })}>Reactivate</Button>
                         ) : (
-                          <Button variant="ghost" className="text-xs text-red-600" onClick={() => setConfirm({ kind: 'suspend', member: m })}>Suspend</Button>
+                          <Button variant="ghost" className="text-xs text-danger" onClick={() => setConfirm({ kind: 'suspend', member: m })}>Suspend</Button>
                         )}
                       </span>
                     ) : null}

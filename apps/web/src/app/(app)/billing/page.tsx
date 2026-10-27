@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import type { SubscriptionSummary } from '@/components/shell';
-import { Badge, Card, EmptyState, ErrorState, PageHeader, SkeletonRows, Stat, cn, fmtDate } from '@/components/ui';
+import { Badge, Card, EmptyState, ErrorState, PageHeader, SkeletonRows, Stat, cn, fmtDate, StatusBadge, MetricGroup } from '@/components/ui';
 
 const MODULE_LABELS: Record<string, string> = {
   catalog: 'Product catalog',
@@ -35,10 +35,10 @@ interface SubscriptionEvent {
   createdAt: string;
 }
 const EVENT_META: Record<string, { label: string; tone: string; icon: IconName }> = {
-  PLAN_CHANGED: { label: 'Plan changed', tone: 'bg-brand-500', icon: 'transfers' },
-  PERIOD_UPDATED: { label: 'Period renewed', tone: 'bg-emerald-500', icon: 'refresh' },
-  TRIAL_STARTED: { label: 'Trial started', tone: 'bg-sky-500', icon: 'star' },
-  STATUS_CHANGED: { label: 'Status changed', tone: 'bg-amber-500', icon: 'info' },
+  PLAN_CHANGED: { label: 'Plan changed', tone: 'bg-primary', icon: 'transfers' },
+  PERIOD_UPDATED: { label: 'Period renewed', tone: 'bg-success', icon: 'refresh' },
+  TRIAL_STARTED: { label: 'Trial started', tone: 'bg-info', icon: 'star' },
+  STATUS_CHANGED: { label: 'Status changed', tone: 'bg-warning', icon: 'info' },
 };
 const eventMeta = (type: string) =>
   EVENT_META[type] ?? { label: type.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase()), tone: 'bg-neutral-400', icon: 'circle' as IconName };
@@ -65,14 +65,14 @@ function Meter({ label, used, limit }: { label: string; used: number; limit: num
     <div>
       <div className="flex items-baseline justify-between text-sm">
         <span className="text-neutral-600">{label}</span>
-        <span className="tabular-nums font-medium">
+        <span className="num font-medium">
           {used.toLocaleString('en-IN')}
-          <span className="text-neutral-400"> / {limit === null ? '∞' : limit.toLocaleString('en-IN')}</span>
+          <span className="text-faint"> / {limit === null ? '∞' : limit.toLocaleString('en-IN')}</span>
         </span>
       </div>
-      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-neutral-100">
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-neutral-100">
         <div
-          className={cn('h-full rounded-full transition-all duration-700', pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-brand-500')}
+          className={cn('h-full rounded-full transition-[width] duration-300', pct >= 100 ? 'bg-danger' : pct >= 80 ? 'bg-warning' : 'bg-accent')}
           style={{ width: `${limit === null ? 4 : Math.max(2, pct)}%` }}
         />
       </div>
@@ -95,18 +95,18 @@ export default function BillingPage() {
 
   if (!tenant?.organizationId) {
     return (
-      <div className="mx-auto max-w-6xl">
+      <div className="max-w-6xl">
         <EmptyState title="No workspace selected" hint="Plan and billing details belong to a pharmacy workspace. You are not a member of any organization yet." />
       </div>
     );
   }
-  if (q.isLoading) return <div className="mx-auto max-w-6xl"><SkeletonRows rows={6} cols={3} /></div>;
-  if (q.error || !q.data) return <div className="mx-auto max-w-6xl"><ErrorState message="Failed to load your subscription." retry={() => void q.refetch()} /></div>;
+  if (q.isLoading) return <div className="max-w-6xl"><SkeletonRows rows={6} cols={3} /></div>;
+  if (q.error || !q.data) return <div className="max-w-6xl"><ErrorState message="Failed to load your subscription." retry={() => void q.refetch()} /></div>;
   const { subscription: sub, usage, plans, suspended } = q.data;
   const eventList = events.data ?? [];
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="max-w-6xl space-y-6">
       <PageHeader title="Plan & billing" subtitle="Your MediCore subscription, what it includes and how much of it you are using." />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -114,27 +114,25 @@ export default function BillingPage() {
           {sub ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-widest text-neutral-400">Current plan</span>
-                <Badge tone={suspended ? 'red' : STATUS_TONE[sub.status] ?? 'neutral'} dot>
-                  {suspended ? 'Suspended' : sub.lapsed ? 'Ended' : (STATUS_LABEL[sub.status] ?? sub.status)}
-                </Badge>
+                <span className="text-2xs font-medium uppercase tracking-wide text-muted">Current plan</span>
+                <StatusBadge status={suspended ? 'SUSPENDED' : sub.lapsed ? 'EXPIRED' : sub.status} tone={suspended ? 'red' : STATUS_TONE[sub.status]} label={suspended ? 'Suspended' : sub.lapsed ? 'Ended' : STATUS_LABEL[sub.status]} />
               </div>
               <div>
-                <p className="mc-gradient-text text-2xl font-bold tracking-tight">{sub.planName}</p>
-                {sub.planDescription ? <p className="mt-0.5 text-sm text-neutral-500">{sub.planDescription}</p> : null}
+                <p className="text-metric font-[550] text-ink">{sub.planName}</p>
+                {sub.planDescription ? <p className="mt-0.5 text-sm text-muted">{sub.planDescription}</p> : null}
               </div>
-              <div className="rounded-xl bg-neutral-50 px-3 py-2.5 text-sm">
+              <div className="rounded-lg bg-subtle px-3 py-2.5 text-[13px]">
                 {sub.lapsed ? (
-                  <span className="text-red-700">Ended on {fmtDate(sub.endsAt)} — workspace is read-only.</span>
+                  <span className="text-danger">Ended on {fmtDate(sub.endsAt)} — workspace is read-only.</span>
                 ) : (
                   <span>
                     {sub.status === 'TRIALING' ? 'Trial ends' : 'Renews'} on <strong>{fmtDate(sub.endsAt)}</strong>
-                    <span className="text-neutral-500"> · {sub.daysLeft} day{sub.daysLeft === 1 ? '' : 's'} left</span>
+                    <span className="text-muted"> · {sub.daysLeft} day{sub.daysLeft === 1 ? '' : 's'} left</span>
                   </span>
                 )}
               </div>
               <div>
-                <p className="mb-1.5 text-xs font-semibold uppercase tracking-widest text-neutral-400">Included modules</p>
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-widest text-faint">Included modules</p>
                 <div className="flex flex-wrap gap-1.5">
                   {sub.modules.includes('*') ? (
                     <Badge tone="green">All modules</Badge>
@@ -145,7 +143,7 @@ export default function BillingPage() {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-neutral-500">No subscription is attached to this organization.</p>
+            <p className="text-sm text-muted">No subscription is attached to this organization.</p>
           )}
         </Card>
 
@@ -156,51 +154,50 @@ export default function BillingPage() {
             <Meter label="Branches" used={usage.branches.used} limit={usage.branches.limit} />
             <Meter label="Warehouses" used={usage.warehouses.used} limit={usage.warehouses.limit} />
           </div>
-          <p className="mt-4 text-xs text-neutral-500">
+          <p className="mt-4 text-xs text-muted">
             Limits are enforced on the server: when a limit is reached, new invoices, users, branches or warehouses are blocked with a clear message until you upgrade.
           </p>
         </Card>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Plan" value={sub?.planName ?? '—'} tone="blue" />
-        <Stat label="Invoices left this month" value={usage.invoicesThisMonth.limit === null ? 'Unlimited' : Math.max(0, usage.invoicesThisMonth.limit - usage.invoicesThisMonth.used).toLocaleString('en-IN')} delay={60} />
-        <Stat label="Seats available" value={usage.users.limit === null ? 'Unlimited' : Math.max(0, usage.users.limit - usage.users.used)} delay={120} />
-        <Stat label="Days remaining" value={sub ? sub.daysLeft : '—'} tone={sub && sub.daysLeft <= 7 ? 'amber' : 'green'} delay={180} />
-      </div>
+      <MetricGroup bare>
+        <Stat label="Plan" value={sub?.planName ?? '—'} />
+        <Stat label="Invoices left this month" value={usage.invoicesThisMonth.limit === null ? 'Unlimited' : Math.max(0, usage.invoicesThisMonth.limit - usage.invoicesThisMonth.used).toLocaleString('en-IN')} />
+        <Stat label="Seats available" value={usage.users.limit === null ? 'Unlimited' : Math.max(0, usage.users.limit - usage.users.used)} />
+        <Stat label="Days remaining" value={sub ? sub.daysLeft : '—'} tone={sub && sub.daysLeft <= 7 ? 'amber' : 'green'} />
+      </MetricGroup>
 
       <Card title="Compare plans">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {[...plans].sort((a, b) => planRank(a.key) - planRank(b.key)).map((p, i) => {
+          {[...plans].sort((a, b) => planRank(a.key) - planRank(b.key)).map((p) => {
             const current = p.key === sub?.planKey;
             const mods = Array.isArray(p.limits.modules) ? (p.limits.modules as string[]) : [];
             return (
               <div
                 key={p.key}
                 className={cn(
-                  'mc-anim-fade-up flex flex-col rounded-2xl border p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md',
-                  current ? 'border-brand-400 bg-brand-50/40 ring-2 ring-brand-200' : 'border-neutral-200 bg-white',
+                  'flex flex-col rounded-xl border p-4',
+                  current ? 'border-accent bg-mint/40 ring-1 ring-accent' : 'border-line bg-surface',
                 )}
-                style={{ animationDelay: `${i * 60}ms` }}
               >
                 <div className="flex items-center justify-between">
                   <p className="font-semibold tracking-tight">{p.name}</p>
                   {current ? <Badge tone="blue">Current</Badge> : null}
                 </div>
-                {p.description ? <p className="mt-1 text-xs text-neutral-500">{p.description}</p> : null}
+                {p.description ? <p className="mt-1 text-xs text-muted">{p.description}</p> : null}
                 <ul className="mt-3 space-y-1.5 text-xs text-neutral-700">
                   <li><Icon name="check" size={13} strokeWidth={2.5} /> {fmtCount(p.limits.monthlyInvoiceLimit, 'invoice', 'invoices')} / month</li>
                   <li><Icon name="check" size={13} strokeWidth={2.5} /> {fmtCount(p.limits.maxUsers, 'user', 'users')}</li>
                   <li><Icon name="check" size={13} strokeWidth={2.5} /> {fmtCount(p.limits.maxBranches, 'branch', 'branches')} · {fmtCount(p.limits.maxWarehouses, 'warehouse', 'warehouses')}</li>
                   <li><Icon name="check" size={13} strokeWidth={2.5} /> {mods.includes('*') ? 'All modules' : mods.map((m) => MODULE_LABELS[m] ?? m).join(', ')}</li>
-                  <li>{p.limits.apiAccess ? <><Icon name="check" size={13} strokeWidth={2.5} /> API access</> : <span className="text-neutral-400"><Icon name="close" size={13} /> No API access</span>}</li>
+                  <li>{p.limits.apiAccess ? <><Icon name="check" size={13} strokeWidth={2.5} /> API access</> : <span className="text-faint"><Icon name="close" size={13} /> No API access</span>}</li>
                 </ul>
                 <div className="mt-auto pt-4">
                   {current ? (
-                    <span className="block text-center text-xs font-medium text-brand-700">You are on this plan</span>
+                    <span className="block text-center text-xs font-medium text-teal-ink">You are on this plan</span>
                   ) : SUPPORT_EMAIL ? (
                     <a
-                      className="block rounded-lg border border-brand-200 px-3 py-1.5 text-center text-xs font-semibold text-brand-700 transition-colors hover:bg-brand-50"
+                      className="flex h-control-sm items-center justify-center rounded-md border border-line px-3 text-xs font-semibold text-teal-ink transition-colors hover:bg-mint"
                       href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`Switch to ${p.name}`)}`}
                     >
                       Request {p.name}
@@ -211,12 +208,12 @@ export default function BillingPage() {
             );
           })}
         </div>
-        <p className="mt-4 text-xs text-neutral-500">
+        <p className="mt-4 text-xs text-muted">
           Online payment is not connected yet. Plan changes and renewals are activated by your MediCore platform administrator, and every change is recorded in the audit log.
         </p>
       </Card>
 
-      <Card title="Subscription history" actions={eventList.length ? <span className="text-xs text-neutral-500">{eventList.length} event{eventList.length === 1 ? '' : 's'}</span> : undefined}>
+      <Card title="Subscription history" actions={eventList.length ? <span className="text-xs text-muted">{eventList.length} event{eventList.length === 1 ? '' : 's'}</span> : undefined}>
         {events.isLoading ? (
           <SkeletonRows rows={3} cols={2} />
         ) : events.error ? (
@@ -224,28 +221,28 @@ export default function BillingPage() {
         ) : eventList.length === 0 ? (
           <EmptyState title="No changes yet" hint="Plan upgrades, renewals and status changes made by your platform administrator will appear here." />
         ) : (
-          <ol className="relative ml-3 space-y-4 border-l border-neutral-200 pl-5">
-            {eventList.map((e, i) => {
+          <ol className="relative ml-3 space-y-4 border-l border-line pl-5">
+            {eventList.map((e) => {
               const m = eventMeta(e.eventType);
               return (
-                <li key={e.id} className="mc-anim-fade-up relative" style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}>
+                <li key={e.id} className="mc-anim-fade-in relative">
                   <span className={cn('absolute -left-[31px] top-0.5 grid h-5 w-5 place-items-center rounded-full text-white ring-4 ring-white', m.tone)}>
                     <Icon name={m.icon} size={11} strokeWidth={2.5} />
                   </span>
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <p className="text-sm font-medium text-neutral-800">
+                    <p className="text-sm font-medium text-ink">
                       {m.label}
                       {e.fromPlan && e.toPlan && e.fromPlan !== e.toPlan ? (
-                        <span className="font-normal text-neutral-600"> · {e.fromPlan} → <strong className="text-neutral-800">{e.toPlan}</strong></span>
+                        <span className="font-normal text-neutral-600"> · {e.fromPlan} → <strong className="text-ink">{e.toPlan}</strong></span>
                       ) : e.toPlan ? (
                         <span className="font-normal text-neutral-600"> · {e.toPlan}</span>
                       ) : null}
                     </p>
-                    <time className="text-xs tabular-nums text-neutral-500" dateTime={e.createdAt}>
+                    <time className="text-xs num text-muted" dateTime={e.createdAt}>
                       {new Date(e.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </time>
                   </div>
-                  {e.notes ? <p className="mt-0.5 text-xs text-neutral-500">{e.notes}</p> : null}
+                  {e.notes ? <p className="mt-0.5 text-xs text-muted">{e.notes}</p> : null}
                 </li>
               );
             })}

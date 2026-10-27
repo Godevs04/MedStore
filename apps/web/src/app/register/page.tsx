@@ -11,7 +11,7 @@ import { api, ApiClientError } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { toast } from '@/lib/toast';
 import { AuthShell, PasswordChecklist, PasswordInput, authLinkClass } from '@/components/auth';
-import { Button, Field, Input } from '@/components/ui';
+import { Button, Field, Input, Alert } from '@/components/ui';
 
 const schema = registerOrganizationRequestSchema.extend({
   organizationName: z.string().trim().min(2, 'Enter your pharmacy’s name').max(160, 'Keep it under 160 characters'),
@@ -97,12 +97,10 @@ export default function RegisterPage() {
               I agree to the Terms of Service and consent to MediCore processing my business data as described in the Privacy Notice (Digital Personal Data Protection Act, 2023).
             </span>
           </label>
-          {errors.acceptTerms?.message ? <p className="mt-1 text-[11px] text-red-600">{errors.acceptTerms.message}</p> : null}
+          {errors.acceptTerms?.message ? <p className="mt-1 text-2xs text-danger">{errors.acceptTerms.message}</p> : null}
         </div>
         {formError ? (
-          <p role="alert" className="mc-anim-shake rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700 sm:col-span-2">
-            {formError}
-          </p>
+          <Alert tone="danger" className="sm:col-span-2">{formError}</Alert>
         ) : null}
         <div className="sm:col-span-2">
           <Button type="submit" className="w-full py-2" disabled={isSubmitting}>

@@ -2,16 +2,17 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { markSignedOut, useCurrentMembership, useSession } from '@/lib/session';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
-import { Icon } from './icons';
+import { Icon, type IconName } from './icons';
 import { Kbd } from './kit';
+import { Logo } from './logo';
 import { NAV, type NavItem } from './nav';
 import { Breadcrumbs, CommandPalette, NotificationBell, ProfileMenu } from './shell-parts';
-import { Badge, Select, cn } from './ui';
+import { IconButton, Select, cn } from './ui';
 
 export interface SubscriptionSummary {
   suspended: boolean;
@@ -31,33 +32,60 @@ export interface SubscriptionSummary {
   plans: Array<{ key: string; name: string; description: string | null; limits: Record<string, unknown> }>;
 }
 
+function ShellNotice({ tone, icon, children, action }: { tone: 'info' | 'warning' | 'danger'; icon: IconName; children: React.ReactNode; action?: React.ReactNode }) {
+  const tones = {
+    info: 'bg-mint/60 text-brand-deep [&_svg:first-child]:text-teal-ink',
+    warning: 'bg-warning/10 text-ink [&_svg:first-child]:text-warning',
+    danger: 'bg-danger/10 text-ink [&_svg:first-child]:text-danger',
+  };
+  return (
+    <div className={cn('no-print mc-anim-fade-in flex h-8 items-center justify-between gap-3 border-b border-line px-4 text-xs sm:px-6 lg:px-8', tones[tone])} role="status">
+      <span className="flex min-w-0 items-center gap-2">
+        <Icon name={icon} size={14} />
+        <span className="min-w-0 truncate">{children}</span>
+      </span>
+      {action}
+    </div>
+  );
+}
+
 function SubscriptionBanner({ data }: { data: SubscriptionSummary | undefined }) {
   if (!data) return null;
   const sub = data.subscription;
-  let tone = '';
-  let text = '';
+  let tone: 'info' | 'warning' | 'danger' = 'info';
+  let text: React.ReactNode = '';
   if (data.suspended) {
-    tone = 'border-red-200 bg-red-50 text-red-800';
+    tone = 'danger';
     text = 'This workspace is suspended by the platform administrator. Contact MediCore support to restore access.';
   } else if (sub?.lapsed) {
-    tone = 'border-red-200 bg-red-50 text-red-800';
+    tone = 'danger';
     text = `Your ${sub.planName} subscription has ended. Records stay readable, but billing and postings are paused until renewal.`;
   } else if (sub && sub.status === 'TRIALING' && sub.daysLeft <= 14) {
-    tone = sub.daysLeft <= 3 ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-brand-100 bg-brand-50/70 text-brand-900';
-    text = `Free trial · ${sub.daysLeft} day${sub.daysLeft === 1 ? '' : 's'} left. Choose a plan to keep your pharmacy running without interruption.`;
+    tone = sub.daysLeft <= 3 ? 'warning' : 'info';
+    text = (
+      <>
+        <span className="font-medium">Free trial · {sub.daysLeft} day{sub.daysLeft === 1 ? '' : 's'} left</span>
+        <span className="hidden text-muted md:inline"> — choose a plan to keep billing without interruption.</span>
+      </>
+    );
   } else if (sub && sub.daysLeft <= 7) {
-    tone = 'border-amber-200 bg-amber-50 text-amber-900';
+    tone = 'warning';
     text = `Your ${sub.planName} plan renews in ${sub.daysLeft} day${sub.daysLeft === 1 ? '' : 's'}.`;
   }
   if (!text) return null;
   return (
-    <div className={cn('no-print mc-anim-fade-in flex items-center justify-between gap-3 border-b px-5 py-2 text-xs', tone)}>
-      <span>{text}</span>
-      <Link href="/billing" className="group inline-flex shrink-0 items-center gap-1 font-semibold underline-offset-2 hover:underline">
-        View plans
-        <Icon name="arrowRight" size={13} className="transition-transform group-hover:translate-x-0.5" />
-      </Link>
-    </div>
+    <ShellNotice
+      tone={tone}
+      icon={tone === 'danger' ? 'danger' : 'billing'}
+      action={
+        <Link href="/billing" className="inline-flex shrink-0 items-center gap-1 font-semibold underline-offset-2 hover:underline">
+          View plans
+          <Icon name="arrowRight" size={12} />
+        </Link>
+      }
+    >
+      {text}
+    </ShellNotice>
   );
 }
 
@@ -75,29 +103,54 @@ function VerifyEmailBanner({ email }: { email: string }) {
     }
   };
   return (
-    <div className="no-print mc-anim-fade-in flex items-center justify-between gap-3 border-b border-sky-200 bg-sky-50 px-5 py-2 text-xs text-sky-900">
-      <span className="inline-flex items-center gap-2">
-        <Icon name="mail" size={14} className="text-sky-600" />
-        <span>
-          Please verify <strong>{email}</strong> so password resets and invoices reach you.
-        </span>
-      </span>
-      <button type="button" disabled={state !== 'idle'} onClick={() => void resend()} className="inline-flex shrink-0 items-center gap-1 font-semibold underline-offset-2 hover:underline disabled:opacity-60">
-        {state === 'sent' ? (
-          <>
-            Link sent <Icon name="check" size={13} strokeWidth={2.5} />
-          </>
-        ) : state === 'sending' ? (
-          'Sending…'
-        ) : (
-          'Send verification link'
-        )}
-      </button>
-    </div>
+    <ShellNotice
+      tone="info"
+      icon="mail"
+      action={
+        <button type="button" disabled={state !== 'idle'} onClick={() => void resend()} className="inline-flex shrink-0 items-center gap-1 font-semibold underline-offset-2 hover:underline disabled:opacity-60">
+          {state === 'sent' ? (
+            <>
+              Link sent <Icon name="check" size={12} strokeWidth={2.5} />
+            </>
+          ) : state === 'sending' ? (
+            'Sending…'
+          ) : (
+            'Send verification link'
+          )}
+        </button>
+      }
+    >
+      Please verify <strong>{email}</strong> so password resets and invoices reach you.
+    </ShellNotice>
   );
 }
 
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || 'M';
+}
+
 const COLLAPSED_KEY = 'medicore.sidebar.collapsed';
+const CLOSED_GROUPS_KEY = 'medicore.sidebar.closedGroups';
+
+function useClosedGroups() {
+  const [closed, setClosed] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const parsed: unknown = JSON.parse(window.localStorage.getItem(CLOSED_GROUPS_KEY) ?? '[]');
+      if (Array.isArray(parsed)) setClosed(parsed.filter((x): x is string => typeof x === 'string'));
+    } catch {
+      /* ignore corrupt preference */
+    }
+  }, []);
+  const toggle = (section: string) =>
+    setClosed((c) => {
+      const next = c.includes(section) ? c.filter((s) => s !== section) : [...c, section];
+      window.localStorage.setItem(CLOSED_GROUPS_KEY, JSON.stringify(next));
+      return next;
+    });
+  return { closed, toggle };
+}
 
 function SidebarNav({
   groups,
@@ -105,81 +158,101 @@ function SidebarNav({
   isActive,
   locked,
   onNavigate,
+  label = 'Main',
 }: {
+  label?: string;
   groups: Array<{ section: string; items: NavItem[] }>;
   collapsed: boolean;
   isActive: (href: string) => boolean;
   locked: (module?: string) => boolean;
   onNavigate?: () => void;
 }) {
-  let navIndex = 0;
+  const { closed, toggle } = useClosedGroups();
+  const navRef = useRef<HTMLElement>(null);
+  const activeHref = groups.flatMap((g) => g.items).find((i) => isActive(i.href))?.href;
+  useEffect(() => {
+    navRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest' });
+  }, [activeHref]);
+  const [tip, setTip] = useState<{ label: string; top: number; left: number } | null>(null);
+  const showTip = (label: string) => (e: React.SyntheticEvent<HTMLElement>) => {
+    if (!collapsed) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    setTip({ label, top: r.top + r.height / 2, left: r.right + 8 });
+  };
   return (
-    <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2.5 pb-3">
-      {groups.map((group) => (
-        <div key={group.section} className="pt-2 first:pt-0">
-          {!collapsed && group.section !== 'Overview' ? (
-            <div className="mc-anim-fade-in px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-400">{group.section}</div>
-          ) : null}
-          {group.items.map((item) => {
-            const active = isActive(item.href);
-            const i = navIndex++;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                title={item.label}
-                onClick={onNavigate}
-                aria-current={active ? 'page' : undefined}
-                className={cn(
-                  'mc-anim-slide-in group relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm',
-                  'transition-all duration-200 ease-out',
-                  active ? 'bg-brand-50 font-semibold text-brand-700' : 'text-neutral-600 hover:bg-neutral-100/80 hover:text-neutral-900',
-                )}
-                style={{ animationDelay: `${i * 25}ms` }}
+    <nav ref={navRef} aria-label={label} className={cn('min-h-0 flex-1 overflow-y-auto pb-3', collapsed ? 'px-2' : 'px-3')}>
+      {groups.map((group) => {
+        const hasActive = group.items.some((i) => isActive(i.href));
+        const titled = group.section !== 'Overview';
+        const open = collapsed || !titled || hasActive || !closed.includes(group.section);
+        const listId = `nav-${group.section.replace(/\W+/g, '-').toLowerCase()}`;
+        return (
+          <div key={group.section} className={cn(titled && 'mt-4', collapsed && titled && 'mt-2 border-t border-line pt-2')}>
+            {!collapsed && titled ? (
+              <button
+                type="button"
+                onClick={() => toggle(group.section)}
+                aria-expanded={open}
+                aria-controls={listId}
+                className="flex w-full items-center justify-between rounded-md px-2 py-1 text-2xs font-medium text-faint transition-colors hover:text-muted"
               >
-                <span
-                  className={cn(
-                    'absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-gradient-to-b from-brand-400 to-brand-600 transition-all duration-300',
-                    active ? 'scale-100 opacity-100' : 'scale-0 opacity-0',
-                  )}
-                />
-                <Icon
-                  name={item.icon}
-                  size={17}
-                  strokeWidth={active ? 2.1 : 1.75}
-                  className={cn('transition-all duration-200', active ? 'text-brand-600' : 'text-neutral-400 group-hover:scale-110 group-hover:text-brand-600', collapsed && 'mx-auto')}
-                />
-                {!collapsed && <span className="truncate">{item.label}</span>}
-                {!collapsed && locked(item.module) ? (
-                  <span className="ml-auto inline-flex items-center gap-1 rounded-md bg-neutral-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-neutral-500" title="Not included in your plan">
-                    <Icon name="lock" size={9} strokeWidth={2.5} />
-                    Upgrade
-                  </span>
-                ) : null}
-              </Link>
-            );
-          })}
+                {group.section}
+                <Icon name="chevronDown" size={12} className={cn('transition-transform duration-150', !open && '-rotate-90')} />
+              </button>
+            ) : null}
+            <div id={listId} className="mc-collapse" data-open={open}>
+              <ul className="space-y-px">
+                {group.items.map((item) => {
+                  const active = isActive(item.href);
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        onClick={onNavigate}
+                        aria-current={active ? 'page' : undefined}
+                        aria-label={collapsed ? item.label : undefined}
+                        onMouseEnter={showTip(item.label)}
+                        onMouseLeave={() => setTip(null)}
+                        onFocus={showTip(item.label)}
+                        onBlur={() => setTip(null)}
+                        className={cn(
+                          'group relative flex h-8 items-center gap-2.5 rounded-md text-[13px] outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-accent/50',
+                          collapsed ? 'justify-center px-0' : 'px-2',
+                          active ? 'bg-brand-50 font-medium text-brand-deep' : 'text-neutral-600 hover:bg-subtle hover:text-ink',
+                        )}
+                      >
+                        {active ? <span className="absolute bottom-1.5 left-0 top-1.5 w-[3px] rounded-r bg-accent" aria-hidden /> : null}
+                        <Icon name={item.icon} size={16} strokeWidth={active ? 2 : 1.75} className={active ? 'text-teal-ink' : 'text-quiet group-hover:text-muted'} />
+                        {!collapsed && <span className="truncate">{item.label}</span>}
+                        {!collapsed && locked(item.module) ? (
+                          <span className="ml-auto inline-flex items-center gap-1 rounded bg-subtle px-1.5 py-px text-[10px] font-medium text-muted" title="Not included in your plan">
+                            <Icon name="lock" size={9} strokeWidth={2.5} />
+                            Upgrade
+                          </span>
+                        ) : null}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
+        );
+      })}
+      {collapsed && tip ? (
+        <div role="tooltip" className="mc-anim-fade-in pointer-events-none fixed z-dialog -translate-y-1/2 whitespace-nowrap rounded-md bg-ink px-2 py-1 text-xs font-medium text-white shadow-pop" style={{ top: tip.top, left: tip.left }}>
+          {tip.label}
         </div>
-      ))}
+      ) : null}
     </nav>
   );
 }
 
 function Brand({ collapsed }: { collapsed: boolean }) {
   return (
-    <div className="flex items-center gap-2.5 px-4 py-4">
-      <div className="mc-anim-scale-in flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-md shadow-brand-600/30">
-        <Icon name="products" size={17} strokeWidth={2} />
-      </div>
-      {!collapsed && (
-        <div className="mc-anim-fade-in min-w-0">
-          <div className="truncate text-sm font-bold tracking-tight">
-            <span className="mc-gradient-text">MediCore</span>
-          </div>
-          <div className="text-[10px] font-medium uppercase tracking-widest text-neutral-400">Pharmacy ERP</div>
-        </div>
-      )}
-    </div>
+    <Link href="/" className={cn('flex h-14 shrink-0 items-center border-b border-line', collapsed ? 'justify-center px-2' : 'px-4')} aria-label="MediCore home">
+      <Logo collapsed={collapsed} />
+    </Link>
   );
 }
 
@@ -189,6 +262,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement>(null);
+  const menuButtonRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!mobileOpen) return;
+    drawerRef.current?.querySelector<HTMLElement>('[data-autofocus]')?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    const opener = menuButtonRef.current;
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      opener?.querySelector<HTMLElement>('button')?.focus();
+    };
+  }, [mobileOpen]);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   useEffect(() => {
@@ -250,102 +338,109 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     window.location.replace('/login');
   };
 
-  const orgFooter = membership ? (
-    <div className="border-t border-neutral-100 px-3 py-3">
-      {!collapsed ? (
-        <div className="mc-anim-fade-in">
-          <div className="truncate text-xs font-semibold text-neutral-700">{membership.organizationName}</div>
-          <div className="mt-1 flex items-center gap-1.5">
-            <Badge tone={membership.isOwner ? 'green' : 'blue'} dot>
-              {membership.roleName}
-            </Badge>
-            {subscription.data?.subscription ? (
-              <Link href="/billing">
-                <Badge tone={subscription.data.subscription.lapsed ? 'red' : 'neutral'}>{subscription.data.subscription.planName}</Badge>
-              </Link>
-            ) : null}
+  const sidebarFooter = (inDrawer: boolean) =>
+    membership ? (
+      <div className={cn('border-t border-line', collapsed && !inDrawer ? 'px-2 py-2' : 'px-3 py-2.5')}>
+        {!collapsed || inDrawer ? (
+          <div className="flex items-center gap-2.5">
+            <span aria-hidden className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-mint text-2xs font-semibold text-brand-deep">
+              {initials(membership.organizationName)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xs font-medium text-ink">{membership.organizationName}</div>
+              <div className="mt-0.5 flex min-w-0 items-center gap-1 text-2xs text-muted">
+                <span className="truncate">{membership.roleName}</span>
+                {subscription.data?.subscription ? (
+                  <>
+                    <span aria-hidden>·</span>
+                    <Link href="/billing" className={cn('shrink-0 hover:text-teal-ink hover:underline', subscription.data.subscription.lapsed && 'text-danger')}>
+                      {subscription.data.subscription.planName}
+                    </Link>
+                  </>
+                ) : null}
+              </div>
+            </div>
+            {!inDrawer ? <IconButton icon="chevronLeft" label="Collapse sidebar" size="sm" onClick={toggleCollapsed} /> : null}
           </div>
-        </div>
-      ) : (
-        <div className="flex justify-center">
-          <Badge tone={membership.isOwner ? 'green' : 'blue'}>{membership.roleName[0]}</Badge>
-        </div>
-      )}
-    </div>
-  ) : null;
+        ) : (
+          <IconButton icon="chevronRight" label="Expand sidebar" size="sm" className="mx-auto flex" onClick={toggleCollapsed} />
+        )}
+      </div>
+    ) : null;
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-canvas">
       <aside
         className={cn(
-          'no-print relative hidden flex-col border-r border-neutral-200/80 bg-white transition-[width] duration-300 ease-out md:flex',
-          collapsed ? 'w-16' : 'w-60',
+          'no-print relative hidden flex-col border-r border-line bg-surface transition-[width] duration-200 ease-out md:flex',
+          collapsed ? 'w-[60px]' : 'w-60',
         )}
       >
         <Brand collapsed={collapsed} />
+        <div className="h-3 shrink-0" />
         <SidebarNav groups={groups} collapsed={collapsed} isActive={isActive} locked={locked} />
-        {orgFooter}
-        <button
-          className="absolute -right-3 top-16 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-neutral-200 bg-white text-[10px] text-neutral-500 shadow-sm transition-all duration-200 hover:scale-110 hover:border-brand-300 hover:text-brand-600"
-          onClick={toggleCollapsed}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          <Icon name={collapsed ? 'chevronRight' : 'chevronLeft'} size={13} strokeWidth={2.25} />
-        </button>
+        {sidebarFooter(false)}
       </aside>
 
       {mobileOpen ? (
-        <div className="no-print fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
-          <button aria-label="Close menu" className="mc-anim-fade-in absolute inset-0 bg-neutral-900/40 backdrop-blur-[2px]" onClick={() => setMobileOpen(false)} />
-          <aside className="mc-anim-slide-in relative flex h-full w-72 flex-col bg-white shadow-2xl">
-            <Brand collapsed={false} />
-            <SidebarNav groups={groups} collapsed={false} isActive={isActive} locked={locked} onNavigate={() => setMobileOpen(false)} />
-            {orgFooter}
+        <div className="no-print fixed inset-0 z-drawer md:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
+          <div aria-hidden className="mc-anim-fade-in absolute inset-0 bg-neutral-950/30" onClick={() => setMobileOpen(false)} />
+          <aside ref={drawerRef} className="mc-anim-slide-in relative flex h-full w-72 max-w-[85vw] flex-col bg-surface shadow-overlay">
+            <div className="relative">
+              <Brand collapsed={false} />
+              <IconButton icon="close" label="Close menu" size="sm" data-autofocus className="absolute right-3 top-3" onClick={() => setMobileOpen(false)} />
+            </div>
+            <div className="h-3 shrink-0" />
+            <SidebarNav label="Menu" groups={groups} collapsed={false} isActive={isActive} locked={locked} onNavigate={() => setMobileOpen(false)} />
+            {sidebarFooter(true)}
           </aside>
         </div>
       ) : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header data-shell className="no-print mc-anim-fade-in relative z-30 flex items-center gap-3 border-b border-neutral-200/80 bg-white/90 px-3 py-2.5 backdrop-blur sm:px-5">
-          <button
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-neutral-200 text-neutral-600 md:hidden"
-            onClick={() => setMobileOpen(true)}
-            aria-label="Open menu"
-          >
-            <Icon name="menu" size={17} />
-          </button>
-          <Breadcrumbs pathname={pathname} />
-          <div className="flex flex-1 items-center justify-end gap-2 lg:justify-start lg:pl-3">
-            <Select aria-label="Organization" className="hidden w-48 sm:block" value={tenant?.organizationId ?? ''} onChange={(e) => switchOrg(e.target.value)}>
-              {user?.memberships.map((m) => (
-                <option key={m.organizationId} value={m.organizationId}>
-                  {m.organizationName}
-                </option>
-              ))}
-            </Select>
-            <Select
-              aria-label="Branch"
-              className="hidden w-40 sm:block"
-              value={tenant?.branchId ?? ''}
-              onChange={(e) => tenant && setTenant({ organizationId: tenant.organizationId, branchId: e.target.value || null })}
-            >
-              <option value="">All branches</option>
-              {membership?.branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </Select>
+        <header data-shell className="no-print relative z-header flex h-14 shrink-0 items-center gap-2 border-b border-line bg-canvas px-3 sm:gap-3 sm:px-6 lg:px-8">
+          <div ref={menuButtonRef} className="md:hidden">
+            <IconButton icon="menu" label="Open menu" variant="secondary" size="sm" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)} />
           </div>
-          <div className="flex items-center gap-2 text-sm">
+          <Breadcrumbs pathname={pathname} />
+          <div className="ml-auto flex items-center gap-2">
+            <div className="hidden items-center divide-x divide-line sm:flex">
+              <Select
+                aria-label="Organization"
+                className="h-control-sm w-auto min-w-[8rem] max-w-[15rem] rounded-none border-0 bg-transparent pr-7 text-xs font-medium hover:text-teal-ink focus:ring-0"
+                value={tenant?.organizationId ?? ''}
+                onChange={(e) => switchOrg(e.target.value)}
+              >
+                {user?.memberships.map((m) => (
+                  <option key={m.organizationId} value={m.organizationId}>
+                    {m.organizationName}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                aria-label="Branch"
+                className="h-control-sm w-auto min-w-[7.5rem] max-w-[12rem] rounded-none border-0 bg-transparent pr-7 text-xs font-medium text-muted hover:text-teal-ink focus:ring-0"
+                value={tenant?.branchId ?? ''}
+                onChange={(e) => tenant && setTenant({ organizationId: tenant.organizationId, branchId: e.target.value || null })}
+              >
+                <option value="">All branches</option>
+                {membership?.branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <span className="mx-1 hidden h-5 w-px bg-line sm:block" aria-hidden />
             <button
+              type="button"
               onClick={() => setPaletteOpen(true)}
-              className="flex h-8 items-center gap-2 rounded-full border border-neutral-200 bg-white pl-3 pr-1.5 text-xs text-neutral-500 shadow-sm transition-all hover:border-brand-300 hover:text-brand-700"
+              className="flex h-control-sm items-center gap-2 rounded-md border border-line bg-surface px-2.5 text-xs text-faint transition-colors hover:border-neutral-300 hover:text-ink lg:w-56"
               aria-label="Search (Ctrl or Cmd + K)"
             >
               <Icon name="search" size={14} />
-              <span className="hidden lg:inline">Search…</span>
-              <span className="hidden items-center gap-0.5 sm:flex">
+              <span className="hidden flex-1 text-left lg:inline">Search…</span>
+              <span className="hidden items-center gap-0.5 lg:flex">
                 <Kbd>
                   <Icon name="command" size={10} strokeWidth={2.25} />
                 </Kbd>
@@ -358,8 +453,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
         {user && !user.emailVerified ? <VerifyEmailBanner email={user.email} /> : null}
         <SubscriptionBanner data={subscription.data} />
-        <main key={pathname} className="mc-anim-fade-in min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_top,rgba(45,212,191,0.04),transparent_60%)] p-3 sm:p-5">
-          {children}
+        <main key={pathname} className="mc-anim-fade-in min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-5 sm:px-6 sm:py-7 lg:px-8">
+          <div className="mx-auto w-full max-w-[1320px]">{children}</div>
         </main>
       </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} navItems={flatItems} />

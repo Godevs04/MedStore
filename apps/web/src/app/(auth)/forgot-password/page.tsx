@@ -10,7 +10,7 @@ import { api, ApiClientError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { AuthShell, AuthStatus, authLinkClass, useQueryParam } from '@/components/auth';
 import { Icon } from '@/components/icons';
-import { Button, Field, Input } from '@/components/ui';
+import { Button, Field, Input, Alert } from '@/components/ui';
 
 type Form = z.infer<typeof forgotPasswordRequestSchema>;
 const COOLDOWN_SECONDS = 60;
@@ -72,7 +72,7 @@ export default function ForgotPasswordPage() {
           </p>
           <p>Didn’t get it? Check spam, or make sure you used the email you sign in with.</p>
           {process.env.NODE_ENV !== 'production' ? (
-            <p className="rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-800">Development: email uses the console transport — the reset link is printed in the API log, not delivered.</p>
+            <Alert tone="warning">Development: email uses the console transport — the reset link is printed in the API log, not delivered.</Alert>
           ) : null}
           <div className="flex justify-center gap-2 pt-1">
             <Button variant="secondary" disabled={cooldown > 0} onClick={() => void send(getValues('email')).then((ok) => ok && toast.info('Reset link sent again'))}>
@@ -91,7 +91,7 @@ export default function ForgotPasswordPage() {
           <Button type="submit" className="w-full py-2" disabled={isSubmitting}>
             {isSubmitting ? 'Sending…' : 'Send reset link'}
           </Button>
-          <p className="text-center text-[11px] leading-relaxed text-neutral-400">
+          <p className="text-center text-2xs leading-relaxed text-faint">
             For your security we never say whether an email is registered.
           </p>
         </form>

@@ -7,7 +7,7 @@ import { api, ApiClientError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { BATCH_STATUS_LABEL, BATCH_STATUS_TONE, qtyFmt, saveCsv, useCan, useWarehouses } from '@/lib/stock';
 import { ConfirmDialog, ExpiryPill, KpiGrid, SearchInput, useDebouncedValue } from '@/components/kit';
-import { Badge, Button, Card, EmptyState, ErrorState, PageHeader, Select, SkeletonRows, Stat, Table, Td, Th, Tr, cn, fmtDate, money, todayIso } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorState, PageHeader, Select, SkeletonRows, Stat, Table, Td, Th, Tr, cn, fmtDate, money, todayIso, StatusBadge, MetricGroup } from '@/components/ui';
 
 interface ExpiryRow {
   batchId: string;
@@ -37,13 +37,13 @@ interface Dashboard {
   rows: ExpiryRow[];
 }
 
-const BUCKETS: Array<{ id: Bucket; label: string; tone: 'red' | 'amber' | 'blue' | 'green'; ring: string }> = [
-  { id: 'EXPIRED', label: 'Expired', tone: 'red', ring: 'ring-red-300 bg-red-50/60' },
-  { id: 'DAYS_30', label: '≤ 30 days', tone: 'red', ring: 'ring-red-200 bg-red-50/30' },
-  { id: 'DAYS_60', label: '31–60 days', tone: 'amber', ring: 'ring-amber-200 bg-amber-50/40' },
-  { id: 'DAYS_90', label: '61–90 days', tone: 'amber', ring: 'ring-amber-200 bg-amber-50/20' },
-  { id: 'CUSTOM', label: 'Custom', tone: 'blue', ring: 'ring-brand-200 bg-brand-50/40' },
-  { id: 'OK', label: 'Healthy', tone: 'green', ring: 'ring-emerald-200 bg-emerald-50/30' },
+const BUCKETS: Array<{ id: Bucket; label: string; text: string }> = [
+  { id: 'EXPIRED', label: 'Expired', text: 'text-danger' },
+  { id: 'DAYS_30', label: '≤ 30 days', text: 'text-danger' },
+  { id: 'DAYS_60', label: '31–60 days', text: 'text-warning' },
+  { id: 'DAYS_90', label: '61–90 days', text: 'text-warning' },
+  { id: 'CUSTOM', label: 'Custom', text: 'text-info' },
+  { id: 'OK', label: 'Healthy', text: 'text-success' },
 ];
 
 const writeOffEligible = (r: ExpiryRow) => r.daysToExpiry <= 30 || r.status !== 'SALEABLE';
@@ -134,13 +134,13 @@ export default function ExpiryPage() {
 
   const d = dashboard.data;
   return (
-    <div className="mx-auto max-w-7xl space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Expiry dashboard"
         subtitle="Stock on hand by days to expiry. Expired drugs must be segregated and destroyed — never sold (Drugs Rules 65(17))."
         actions={
           <>
-            <Select className="w-56" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} aria-label="Warehouse">
+            <Select className="w-full sm:w-56" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} aria-label="Warehouse">
               <option value="">All warehouses</option>
               {warehouses.list.map((w) => (
                 <option key={w.id} value={w.id}>
@@ -164,14 +164,14 @@ export default function ExpiryPage() {
         />
       ) : d ? (
         <>
-          <KpiGrid cols={3}>
-            <Stat label="Value at risk (cost)" value={money(d.valueAtRisk.cost)} hint="Expired + expiring within 90 days" tone={Number(d.valueAtRisk.cost) > 0 ? 'red' : 'green'} />
-            <Stat label="Value at risk (MRP)" value={money(d.valueAtRisk.mrp)} hint="Potential sales lost if not sold or returned" tone="amber" delay={60} />
-            <Stat label="Expired, still in stock" value={money(d.bucketValues.EXPIRED.cost)} hint={`${d.buckets.EXPIRED} batches — write off or return to supplier`} tone={d.buckets.EXPIRED > 0 ? 'red' : 'green'} delay={120} />
+          <KpiGrid bare cols={3}>
+            <Stat variant="alert" label="Value at risk (cost)" value={money(d.valueAtRisk.cost)} hint="Expired + expiring within 90 days" tone={Number(d.valueAtRisk.cost) > 0 ? 'red' : 'neutral'} />
+            <Stat icon="rupee" label="Value at risk (MRP)" value={money(d.valueAtRisk.mrp)} hint="Potential sales lost if not sold or returned" tone={Number(d.valueAtRisk.mrp) > 0 ? 'amber' : 'neutral'} />
+            <Stat variant="alert" label="Expired, still in stock" value={money(d.bucketValues.EXPIRED.cost)} hint={`${d.buckets.EXPIRED} batches — write off or return to supplier`} tone={d.buckets.EXPIRED > 0 ? 'red' : 'neutral'} />
           </KpiGrid>
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            {BUCKETS.map((b, i) => {
+          <MetricGroup columns={6}>
+            {BUCKETS.map((b) => {
               const on = bucket === b.id;
               return (
                 <button
@@ -179,24 +179,23 @@ export default function ExpiryPage() {
                   type="button"
                   onClick={() => setBucket(on ? '' : b.id)}
                   className={cn(
-                    'mc-anim-fade-up rounded-xl bg-white px-3 py-3 text-left shadow-sm ring-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md',
-                    on ? `${b.ring} ring-2` : 'ring-neutral-200',
+                    'relative px-4 py-3 text-left transition-colors duration-150',
+                    on ? 'bg-mint shadow-[inset_0_-2px_0_rgb(var(--mc-primary))]' : 'bg-surface hover:bg-canvas',
                   )}
-                  style={{ animationDelay: `${i * 50}ms` }}
                   aria-pressed={on}
                 >
-                  <div className="flex items-center justify-between">
-                    <Badge tone={b.tone}>{b.id === 'CUSTOM' ? `91–${d.customDays} days` : b.label}</Badge>
-                    {on ? <span className="text-[10px] font-semibold text-brand-700">FILTERED</span> : null}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={cn('text-xs font-medium', b.text)}>{b.id === 'CUSTOM' ? `91–${d.customDays} days` : b.label}</span>
+                    {on ? <Icon name="check" size={13} strokeWidth={2.5} className="text-teal-ink" /> : null}
                   </div>
-                  <p className="mt-2 text-2xl font-semibold tabular-nums text-neutral-900">{d.buckets[b.id]}</p>
-                  <p className="text-[11px] text-neutral-500">
+                  <p className="mt-1 text-lg font-medium num text-ink">{d.buckets[b.id]}</p>
+                  <p className="text-2xs text-muted">
                     {money(d.bucketValues[b.id].cost)} cost · {money(d.bucketValues[b.id].mrp)} MRP
                   </p>
                 </button>
               );
             })}
-          </div>
+          </MetricGroup>
 
           <Card
             title={`Batches${bucket ? ` · ${BUCKETS.find((b) => b.id === bucket)?.label}` : ''} (${rows.length})`}
@@ -205,23 +204,23 @@ export default function ExpiryPage() {
                 <label className="flex items-center gap-2 text-xs text-neutral-600">
                   Custom window
                   <input type="range" min={91} max={365} step={1} value={customDays} onChange={(e) => setCustomDays(Number(e.target.value))} className="accent-brand-600" aria-label="Custom days" />
-                  <span className="w-14 tabular-nums font-medium">{customDays} days</span>
+                  <span className="w-14 num font-medium">{customDays} days</span>
                 </label>
-                <SearchInput value={search} onChange={setSearch} placeholder="Product, batch or SKU…" className="w-56" />
+                <SearchInput value={search} onChange={setSearch} placeholder="Product, batch or SKU…" className="w-full sm:w-56" />
               </div>
             }
           >
             {selectedRows.length > 0 ? (
-              <div className="mc-anim-fade-in mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-red-50 px-3 py-2 ring-1 ring-red-200">
-                <span className="text-xs font-medium text-red-800">
+              <div className="mc-anim-fade-in mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-subtle px-3 py-2">
+                <span className="num text-xs font-medium text-ink">
                   {selectedRows.length} selected · {qtyFmt(selectedRows.reduce((s, r) => s + r.quantity, 0))} units · {money(selectedRows.reduce((s, r) => s + Number(r.valueAtCost), 0))} at cost
                 </span>
                 <div className="flex gap-2">
-                  <Button variant="ghost" onClick={() => setSelected(new Set())}>
+                  <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
                     Clear
                   </Button>
                   {can('inventory.adjust') ? (
-                    <Button variant="danger" onClick={() => setWriteOff(selectedRows)}>
+                    <Button variant="danger" size="sm" onClick={() => setWriteOff(selectedRows)}>
                       Write off selected
                     </Button>
                   ) : null}
@@ -258,7 +257,7 @@ export default function ExpiryPage() {
                 {rows.map((r) => {
                   const eligible = writeOffEligible(r);
                   return (
-                    <Tr key={`${r.batchId}`} className={cn(selected.has(r.batchId) && 'bg-red-50/50')}>
+                    <Tr key={`${r.batchId}`} className={cn(selected.has(r.batchId) && 'bg-mint/50')}>
                       <Td>
                         {can('inventory.adjust') ? (
                           <input
@@ -273,8 +272,8 @@ export default function ExpiryPage() {
                         ) : null}
                       </Td>
                       <Td>
-                        <div className="font-medium text-neutral-800">{r.productName}</div>
-                        <div className="text-xs text-neutral-500">
+                        <div className="font-medium text-ink">{r.productName}</div>
+                        <div className="text-xs text-muted">
                           <span className="font-mono">{r.batchNumber}</span> · {r.sku}
                           {!warehouseId ? ` · ${warehouses.nameOf(r.warehouseId)}` : ''}
                         </div>
@@ -287,11 +286,11 @@ export default function ExpiryPage() {
                         {qtyFmt(r.quantity)}
                       </Td>
                       <Td right>{money(r.valueAtCost)}</Td>
-                      <Td right className="text-neutral-500">
+                      <Td right className="text-muted">
                         {money(r.valueAtMrp)}
                       </Td>
                       <Td>
-                        <Badge tone={BATCH_STATUS_TONE[r.status] ?? 'neutral'}>{BATCH_STATUS_LABEL[r.status] ?? r.status}</Badge>
+                        <StatusBadge status={r.status} label={BATCH_STATUS_LABEL[r.status]} tone={BATCH_STATUS_TONE[r.status]} />
                       </Td>
                       <Td className="whitespace-nowrap text-right">
                         {r.status === 'SALEABLE' && r.daysToExpiry < 0 && can('inventory.recall') ? (

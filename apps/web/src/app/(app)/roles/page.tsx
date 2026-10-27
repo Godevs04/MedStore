@@ -171,10 +171,10 @@ function RoleEditor({ mode, catalog, templates, roles, onClose, onDone }: { mode
       ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className={cn('text-sm', errors.permissionKeys ? 'font-medium text-red-600' : 'text-neutral-600')}>
+        <p className={cn('text-sm', errors.permissionKeys ? 'font-medium text-danger' : 'text-neutral-600')}>
           {errors.permissionKeys ?? `${selected.size} of ${catalog.length} permissions selected`}
         </p>
-        <SearchInput value={filter} onChange={setFilter} placeholder="Filter permissions" className="w-52" />
+        <SearchInput value={filter} onChange={setFilter} placeholder="Filter permissions" className="w-full sm:w-52" />
       </div>
       <div className="space-y-3">
         {groups.map(([module, perms]) => {
@@ -183,13 +183,13 @@ function RoleEditor({ mode, catalog, templates, roles, onClose, onDone }: { mode
           const keys = perms.map((p) => p.key);
           const on = keys.filter((k) => selected.has(k)).length;
           return (
-            <section key={module} className="mc-anim-fade-up rounded-xl border border-neutral-200">
-              <header className="flex items-center justify-between gap-2 border-b border-neutral-100 bg-neutral-50/70 px-3 py-2">
-                <span className="text-sm font-semibold text-neutral-800">{moduleLabel(module)}</span>
+            <section key={module} className="rounded-lg border border-line">
+              <header className="flex items-center justify-between gap-2 rounded-t-lg border-b border-line bg-subtle/70 px-3 py-2">
+                <span className="text-sm font-semibold text-ink">{moduleLabel(module)}</span>
                 <span className="flex items-center gap-2">
                   <Badge tone={on === keys.length ? 'green' : on ? 'blue' : 'neutral'}>{on}/{keys.length}</Badge>
                   {!readOnly ? (
-                    <button type="button" className="text-[11px] font-medium text-brand-700 hover:underline" onClick={() => toggleGroup(keys, on !== keys.length)}>
+                    <button type="button" className="text-2xs font-medium text-teal-ink hover:underline" onClick={() => toggleGroup(keys, on !== keys.length)}>
                       {on === keys.length ? 'Clear all' : 'Select all'}
                     </button>
                   ) : null}
@@ -197,11 +197,11 @@ function RoleEditor({ mode, catalog, templates, roles, onClose, onDone }: { mode
               </header>
               <div className="grid grid-cols-1 gap-0.5 p-2 sm:grid-cols-2">
                 {visible.map((p) => (
-                  <label key={p.key} className={cn('flex items-start gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors', readOnly ? 'cursor-default' : 'cursor-pointer hover:bg-neutral-50', selected.has(p.key) && 'bg-brand-50/50')}>
+                  <label key={p.key} className={cn('flex items-start gap-2 rounded-md px-2 py-1.5 text-xs transition-colors', readOnly ? 'cursor-default' : 'cursor-pointer hover:bg-subtle', selected.has(p.key) && 'bg-mint/50')}>
                     <input type="checkbox" className="mt-0.5 accent-brand-600" checked={selected.has(p.key)} disabled={readOnly} onChange={() => toggle(p.key)} />
                     <span>
-                      <span className="text-neutral-800">{p.description}</span>
-                      <span className="block font-mono text-[10px] text-neutral-400">{p.key}</span>
+                      <span className="text-ink">{p.description}</span>
+                      <span className="block font-mono text-[10px] text-faint">{p.key}</span>
                     </span>
                   </label>
                 ))}
@@ -210,7 +210,7 @@ function RoleEditor({ mode, catalog, templates, roles, onClose, onDone }: { mode
           );
         })}
       </div>
-      <div className="sticky bottom-0 flex justify-end gap-2 border-t border-neutral-100 bg-white pt-3">
+      <div className="sticky bottom-0 flex justify-end gap-2 border-t border-line bg-surface pt-3">
         <Button variant="secondary" onClick={onClose}>{readOnly ? 'Close' : 'Cancel'}</Button>
         {!readOnly ? <Button disabled={save.isPending} onClick={submit}>{save.isPending ? 'Saving…' : mode.kind === 'edit' ? 'Save permissions' : 'Create role'}</Button> : null}
       </div>
@@ -224,16 +224,16 @@ function Matrix({ roles, catalog }: { roles: RoleRow[]; catalog: PermissionDef[]
   const grants = useMemo(() => new Map(roles.map((r) => [r.id, new Set(r.permissions.map((p) => p.permission.key))])), [roles]);
   const q = filter.trim().toLowerCase();
   return (
-    <Card title="Permission matrix" actions={<SearchInput value={filter} onChange={setFilter} placeholder="Filter permissions" className="w-52" />}>
+    <Card title="Permission matrix" actions={<SearchInput value={filter} onChange={setFilter} placeholder="Filter permissions" className="w-full sm:w-52" />}>
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs">
-          <thead className="sticky top-0 bg-white">
-            <tr className="border-b border-neutral-200 text-left text-neutral-500">
+          <thead className="sticky top-0 bg-surface">
+            <tr className="border-b border-line text-left text-muted">
               <th className="py-2 pr-3 font-medium">Permission</th>
               {roles.map((r) => (
                 <th key={r.id} className="px-2 py-2 text-center font-medium">
                   <span className="block max-w-24 truncate" title={r.name}>{r.name}</span>
-                  <span className="text-[10px] font-normal text-neutral-400">{r.permissions.length}</span>
+                  <span className="text-[10px] font-normal text-faint">{r.permissions.length}</span>
                 </th>
               ))}
             </tr>
@@ -243,15 +243,15 @@ function Matrix({ roles, catalog }: { roles: RoleRow[]; catalog: PermissionDef[]
               const visible = perms.filter((p) => !q || p.key.includes(q) || p.description.toLowerCase().includes(q));
               if (!visible.length) return null;
               return [
-                <tr key={module} className="bg-neutral-50">
-                  <td colSpan={roles.length + 1} className="py-1.5 pl-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500">{moduleLabel(module)}</td>
+                <tr key={module} className="bg-subtle">
+                  <td colSpan={roles.length + 1} className="py-1.5 pl-1 text-2xs font-semibold uppercase tracking-wide text-muted">{moduleLabel(module)}</td>
                 </tr>,
                 ...visible.map((p) => (
-                  <tr key={p.key} className="border-b border-neutral-100 hover:bg-brand-50/30">
+                  <tr key={p.key} className="border-b border-line hover:bg-subtle/60">
                     <td className="py-1.5 pr-3 text-neutral-700" title={p.key}>{p.description}</td>
                     {roles.map((r) => (
                       <td key={r.id} className="px-2 text-center">
-                        {grants.get(r.id)?.has(p.key) ? <Icon name="check" size={14} strokeWidth={2.5} className="text-emerald-600" label="granted" /> : <span className="text-neutral-200" aria-label="not granted">·</span>}
+                        {grants.get(r.id)?.has(p.key) ? <Icon name="check" size={14} strokeWidth={2.5} className="text-success" label="granted" /> : <span className="text-neutral-200" aria-label="not granted">·</span>}
                       </td>
                     ))}
                   </tr>
@@ -299,17 +299,17 @@ export default function RolesPage() {
   const custom = list.filter((r) => !r.isSystem);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Roles & permissions"
         subtitle="Every permission is enforced on the server. A role grants only what is explicitly ticked."
         actions={canManage ? <Button onClick={() => setEditor({ kind: 'create' })}><Icon name="plus" size={15} strokeWidth={2.25} /> Custom role</Button> : null}
       />
-      <KpiGrid cols={4}>
-        <Stat label="Roles" value={list.length} hint={`${custom.length} custom`} tone="blue" />
-        <Stat label="People with a role" value={list.reduce((s, r) => s + r._count.memberships, 0)} delay={60} />
-        <Stat label="Permissions available" value={perms.length} hint={`${groupPermissions(perms).length} modules`} delay={120} />
-        <Stat label="Unused custom roles" value={custom.filter((r) => r._count.memberships === 0).length} hint="Safe to delete" tone="amber" delay={180} />
+      <KpiGrid bare cols={4}>
+        <Stat label="Roles" value={list.length} hint={`${custom.length} custom`} />
+        <Stat label="People with a role" value={list.reduce((s, r) => s + r._count.memberships, 0)} />
+        <Stat label="Permissions available" value={perms.length} hint={`${groupPermissions(perms).length} modules`} />
+        <Stat label="Unused custom roles" value={custom.filter((r) => r._count.memberships === 0).length} hint="Safe to delete" tone={custom.some((r) => r._count.memberships === 0) ? 'amber' : 'neutral'} />
       </KpiGrid>
       <Tabs value={tab} onChange={setTab} tabs={[{ id: 'roles', label: 'Roles', count: list.length }, { id: 'matrix', label: 'Matrix' }]} />
 
@@ -325,17 +325,17 @@ export default function RolesPage() {
                   <Tr key={r.id}>
                     <Td>
                       <button type="button" className="text-left" onClick={() => setEditor(r.isSystem || !canManage ? { kind: 'view', role: r } : { kind: 'edit', role: r })}>
-                        <span className="block text-sm font-medium text-neutral-800 hover:text-brand-700">{r.name}</span>
-                        {r.description ? <span className="block text-xs text-neutral-500">{r.description}</span> : null}
+                        <span className="block text-sm font-medium text-ink hover:text-teal-ink">{r.name}</span>
+                        {r.description ? <span className="block text-xs text-muted">{r.description}</span> : null}
                       </button>
                     </Td>
                     <Td><Badge tone={r.isSystem ? 'blue' : 'neutral'}>{r.isSystem ? 'System' : 'Custom'}</Badge></Td>
                     <Td right className="text-sm">{r._count.memberships}</Td>
                     <Td>
                       <div className="flex max-w-md flex-wrap gap-1">
-                        {[...modules].slice(0, 6).map((m) => <span key={m} className="rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-600">{moduleLabel(m)}</span>)}
-                        {modules.size > 6 ? <span className="text-[10px] text-neutral-400">+{modules.size - 6} more</span> : null}
-                        <span className="text-[10px] text-neutral-400">· {r.permissions.length} permissions</span>
+                        {[...modules].slice(0, 6).map((m) => <Badge key={m}>{moduleLabel(m)}</Badge>)}
+                        {modules.size > 6 ? <span className="text-[10px] text-faint">+{modules.size - 6} more</span> : null}
+                        <span className="text-[10px] text-faint">· {r.permissions.length} permissions</span>
                       </div>
                     </Td>
                     <Td right>
@@ -344,7 +344,7 @@ export default function RolesPage() {
                         {canManage && !r.isSystem ? (
                           <>
                             <Button variant="ghost" className="text-xs" onClick={() => setEditor({ kind: 'edit', role: r })}>Edit</Button>
-                            <Button variant="ghost" className="text-xs text-red-600" disabled={r._count.memberships > 0} title={r._count.memberships ? 'Move its members to another role first' : undefined} onClick={() => setDeleting(r)}>Delete</Button>
+                            <Button variant="ghost" className="text-xs text-danger" disabled={r._count.memberships > 0} title={r._count.memberships ? 'Move its members to another role first' : undefined} onClick={() => setDeleting(r)}>Delete</Button>
                           </>
                         ) : null}
                       </span>

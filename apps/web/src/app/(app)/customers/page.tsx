@@ -45,8 +45,7 @@ import {
   Tr,
   cn,
   fmtDate,
-  money,
-} from '@/components/ui';
+  money, StatusBadge } from '@/components/ui';
 
 interface CustomerRow {
   id: string;
@@ -123,7 +122,6 @@ const EMPTY: FormState = {
   notes: '',
 };
 
-const STATUS_TONE: Record<string, 'green' | 'neutral' | 'red'> = { ACTIVE: 'green', INACTIVE: 'neutral', BLOCKED: 'red' };
 const PAGE_SIZE = 25;
 
 function fromRow(c: CustomerRow): FormState {
@@ -212,7 +210,7 @@ function CustomerFields({ ctl, isNew }: { ctl: ReturnType<typeof useCustomerForm
         </div>
         <label className="flex items-center gap-2 text-sm text-neutral-700">
           <input type="checkbox" className="accent-brand-600" checked={form.isWholesale} onChange={(ev) => set('isWholesale', ev.target.checked)} />
-          Wholesale / B2B customer <span className="text-xs text-neutral-500">(gets a tax invoice with their GSTIN)</span>
+          Wholesale / B2B customer <span className="text-xs text-muted">(gets a tax invoice with their GSTIN)</span>
         </label>
       </FormSection>
 
@@ -416,7 +414,7 @@ function CustomerDrawer({ customer, onClose, onChanged }: { customer: CustomerRo
           footer={limit > 0 ? <Meter value={(outstanding / limit) * 100} tone={outstanding > limit ? 'red' : outstanding > limit * 0.8 ? 'amber' : 'green'} label={`${Math.round((outstanding / limit) * 100)}% of ${money(limit)} limit`} /> : undefined}
         />
         <Stat label="Credit terms" value={`${customer.creditDays} days`} hint={limit > 0 ? `limit ${money(limit)}` : 'no limit'} />
-        <Stat label="Lifetime billed" value={statement.data ? money(statement.data.totals.invoiced) : '…'} hint={statement.data ? `${statement.data.totals.invoices} invoices` : undefined} tone="blue" />
+        <Stat label="Lifetime billed" value={statement.data ? money(statement.data.totals.invoiced) : '…'} hint={statement.data ? `${statement.data.totals.invoices} invoices` : undefined} />
       </KpiGrid>
       <Tabs
         value={tab}
@@ -439,10 +437,10 @@ function CustomerDrawer({ customer, onClose, onChanged }: { customer: CustomerRo
           <Table head={<tr><Th>Date</Th><Th>Particulars</Th><Th>Doc</Th><Th right>Debit</Th><Th right>Credit</Th><Th right>Balance</Th></tr>}>
             {statement.data?.rows.map((r, i) => (
               <Tr key={i}>
-                <Td className="whitespace-nowrap text-xs text-neutral-500">{fmtDate(r.date)}</Td>
+                <Td className="whitespace-nowrap text-xs text-muted">{fmtDate(r.date)}</Td>
                 <Td className="text-xs">{r.type}</Td>
                 <Td className="font-mono text-xs">
-                  {r.invoiceId ? <Link className="text-brand-700 hover:underline" href={`/sales-history/${r.invoiceId}`}>{r.doc}</Link> : r.doc}
+                  {r.invoiceId ? <Link className="text-teal-ink hover:underline" href={`/sales-history/${r.invoiceId}`}>{r.doc}</Link> : r.doc}
                 </Td>
                 <Td right className="text-xs">{Number(r.debit) ? money(r.debit, false) : ''}</Td>
                 <Td right className="text-xs">{Number(r.credit) ? money(r.credit, false) : ''}</Td>
@@ -464,11 +462,11 @@ function CustomerDrawer({ customer, onClose, onChanged }: { customer: CustomerRo
           <Table head={<tr><Th>Invoice</Th><Th>Date</Th><Th>Status</Th><Th right>Total</Th><Th right>Due</Th></tr>}>
             {invoices.data?.items.map((i) => (
               <Tr key={i.id}>
-                <Td><Link className="font-mono text-xs font-medium text-brand-700 hover:underline" href={`/sales-history/${i.id}`}>{i.invoiceNumber}</Link></Td>
-                <Td className="text-xs text-neutral-500">{fmtDate(i.invoiceDate)}</Td>
+                <Td><Link className="font-mono text-xs font-medium text-teal-ink hover:underline" href={`/sales-history/${i.id}`}>{i.invoiceNumber}</Link></Td>
+                <Td className="text-xs text-muted">{fmtDate(i.invoiceDate)}</Td>
                 <Td><Badge tone={i.status === 'POSTED' ? 'green' : i.status === 'CANCELLED' ? 'neutral' : i.status === 'RETURNED' ? 'red' : 'amber'}>{i.status.replace('_', ' ').toLowerCase()}</Badge></Td>
                 <Td right>{money(i.total)}</Td>
-                <Td right className={Number(i.creditAmount) > 0 ? 'font-medium text-amber-700' : 'text-neutral-400'}>{Number(i.creditAmount) > 0 ? money(i.creditAmount) : '—'}</Td>
+                <Td right className={Number(i.creditAmount) > 0 ? 'font-medium text-warning' : 'text-faint'}>{Number(i.creditAmount) > 0 ? money(i.creditAmount) : '—'}</Td>
               </Tr>
             ))}
           </Table>
@@ -483,14 +481,14 @@ function CustomerDrawer({ customer, onClose, onChanged }: { customer: CustomerRo
         ) : (products.data?.length ?? 0) === 0 ? (
           <EmptyState title="No purchases yet" hint="Products appear here once this customer is billed." />
         ) : (
-          <ul className="space-y-2">
-            {products.data?.map((p, i) => (
-              <li key={p.productId} className="mc-anim-fade-up rounded-xl border border-neutral-200 px-3 py-2" style={{ animationDelay: `${i * 30}ms` }}>
+          <ul className="divide-y divide-line">
+            {products.data?.map((p) => (
+              <li key={p.productId} className="py-2.5">
                 <div className="flex items-baseline justify-between gap-3 text-sm">
-                  <span className="truncate font-medium text-neutral-800">{p.name}</span>
-                  <span className="tabular-nums font-semibold">{money(p.value)}</span>
+                  <span className="truncate font-medium text-ink">{p.name}</span>
+                  <span className="num font-semibold">{money(p.value)}</span>
                 </div>
-                <p className="mb-1 text-[11px] text-neutral-500">
+                <p className="mb-1 text-2xs text-muted">
                   {Number(p.quantity).toLocaleString('en-IN')} units · {p.bills} bill{p.bills === 1 ? '' : 's'} · last {fmtDate(p.lastBought)}
                 </p>
                 <Meter value={(Number(p.value) / maxProduct) * 100} />
@@ -593,27 +591,27 @@ function CustomersView() {
   const overdueTotal = Number(aging.data?.receivables.total ?? 0) - Number(aging.data?.receivables.buckets.CURRENT ?? 0);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Customers"
         subtitle="Credit accounts, statements and collections. Click a customer for their ledger."
         actions={canManage ? <Button onClick={() => setCreating(true)}><Icon name="plus" size={15} strokeWidth={2.25} /> New customer</Button> : null}
       />
 
-      <KpiGrid cols={4}>
-        <Stat label="Customers" value={customers.data ? customers.data.pageInfo.totalItems.toLocaleString('en-IN') : '…'} hint={status || kind || debounced ? 'matching filters' : 'all accounts'} delay={0} />
-        <Stat label="Wholesale / B2B" value={wholesale.data ? wholesale.data.pageInfo.totalItems.toLocaleString('en-IN') : '…'} tone="blue" delay={60} />
+      <KpiGrid bare cols={4}>
+        <Stat label="Customers" value={customers.data ? customers.data.pageInfo.totalItems.toLocaleString('en-IN') : '…'} hint={status || kind || debounced ? 'matching filters' : 'all accounts'} />
+        <Stat label="Wholesale / B2B" value={wholesale.data ? wholesale.data.pageInfo.totalItems.toLocaleString('en-IN') : '…'} />
         {aging.data ? (
           <>
-            <Stat label="Receivables" value={money(aging.data.receivables.total)} tone="amber" hint="all customers" delay={120} />
-            <Stat label="Overdue" value={money(overdueTotal)} tone={overdueTotal > 0 ? 'red' : 'green'} hint="past credit days" delay={180} />
+            <Stat label="Receivables" value={money(aging.data.receivables.total)} tone={Number(aging.data.receivables.total) > 0 ? 'amber' : 'neutral'} hint="all customers" />
+            <Stat variant="alert" label="Overdue" value={money(overdueTotal)} tone={overdueTotal > 0 ? 'red' : 'neutral'} hint="past credit days" />
           </>
         ) : null}
       </KpiGrid>
 
       <Card
         title="Accounts"
-        actions={<SearchInput value={search} onChange={resetPage(setSearch)} placeholder="Name, phone, GSTIN, category…" className="w-64" />}
+        actions={<SearchInput value={search} onChange={resetPage(setSearch)} placeholder="Name, phone, GSTIN, category…" className="w-full sm:w-64" />}
       >
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <FilterChips<Status>
@@ -663,29 +661,29 @@ function CustomersView() {
                   return (
                     <Tr key={c.id} onClick={() => setOpen(c)}>
                       <Td>
-                        <div className="flex items-center gap-1.5 font-medium text-neutral-800">
+                        <div className="flex items-center gap-1.5 font-medium text-ink">
                           {c.name}
                           {c.isWholesale ? <Badge tone="blue">B2B</Badge> : null}
                         </div>
-                        {c.category ? <div className="text-xs text-neutral-500">{c.category}</div> : null}
+                        {c.category ? <div className="text-xs text-muted">{c.category}</div> : null}
                       </Td>
                       <Td className="text-sm">{c.phone ?? '—'}</Td>
                       <Td className="font-mono text-xs">
-                        {c.gstin ?? <span className="font-sans text-neutral-400">Unregistered</span>}
-                        {c.stateCode ? <span className="ml-1 font-sans text-neutral-500">· {stateName(c.stateCode) ?? c.stateCode}</span> : null}
+                        {c.gstin ?? <span className="font-sans text-faint">Unregistered</span>}
+                        {c.stateCode ? <span className="ml-1 font-sans text-muted">· {stateName(c.stateCode) ?? c.stateCode}</span> : null}
                       </Td>
                       <Td right>
-                        <span className={due > 0 ? 'font-semibold text-amber-700' : 'text-neutral-400'}>{due > 0 ? money(due) : '—'}</span>
-                        {(c.oldestDueDays ?? 0) > 0 ? <div className="text-[11px] font-medium text-red-600">{c.oldestDueDays}d overdue</div> : null}
+                        <span className={due > 0 ? 'font-semibold text-warning' : 'text-faint'}>{due > 0 ? money(due) : '—'}</span>
+                        {(c.oldestDueDays ?? 0) > 0 ? <div className="text-2xs font-medium text-danger">{c.oldestDueDays}d overdue</div> : null}
                       </Td>
                       <Td className="w-40">
                         {limit > 0 ? (
                           <Meter value={(due / limit) * 100} tone={due > limit ? 'red' : due > limit * 0.8 ? 'amber' : 'green'} label={`${money(limit)} · ${c.creditDays}d`} />
                         ) : (
-                          <span className="text-xs text-neutral-400">No limit · {c.creditDays}d</span>
+                          <span className="text-xs text-faint">No limit · {c.creditDays}d</span>
                         )}
                       </Td>
-                      <Td><Badge tone={STATUS_TONE[c.status] ?? 'neutral'}>{c.status.toLowerCase()}</Badge></Td>
+                      <Td><StatusBadge status={c.status} /></Td>
                     </Tr>
                   );
                 })}

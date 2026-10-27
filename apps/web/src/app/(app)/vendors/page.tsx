@@ -45,8 +45,7 @@ import {
   Tr,
   cn,
   fmtDate,
-  money,
-} from '@/components/ui';
+  money, Alert, StatusBadge } from '@/components/ui';
 
 interface VendorRow {
   id: string;
@@ -148,7 +147,6 @@ const EMPTY: FormState = {
   notes: '',
 };
 
-const STATUS_TONE: Record<string, 'green' | 'neutral' | 'red'> = { ACTIVE: 'green', INACTIVE: 'neutral', BLOCKED: 'red' };
 const PAGE_SIZE = 25;
 const maskAccount = (a: string) => (a.length > 4 ? `••••${a.slice(-4)}` : a);
 
@@ -453,23 +451,23 @@ function PayPanel({ vendor, invoices, onDone }: { vendor: VendorRow; invoices: L
   };
   return (
     <form className="space-y-3" onSubmit={submit} noValidate>
-      <ul className="space-y-1.5">
+      <ul className="divide-y divide-line rounded-lg border border-line">
         {invoices.map((i) => {
           const on = i.id in alloc;
           return (
-            <li key={i.id} className={cn('flex flex-wrap items-center gap-3 rounded-xl border px-3 py-2 transition-colors', on ? 'border-brand-300 bg-brand-50/40' : 'border-neutral-200')}>
+            <li key={i.id} className={cn('flex flex-wrap items-center gap-3 px-3 py-2 transition-colors', on && 'bg-mint/50')}>
               <input type="checkbox" className="accent-brand-600" checked={on} onChange={() => toggle(i.id, i.outstanding)} aria-label={`Pay ${i.invoiceNumber}`} />
               <div className="min-w-0 flex-1">
                 <p className="font-mono text-xs font-medium">{i.invoiceNumber}</p>
-                <p className="text-[11px] text-neutral-500">
-                  Due {fmtDate(i.dueDate)} {i.daysOverdue > 0 ? <span className="font-medium text-red-600">· {i.daysOverdue}d overdue</span> : null}
+                <p className="text-2xs text-muted">
+                  Due {fmtDate(i.dueDate)} {i.daysOverdue > 0 ? <span className="font-medium text-danger">· {i.daysOverdue}d overdue</span> : null}
                 </p>
               </div>
-              <span className="text-sm tabular-nums text-neutral-600">{money(i.outstanding)}</span>
+              <span className="text-sm num text-neutral-600">{money(i.outstanding)}</span>
               {on ? (
                 <div className="w-32">
                   <MoneyInput value={alloc[i.id]!} onChange={(v) => { setAlloc((a) => ({ ...a, [i.id]: v })); fe.clear(i.id); }} invalid={Boolean(fe.errors[i.id])} aria-label={`Amount for ${i.invoiceNumber}`} />
-                  {fe.errors[i.id] ? <p className="mc-anim-shake mt-0.5 text-[11px] text-red-600">{fe.errors[i.id]}</p> : null}
+                  {fe.errors[i.id] ? <p className="mt-0.5 text-2xs text-danger">{fe.errors[i.id]}</p> : null}
                 </div>
               ) : null}
             </li>
@@ -489,11 +487,11 @@ function PayPanel({ vendor, invoices, onDone }: { vendor: VendorRow; invoices: L
         </Field>
       </div>
       {vendor.bankAccount && method === 'BANK' ? (
-        <p className="text-xs text-neutral-500">
+        <p className="text-xs text-muted">
           Pay to A/c {maskAccount(vendor.bankAccount)} · IFSC <span className="font-mono">{vendor.ifsc}</span>
         </p>
       ) : null}
-      <div className="flex items-center justify-between gap-3 rounded-xl bg-neutral-50 px-3 py-2.5 ring-1 ring-neutral-100">
+      <div className="flex items-center justify-between gap-3 rounded-lg bg-subtle px-3 py-2.5">
         <span className="text-sm text-neutral-600">{Object.keys(alloc).length} invoice(s) selected</span>
         <Button type="submit" disabled={pay.isPending || total <= 0}>
           {pay.isPending ? 'Recording…' : `Pay ${money(total)}`}
@@ -539,16 +537,16 @@ function VendorDrawer({ vendor, onClose, onSaved }: { vendor: VendorRow; onClose
       subtitle={[vendor.gstin && `GSTIN ${vendor.gstin}`, vendor.phone, vendor.city].filter(Boolean).join(' · ') || 'Vendor'}
     >
       {!vendor.drugLicenceNumber ? (
-        <div className="mc-anim-fade-in rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">No drug licence on file. Record the supplier&apos;s Form 20B/21B licence before purchasing.</div>
+        <Alert tone="warning">No drug licence on file. Record the supplier&apos;s Form 20B/21B licence before purchasing.</Alert>
       ) : licenceDays !== null && licenceDays < 0 ? (
-        <div className="mc-anim-fade-in rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <Alert tone="danger">
           Drug licence {vendor.drugLicenceNumber} expired {Math.abs(licenceDays)} days ago. Do not purchase until it is renewed.
-        </div>
+        </Alert>
       ) : null}
       {canLedger ? (
         <KpiGrid cols={3}>
           <Stat label="Payable" value={ledger.data ? money(ledger.data.outstanding) : '…'} tone={Number(ledger.data?.outstanding ?? 0) > 0 ? 'amber' : 'green'} />
-          <Stat label="Overdue" value={ledger.data ? money(overdue) : '…'} tone={overdue > 0 ? 'red' : 'green'} />
+          <Stat variant="alert" label="Overdue" value={ledger.data ? money(overdue) : '…'} tone={overdue > 0 ? 'red' : 'neutral'} />
           <Stat
             label="Terms"
             value={`${vendor.creditDays} days`}
@@ -579,7 +577,7 @@ function VendorDrawer({ vendor, onClose, onSaved }: { vendor: VendorRow; onClose
           <Table head={<tr><Th>Date</Th><Th>Particulars</Th><Th>Doc</Th><Th right>Dr (paid)</Th><Th right>Cr (billed)</Th><Th right>Balance</Th></tr>}>
             {ledger.data?.rows.map((r, i) => (
               <Tr key={i}>
-                <Td className="whitespace-nowrap text-xs text-neutral-500">{fmtDate(r.date)}</Td>
+                <Td className="whitespace-nowrap text-xs text-muted">{fmtDate(r.date)}</Td>
                 <Td className="text-xs">{r.type}</Td>
                 <Td className="font-mono text-xs">{r.doc}</Td>
                 <Td right className="text-xs">{Number(r.debit) ? money(r.debit, false) : ''}</Td>
@@ -634,19 +632,19 @@ function VendorDrawer({ vendor, onClose, onSaved }: { vendor: VendorRow; onClose
               return (
                 <Tr key={p.productId}>
                   <Td>
-                    <div className="font-medium text-neutral-800">{p.name}</div>
-                    <div className="font-mono text-[11px] text-neutral-500">{p.sku}</div>
+                    <div className="font-medium text-ink">{p.name}</div>
+                    <div className="font-mono text-2xs text-muted">{p.sku}</div>
                   </Td>
                   <Td right className="text-xs">
                     {Number(p.quantity).toLocaleString('en-IN')}
-                    {Number(p.freeQty) > 0 ? <span className="text-emerald-700"> +{Number(p.freeQty).toLocaleString('en-IN')}</span> : null}
+                    {Number(p.freeQty) > 0 ? <span className="text-success"> +{Number(p.freeQty).toLocaleString('en-IN')}</span> : null}
                   </Td>
                   <Td right className="text-xs">{money(p.lastRate)}</Td>
                   <Td right className="w-28">
-                    {margin !== null ? <Meter value={margin} tone={margin < 10 ? 'red' : margin < 20 ? 'amber' : 'green'} label={`${margin.toFixed(1)}%`} /> : <span className="text-xs text-neutral-400">—</span>}
+                    {margin !== null ? <Meter value={margin} tone={margin < 10 ? 'red' : margin < 20 ? 'amber' : 'green'} label={`${margin.toFixed(1)}%`} /> : <span className="text-xs text-faint">—</span>}
                   </Td>
                   <Td right className="font-medium">{money(p.spend)}</Td>
-                  <Td className="text-xs text-neutral-500">{fmtDate(p.lastPurchased)}</Td>
+                  <Td className="text-xs text-muted">{fmtDate(p.lastPurchased)}</Td>
                 </Tr>
               );
             })}
@@ -729,25 +727,25 @@ function VendorsView() {
   const payablesOverdue = aging.data ? Number(aging.data.payables.total) - Number(aging.data.payables.buckets.CURRENT ?? 0) : 0;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Vendors"
         subtitle="Distributors and manufacturers you buy from. Click a vendor for their ledger, payments and supplied products."
         actions={canManage ? <Button onClick={() => setCreating(true)}><Icon name="plus" size={15} strokeWidth={2.25} /> New vendor</Button> : null}
       />
 
-      <KpiGrid cols={4}>
-        <Stat label="Vendors" value={vendors.data ? vendors.data.pageInfo.totalItems.toLocaleString('en-IN') : '…'} hint={status || stateCode || debounced ? 'matching filters' : 'all suppliers'} delay={0} />
-        <Stat label="Licence alerts" value={vendors.data ? licenceAlerts : '…'} tone={licenceAlerts > 0 ? 'red' : 'green'} hint="missing or expiring ≤ 30 d (this page)" delay={60} />
+      <KpiGrid bare cols={4}>
+        <Stat label="Vendors" value={vendors.data ? vendors.data.pageInfo.totalItems.toLocaleString('en-IN') : '…'} hint={status || stateCode || debounced ? 'matching filters' : 'all suppliers'} />
+        <Stat variant="alert" label="Licence alerts" value={vendors.data ? licenceAlerts : '…'} tone={licenceAlerts > 0 ? 'red' : 'neutral'} hint="missing or expiring ≤ 30 d (this page)" />
         {aging.data ? (
           <>
-            <Stat label="Payables" value={money(aging.data.payables.total)} tone="amber" hint="all suppliers" delay={120} />
-            <Stat label="Overdue payables" value={money(payablesOverdue)} tone={payablesOverdue > 0 ? 'red' : 'green'} hint="past due date" delay={180} />
+            <Stat label="Payables" value={money(aging.data.payables.total)} tone={Number(aging.data.payables.total) > 0 ? 'amber' : 'neutral'} hint="all suppliers" />
+            <Stat variant="alert" label="Overdue payables" value={money(payablesOverdue)} tone={payablesOverdue > 0 ? 'red' : 'neutral'} hint="past due date" />
           </>
         ) : null}
       </KpiGrid>
 
-      <Card title="Suppliers" actions={<SearchInput value={search} onChange={resetPage(setSearch)} placeholder="Name, GSTIN, phone, contact…" className="w-64" />}>
+      <Card title="Suppliers" actions={<SearchInput value={search} onChange={resetPage(setSearch)} placeholder="Name, GSTIN, phone, contact…" className="w-full sm:w-64" />}>
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <FilterChips<Status>
             value={status}
@@ -786,17 +784,17 @@ function VendorsView() {
                   return (
                     <Tr key={v.id} onClick={() => setOpen(v)}>
                       <Td>
-                        <div className="font-medium text-neutral-800">{v.legalName}</div>
-                        <div className="text-xs text-neutral-500">{[v.tradeName, v.contactName, v.phone].filter(Boolean).join(' · ') || '—'}</div>
+                        <div className="font-medium text-ink">{v.legalName}</div>
+                        <div className="text-xs text-muted">{[v.tradeName, v.contactName, v.phone].filter(Boolean).join(' · ') || '—'}</div>
                       </Td>
                       <Td className="font-mono text-xs">
-                        {v.gstin ?? <span className="font-sans text-neutral-400">Unregistered</span>}
-                        {v.stateCode ? <div className="font-sans text-neutral-500">{stateName(v.stateCode) ?? v.stateCode}</div> : null}
+                        {v.gstin ?? <span className="font-sans text-faint">Unregistered</span>}
+                        {v.stateCode ? <div className="font-sans text-muted">{stateName(v.stateCode) ?? v.stateCode}</div> : null}
                       </Td>
                       <Td>
                         {v.drugLicenceNumber ? (
                           <div className="space-y-0.5">
-                            <div className="font-mono text-[11px]">{v.drugLicenceNumber}</div>
+                            <div className="font-mono text-2xs">{v.drugLicenceNumber}</div>
                             {dl !== null ? <ExpiryPill days={dl} /> : null}
                           </div>
                         ) : (
@@ -804,13 +802,13 @@ function VendorsView() {
                         )}
                       </Td>
                       <Td right>
-                        <span className={payable > 0 ? 'font-semibold text-amber-700' : 'text-neutral-400'}>{payable > 0 ? money(payable) : '—'}</span>
-                        {overdue > 0 ? <div className="text-[11px] font-medium text-red-600">{money(overdue)} overdue</div> : null}
+                        <span className={payable > 0 ? 'font-semibold text-warning' : 'text-faint'}>{payable > 0 ? money(payable) : '—'}</span>
+                        {overdue > 0 ? <div className="text-2xs font-medium text-danger">{money(overdue)} overdue</div> : null}
                       </Td>
                       <Td className="text-sm">
                         {v.creditDays}d{Number(v.creditLimit) > 0 ? ` · ${money(v.creditLimit)}` : ''}
                       </Td>
-                      <Td><Badge tone={STATUS_TONE[v.status] ?? 'neutral'}>{v.status.toLowerCase()}</Badge></Td>
+                      <Td><StatusBadge status={v.status} /></Td>
                     </Tr>
                   );
                 })}

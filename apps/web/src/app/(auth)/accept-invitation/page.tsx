@@ -11,7 +11,7 @@ import { api, ApiClientError, storeTenant } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { toast } from '@/lib/toast';
 import { AuthShell, AuthStatus, PasswordChecklist, PasswordInput, authLinkClass, useQueryParam } from '@/components/auth';
-import { Button, Field, Input } from '@/components/ui';
+import { Button, Field, Input, Badge } from '@/components/ui';
 
 interface Invitation {
   email: string;
@@ -181,12 +181,12 @@ export default function AcceptInvitationPage() {
         <TokenEntry onToken={setToken} />
       ) : (
         <form className="space-y-4" onSubmit={onSubmit} noValidate>
-          <div className="rounded-xl border border-brand-100 bg-brand-50/60 px-3 py-2.5 text-xs text-neutral-600">
+          <div className="rounded-lg border border-line bg-subtle px-3 py-2.5 text-xs text-neutral-600">
             <div className="flex items-center justify-between gap-2">
-              <span className="truncate font-medium text-neutral-800">{invitation.email}</span>
-              <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-brand-700 ring-1 ring-brand-200">{invitation.roleName}</span>
+              <span className="truncate font-medium text-ink">{invitation.email}</span>
+              <Badge tone="blue">{invitation.roleName}</Badge>
             </div>
-            <p className="mt-0.5 text-[11px] text-neutral-500">Invitation valid until {fmtExpiry(invitation.expiresAt)}</p>
+            <p className="mt-0.5 text-2xs text-muted">Invitation valid until {fmtExpiry(invitation.expiresAt)}</p>
           </div>
           {existing ? (
             <>

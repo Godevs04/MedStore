@@ -8,7 +8,7 @@ import { api, ApiClientError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { BATCH_STATUS_LABEL, BATCH_STATUS_TONE, daysUntil, qtyFmt, saveCsv, useCan, useWarehouses } from '@/lib/stock';
 import { ConfirmDialog, ExpiryPill, KpiGrid, Meter, Pagination, QtyInput, SearchInput, useDebouncedValue, type PageInfo } from '@/components/kit';
-import { Badge, Button, Card, EmptyState, ErrorState, Field, PageHeader, Select, SkeletonRows, Stat, Table, Tabs, Td, Textarea, Th, Tr, cn, money } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorState, Field, PageHeader, Select, SkeletonRows, Stat, Table, Tabs, Td, Textarea, Th, Tr, cn, money, StatusBadge, MetricGroup } from '@/components/ui';
 
 interface CountLine {
   id: string;
@@ -174,7 +174,7 @@ function CountSheet({ onClose, onDone }: { onClose: () => void; onDone: () => vo
         </Field>
         <div className="flex flex-col justify-end gap-1 text-xs text-neutral-600 md:col-span-3">
           <label className="flex items-center gap-2">
-            <input type="checkbox" className="h-4 w-4 accent-teal-600" checked={includeZero} onChange={(e) => setIncludeZero(e.target.checked)} />
+            <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={includeZero} onChange={(e) => setIncludeZero(e.target.checked)} />
             Include zero-stock batches
           </label>
           <label className="flex items-center gap-2">
@@ -184,28 +184,14 @@ function CountSheet({ onClose, onDone }: { onClose: () => void; onDone: () => vo
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-neutral-50 p-3 text-xs md:grid-cols-4">
-        <div>
-          <div className="text-neutral-500">Counted</div>
-          <div className="text-base font-semibold tabular-nums">
-            {entered.length} / {sheet.data?.items.length ?? 0}
-          </div>
-        </div>
-        <div>
-          <div className="text-neutral-500">Exact matches</div>
-          <div className="text-base font-semibold tabular-nums">{summary.exact}</div>
-        </div>
-        <div>
-          <div className="text-neutral-500">Gain (cost)</div>
-          <div className="text-base font-semibold tabular-nums text-emerald-700">{money(summary.gain)}</div>
-        </div>
-        <div>
-          <div className="text-neutral-500">Loss (cost)</div>
-          <div className="text-base font-semibold tabular-nums text-red-600">{money(summary.loss)}</div>
-        </div>
-      </div>
+      <MetricGroup className="mt-3" columns={4}>
+        <Stat label="Counted" value={`${entered.length} / ${sheet.data?.items.length ?? 0}`} />
+        <Stat label="Exact matches" value={summary.exact} />
+        <Stat label="Gain (cost)" value={<span className="text-success">{money(summary.gain)}</span>} />
+        <Stat label="Loss (cost)" value={<span className={summary.loss > 0 ? 'text-danger' : undefined}>{money(summary.loss)}</span>} />
+      </MetricGroup>
 
-      <div className="mt-3 max-h-[480px] overflow-auto rounded-lg border border-neutral-100">
+      <div className="mt-3 max-h-[480px] overflow-auto rounded-lg border border-line">
         {sheet.isLoading ? (
           <SkeletonRows rows={6} cols={6} />
         ) : sheet.error ? (
@@ -213,7 +199,7 @@ function CountSheet({ onClose, onDone }: { onClose: () => void; onDone: () => vo
         ) : rows.length === 0 ? (
           <EmptyState title="No batches to count" hint={dq ? 'Nothing matches this search.' : 'This warehouse has no stocked batches.'} />
         ) : (
-          <Table
+          <Table flush={false}
             head={
               <tr>
                 <Th>Rack</Th>
@@ -230,18 +216,18 @@ function CountSheet({ onClose, onDone }: { onClose: () => void; onDone: () => vo
               const diff = v === '' ? null : Number(v) - r.systemQty;
               return (
                 <Tr key={r.batchId}>
-                  <Td className="font-mono text-xs text-neutral-500">{r.rackLocation ?? '—'}</Td>
+                  <Td className="font-mono text-xs text-muted">{r.rackLocation ?? '—'}</Td>
                   <Td>
-                    <div className="font-medium text-neutral-800">{r.productName}</div>
-                    <div className="flex items-center gap-1.5 text-xs text-neutral-500">
+                    <div className="font-medium text-ink">{r.productName}</div>
+                    <div className="flex items-center gap-1.5 text-xs text-muted">
                       <span className="font-mono">{r.batchNumber}</span>
-                      {r.status !== 'SALEABLE' ? <Badge tone={BATCH_STATUS_TONE[r.status] ?? 'neutral'}>{BATCH_STATUS_LABEL[r.status] ?? r.status}</Badge> : null}
+                      {r.status !== 'SALEABLE' ? <StatusBadge status={r.status} label={BATCH_STATUS_LABEL[r.status]} tone={BATCH_STATUS_TONE[r.status]} /> : null}
                     </div>
                   </Td>
                   <Td>
                     <ExpiryPill days={daysUntil(r.expiryDate)} />
                   </Td>
-                  <Td right className="tabular-nums">
+                  <Td right className="num">
                     {qtyFmt(r.systemQty)}
                   </Td>
                   <Td right>
@@ -249,7 +235,7 @@ function CountSheet({ onClose, onDone }: { onClose: () => void; onDone: () => vo
                       <QtyInput value={v} onChange={(x) => setCounted((c) => ({ ...c, [r.batchId]: x }))} placeholder="—" aria-label={`Counted quantity for ${r.batchNumber}`} />
                     </div>
                   </Td>
-                  <Td right className={cn('font-semibold tabular-nums', diff === null ? 'text-neutral-300' : diff === 0 ? 'text-emerald-700' : diff > 0 ? 'text-blue-700' : 'text-red-600')}>
+                  <Td right className={cn('font-semibold num', diff === null ? 'text-neutral-300' : diff === 0 ? 'text-success' : diff > 0 ? 'text-info' : 'text-danger')}>
                     {diff === null ? '—' : diff === 0 ? <Icon name="check" size={14} strokeWidth={2.5} label="Matches" /> : `${diff > 0 ? '+' : ''}${qtyFmt(diff)}`}
                   </Td>
                 </Tr>
@@ -258,7 +244,7 @@ function CountSheet({ onClose, onDone }: { onClose: () => void; onDone: () => vo
           </Table>
         )}
       </div>
-      {sheet.data?.truncated ? <p className="mt-1 text-xs text-amber-700">Showing the first 2,000 batches — narrow with search.</p> : null}
+      {sheet.data?.truncated ? <p className="mt-1 text-xs text-warning">Showing the first 2,000 batches — narrow with search.</p> : null}
 
       <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-12">
         <Field label="Notes" className="md:col-span-7">
@@ -362,17 +348,17 @@ export default function CountsPage() {
   const postingStats = posting ? countStats(posting.lines) : null;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Stock counts"
         subtitle="Physical verification by rack. Variances post as compensating movements and to the books — keep counts regular for Drugs & Cosmetics Rules inspections."
         actions={can('inventory.count') && !creating ? <Button onClick={() => setCreating(true)}><Icon name="plus" size={15} strokeWidth={2.25} /> New count</Button> : null}
       />
 
-      <KpiGrid cols={3}>
+      <KpiGrid bare cols={3}>
         <Stat label="Awaiting post" value={String(pending.data?.pageInfo.totalItems ?? 0)} hint={`Net ${money(pendingValue)} pending`} tone={(pending.data?.pageInfo.totalItems ?? 0) > 0 ? 'amber' : 'green'} />
-        <Stat label="Count accuracy" value={`${recent.accuracy.toFixed(1)}%`} hint={`Exact lines in last ${posted.data?.items.length ?? 0} posted counts`} tone={recent.accuracy >= 95 ? 'green' : recent.accuracy >= 85 ? 'amber' : 'red'} delay={60} />
-        <Stat label="Shrinkage (recent)" value={money(recent.loss)} hint={`Gains ${money(recent.gain)}`} tone={recent.loss > 0 ? 'red' : 'green'} delay={120} />
+        <Stat label="Count accuracy" value={posted.data?.items.length ? `${recent.accuracy.toFixed(1)}%` : '—'} hint={posted.data?.items.length ? `Exact lines in last ${posted.data.items.length} posted counts` : 'No posted counts yet'} tone={!posted.data?.items.length ? 'neutral' : recent.accuracy >= 95 ? 'green' : recent.accuracy >= 85 ? 'amber' : 'red'} />
+        <Stat variant="alert" label="Shrinkage (recent)" value={money(recent.loss)} hint={`Gains ${money(recent.gain)}`} tone={recent.loss > 0 ? 'red' : 'neutral'} />
       </KpiGrid>
 
       {creating ? <CountSheet onClose={() => setCreating(false)} onDone={refresh} /> : null}
@@ -397,38 +383,36 @@ export default function CountsPage() {
             <EmptyState title="No counts here" hint={tab === 'pending' ? 'Nothing is waiting to be posted.' : 'Start a count from the button above.'} />
           ) : (
             <>
-              <div className="space-y-2">
-                {items.map((c, i) => {
+              <ul className="-mx-4 divide-y divide-line border-t border-line">
+                {items.map((c) => {
                   const st = countStats(c.lines);
                   const isOpen = expanded === c.id;
                   const variances = c.lines.filter((l) => Number(l.variance) !== 0);
                   return (
-                    <div key={c.id} className="mc-anim-fade-up rounded-xl border border-neutral-200 p-3" style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}>
+                    <li key={c.id} className="px-4 py-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <button type="button" className="text-left" onClick={() => setExpanded(isOpen ? null : c.id)} aria-expanded={isOpen}>
-                          <div className="text-sm font-medium text-neutral-800">
+                          <div className="text-sm font-medium text-ink">
                             <Icon name="chevronRight" size={14} className={cn('transition-transform duration-200', isOpen && 'rotate-90')} /> Count {c.id.slice(0, 8).toUpperCase()} · {warehouses.nameOf(c.warehouseId)}
                           </div>
-                          <div className="text-xs text-neutral-500">
+                          <div className="text-xs text-muted">
                             {new Date(c.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} · {c.lines.length} batches · {variances.length} with variance
                           </div>
                         </button>
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className={cn('text-xs font-semibold tabular-nums', st.net < 0 ? 'text-red-600' : st.net > 0 ? 'text-emerald-700' : 'text-neutral-500')}>
+                          <span className={cn('text-xs font-semibold num', st.net < 0 ? 'text-danger' : st.net > 0 ? 'text-success' : 'text-muted')}>
                             {st.net === 0 ? 'No variance' : `${st.net > 0 ? '+' : '−'}${money(Math.abs(st.net))}`}
                           </span>
-                          <Badge tone={STATUS_TONE[c.status] ?? 'neutral'} dot>
-                            {STATUS_LABEL[c.status] ?? c.status}
-                          </Badge>
-                          <Button variant="ghost" onClick={() => exportCount(c)}>
+                          <StatusBadge status={c.status} label={STATUS_LABEL[c.status]} tone={STATUS_TONE[c.status]} />
+                          <Button variant="ghost" size="sm" onClick={() => exportCount(c)}>
                             CSV
                           </Button>
                           {c.status === 'COMPLETED' && can('inventory.count') ? (
                             <>
-                              <Button variant="ghost" onClick={() => setCancelling(c)}>
+                              <Button variant="ghost" size="sm" onClick={() => setCancelling(c)}>
                                 Cancel
                               </Button>
-                              <Button onClick={() => setPosting(c)}>Post variances</Button>
+                              <Button size="sm" onClick={() => setPosting(c)}>Post variances</Button>
                             </>
                           ) : null}
                         </div>
@@ -436,7 +420,7 @@ export default function CountsPage() {
                       <div className="mt-2 max-w-xs">
                         <Meter value={st.accuracy} tone={st.accuracy >= 95 ? 'green' : st.accuracy >= 85 ? 'amber' : 'red'} label={`Accuracy ${st.accuracy.toFixed(1)}%`} />
                       </div>
-                      {c.notes ? <p className="mt-1 text-xs text-neutral-500">{c.notes}</p> : null}
+                      {c.notes ? <p className="mt-1 text-xs text-muted">{c.notes}</p> : null}
                       {isOpen ? (
                         <div className="mc-anim-fade-in mt-3">
                           <Table
@@ -455,12 +439,12 @@ export default function CountsPage() {
                               return (
                                 <Tr key={l.id}>
                                   <Td>
-                                    <div className="font-medium text-neutral-800">{l.batch.product.name}</div>
-                                    <div className="font-mono text-xs text-neutral-500">{l.batch.batchNumber}</div>
+                                    <div className="font-medium text-ink">{l.batch.product.name}</div>
+                                    <div className="font-mono text-xs text-muted">{l.batch.batchNumber}</div>
                                   </Td>
                                   <Td right>{qtyFmt(Number(l.systemQty))}</Td>
                                   <Td right>{qtyFmt(Number(l.countedQty))}</Td>
-                                  <Td right className={cn('font-semibold', v === 0 ? 'text-emerald-700' : v > 0 ? 'text-blue-700' : 'text-red-600')}>
+                                  <Td right className={cn('font-semibold', v === 0 ? 'text-success' : v > 0 ? 'text-info' : 'text-danger')}>
                                     {v === 0 ? <Icon name="check" size={14} strokeWidth={2.5} label="Matches" /> : `${v > 0 ? '+' : ''}${qtyFmt(v)}`}
                                   </Td>
                                   <Td right>{v === 0 ? '—' : money(v * Number(l.batch.purchaseRate))}</Td>
@@ -470,10 +454,10 @@ export default function CountsPage() {
                           </Table>
                         </div>
                       ) : null}
-                    </div>
+                    </li>
                   );
                 })}
-              </div>
+              </ul>
               <Pagination info={list.data?.pageInfo} onChange={setPage} label="counts" />
             </>
           )}

@@ -8,7 +8,7 @@ import { api, ApiClientError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { useCan } from '@/lib/stock';
 import { ConfirmDialog, KpiGrid, Meter, useFieldErrors } from '@/components/kit';
-import { Badge, Button, Card, Drawer, EmptyState, ErrorState, Field, Input, PageHeader, Select, SkeletonRows, Stat, cn } from '@/components/ui';
+import { Badge, Button, Drawer, EmptyState, ErrorState, Field, Input, PageHeader, Select, SkeletonRows, Stat, cn, Alert } from '@/components/ui';
 
 interface Counter {
   id: string;
@@ -141,9 +141,9 @@ function BranchDrawer({ branch, org, onClose, onDone }: { branch: BranchRow | 'n
           </Field>
         </div>
         {otherState && !form.gstin ? (
-          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <Alert tone="warning">
             This branch is in {stateName(form.stateCode)} but your organisation is registered in {stateName(org?.stateCode ?? null)}. Under the CGST Act each state needs a separate registration before you bill from here.
-          </p>
+          </Alert>
         ) : null}
         <label className="flex items-center gap-2 text-sm text-neutral-700">
           <input type="checkbox" className="accent-brand-600" checked={form.isBillingEnabled} onChange={(e) => set('isBillingEnabled', e.target.checked)} />
@@ -178,10 +178,10 @@ function InlineAdd({ placeholder, schema, onSubmit, busy, withDefault }: { place
     >
       <div className="min-w-40 flex-1">
         <Input value={name} maxLength={60} onChange={(e) => { clear('name'); setName(e.target.value); }} placeholder={placeholder} className="text-xs" aria-invalid={Boolean(errors.name)} />
-        {errors.name ? <p className="mt-0.5 text-[11px] text-red-600">{errors.name}</p> : null}
+        {errors.name ? <p className="mt-0.5 text-2xs text-danger">{errors.name}</p> : null}
       </div>
       {withDefault ? (
-        <label className="flex items-center gap-1 pt-2 text-[11px] text-neutral-600">
+        <label className="flex items-center gap-1 pt-2 text-2xs text-neutral-600">
           <input type="checkbox" className="accent-brand-600" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} /> default
         </label>
       ) : null}
@@ -190,7 +190,7 @@ function InlineAdd({ placeholder, schema, onSubmit, busy, withDefault }: { place
   );
 }
 
-function BranchCard({ b, canManage, onEdit, onAction, delay }: { b: BranchRow; canManage: boolean; onEdit: () => void; onAction: (a: 'default' | 'deactivate' | 'activate') => void; delay: number }) {
+function BranchCard({ b, canManage, onEdit, onAction }: { b: BranchRow; canManage: boolean; onEdit: () => void; onAction: (a: 'default' | 'deactivate' | 'activate') => void }) {
   const queryClient = useQueryClient();
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ['branches'] });
@@ -217,29 +217,29 @@ function BranchCard({ b, canManage, onEdit, onAction, delay }: { b: BranchRow; c
   });
   const address = [b.addressLine1, b.city, b.stateCode ? stateName(b.stateCode) : null, b.pinCode].filter(Boolean).join(', ');
   return (
-    <Card delay={delay} className={cn(!b.isActive && 'opacity-70')}>
+    <li className={cn('px-4 py-4', !b.isActive && 'opacity-70')}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base font-semibold text-neutral-900">{b.name}</h3>
-            {b.code ? <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] text-neutral-600">{b.code}</span> : null}
-            {b.isDefault ? <Badge tone="blue" dot>Default</Badge> : null}
+            <h3 className="text-base font-[550] text-ink">{b.name}</h3>
+            {b.code ? <Badge>{b.code}</Badge> : null}
+            {b.isDefault ? <Badge tone="blue">Default</Badge> : null}
             {b.isBillingEnabled ? <Badge tone="green">Billing</Badge> : <Badge tone="neutral">No billing</Badge>}
             {!b.isActive ? <Badge tone="red">Inactive</Badge> : null}
           </div>
-          <p className="mt-1 text-xs text-neutral-500">
-            <Icon name="branches" size={12} className="mr-1 text-neutral-400" />
+          <p className="mt-1 text-xs text-muted">
+            <Icon name="branches" size={12} className="mr-1 text-faint" />
             {address || 'No address yet'}
             {b.phone ? (
               <>
                 {' · '}
-                <Icon name="phone" size={12} className="mr-1 text-neutral-400" />
+                <Icon name="phone" size={12} className="mr-1 text-faint" />
                 {b.phone}
               </>
             ) : null}
           </p>
-          <p className="mt-0.5 text-xs text-neutral-500">
-            GSTIN: {b.gstin ? <span className="font-mono text-neutral-700">{b.gstin}</span> : <span className="text-neutral-400">uses organisation GSTIN</span>}
+          <p className="mt-0.5 text-xs text-muted">
+            GSTIN: {b.gstin ? <span className="font-mono text-neutral-700">{b.gstin}</span> : <span className="text-faint">uses organisation GSTIN</span>}
             {' · '}
             {b._count?.assignments ?? 0} staff assigned
           </p>
@@ -249,7 +249,7 @@ function BranchCard({ b, canManage, onEdit, onAction, delay }: { b: BranchRow; c
             <Button variant="secondary" className="text-xs" onClick={onEdit}>Edit</Button>
             {!b.isDefault && b.isActive ? <Button variant="ghost" className="text-xs" onClick={() => onAction('default')}>Make default</Button> : null}
             {b.isActive ? (
-              !b.isDefault ? <Button variant="ghost" className="text-xs text-red-600" onClick={() => onAction('deactivate')}>Deactivate</Button> : null
+              !b.isDefault ? <Button variant="ghost" className="text-xs text-danger" onClick={() => onAction('deactivate')}>Deactivate</Button> : null
             ) : (
               <Button variant="ghost" className="text-xs" onClick={() => onAction('activate')}>Reactivate</Button>
             )}
@@ -258,23 +258,23 @@ function BranchCard({ b, canManage, onEdit, onAction, delay }: { b: BranchRow; c
       </div>
       <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
         <section>
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Warehouses ({b.warehouses.length})</p>
+          <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-faint">Warehouses ({b.warehouses.length})</p>
           <ul className="space-y-1">
             {b.warehouses.map((w) => (
-              <li key={w.id} className="flex items-center justify-between rounded-lg bg-neutral-50 px-2.5 py-1.5 text-sm">
-                <span>{w.name}{w.code ? <span className="ml-1 font-mono text-[10px] text-neutral-400">{w.code}</span> : null}</span>
-                {w.isDefault ? <Badge tone="blue">default</Badge> : null}
+              <li key={w.id} className="flex items-center justify-between rounded-lg bg-subtle px-2.5 py-1.5 text-sm">
+                <span>{w.name}{w.code ? <span className="ml-1 font-mono text-[10px] text-faint">{w.code}</span> : null}</span>
+                {w.isDefault ? <Badge tone="blue">Default</Badge> : null}
               </li>
             ))}
-            {b.warehouses.length === 0 ? <li className="text-xs text-amber-700">No warehouse — stock cannot be received here yet.</li> : null}
+            {b.warehouses.length === 0 ? <li className="text-xs text-warning">No warehouse — stock cannot be received here yet.</li> : null}
           </ul>
           {canManage && b.isActive ? <InlineAdd placeholder="New warehouse, e.g. Back store" schema={warehouseCreateSchema} busy={addWarehouse.isPending} onSubmit={(v) => addWarehouse.mutate(v)} withDefault /> : null}
         </section>
         <section>
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Billing counters ({b.billingCounters.filter((c) => c.isActive).length} active)</p>
+          <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-faint">Billing counters ({b.billingCounters.filter((c) => c.isActive).length} active)</p>
           <ul className="space-y-1">
             {b.billingCounters.map((c) => (
-              <li key={c.id} className="flex items-center justify-between gap-2 rounded-lg bg-neutral-50 px-2.5 py-1.5 text-sm">
+              <li key={c.id} className="flex items-center justify-between gap-2 rounded-lg bg-subtle px-2.5 py-1.5 text-sm">
                 {renaming?.id === c.id ? (
                   <form
                     className="flex flex-1 gap-1"
@@ -290,26 +290,26 @@ function BranchCard({ b, canManage, onEdit, onAction, delay }: { b: BranchRow; c
                   </form>
                 ) : (
                   <>
-                    <span className={cn('inline-flex items-center gap-1.5', !c.isActive && 'text-neutral-400 line-through')}>
-                      <Icon name="pos" size={14} className="text-neutral-400" />
+                    <span className={cn('inline-flex items-center gap-1.5', !c.isActive && 'text-faint line-through')}>
+                      <Icon name="pos" size={14} className="text-faint" />
                       {c.name}
                     </span>
                     {canManage ? (
                       <span className="flex gap-1">
-                        <Button variant="ghost" className="text-[11px]" onClick={() => setRenaming({ id: c.id, name: c.name })}>Rename</Button>
-                        <Button variant="ghost" className="text-[11px]" disabled={updateCounter.isPending} onClick={() => updateCounter.mutate({ id: c.id, isActive: !c.isActive })}>{c.isActive ? 'Disable' : 'Enable'}</Button>
+                        <Button variant="ghost" className="text-2xs" onClick={() => setRenaming({ id: c.id, name: c.name })}>Rename</Button>
+                        <Button variant="ghost" className="text-2xs" disabled={updateCounter.isPending} onClick={() => updateCounter.mutate({ id: c.id, isActive: !c.isActive })}>{c.isActive ? 'Disable' : 'Enable'}</Button>
                       </span>
                     ) : null}
                   </>
                 )}
               </li>
             ))}
-            {b.billingCounters.length === 0 ? <li className="text-xs text-neutral-400">No counters — POS bills under the branch.</li> : null}
+            {b.billingCounters.length === 0 ? <li className="text-xs text-faint">No counters — POS bills under the branch.</li> : null}
           </ul>
           {canManage && b.isActive ? <InlineAdd placeholder="New counter, e.g. Counter 2" schema={billingCounterCreateSchema} busy={addCounter.isPending} onSubmit={(v) => addCounter.mutate(v.name)} /> : null}
         </section>
       </div>
-    </Card>
+    </li>
   );
 }
 
@@ -345,36 +345,39 @@ export default function BranchesPage() {
   const list = branches.data ?? [];
   const u = usage.data?.usage;
   const atLimit = Boolean(u && u.branches.limit !== null && u.branches.limit >= 0 && u.branches.used >= u.branches.limit);
-  const meter = (m: { used: number; limit: number | null } | undefined) =>
-    m ? <Meter value={m.limit && m.limit > 0 ? (m.used / m.limit) * 100 : 0} tone={m.limit !== null && m.limit >= 0 && m.used >= m.limit ? 'red' : 'green'} label={m.limit !== null && m.limit >= 0 ? `${m.used} of ${m.limit} on your plan` : `${m.used} · unlimited`} /> : null;
+  const allowance = (label: string, m: { used: number; limit: number | null } | undefined) => {
+    const capped = !!m && m.limit !== null && m.limit >= 0;
+    return (
+      <Stat
+        label={label}
+        value={m ? (capped ? `${m.used} / ${m.limit}` : m.used) : '…'}
+        hint={m && !capped ? 'Unlimited' : undefined}
+        footer={m && capped ? <Meter value={m.limit ? (m.used / m.limit) * 100 : 100} tone={m.used >= (m.limit ?? 0) ? 'red' : 'green'} /> : undefined}
+      />
+    );
+  };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Branches & warehouses"
         subtitle="Locations, their stock rooms and POS counters."
         actions={canManage ? <Button disabled={atLimit} title={atLimit ? 'Branch limit reached — upgrade your plan' : undefined} onClick={() => setEditing('new')}><Icon name="plus" size={15} strokeWidth={2.25} /> Branch</Button> : null}
       />
-      <KpiGrid cols={4}>
-        <Stat label="Active branches" value={list.filter((b) => b.isActive).length} hint={`${list.length} in total`} tone="blue" />
-        <Card delay={60}>
-          <p className="text-xs font-medium text-neutral-500">Branch allowance</p>
-          {meter(u?.branches)}
-        </Card>
-        <Card delay={120}>
-          <p className="text-xs font-medium text-neutral-500">Warehouse allowance</p>
-          {meter(u?.warehouses)}
-        </Card>
-        <Stat label="Billing counters" value={list.reduce((s, b) => s + b.billingCounters.filter((c) => c.isActive).length, 0)} hint="Active tills" delay={180} />
+      <KpiGrid bare cols={4}>
+        <Stat label="Active branches" value={list.filter((b) => b.isActive).length} hint={`${list.length} in total`} />
+        {allowance('Branch allowance', u?.branches)}
+        {allowance('Warehouse allowance', u?.warehouses)}
+        <Stat label="Billing counters" value={list.reduce((s, b) => s + b.billingCounters.filter((c) => c.isActive).length, 0)} hint="Active tills" />
       </KpiGrid>
       {list.length === 0 ? (
         <EmptyState title="No branches" hint="Add your first shop to start billing." />
       ) : (
-        <div className="space-y-3">
-          {list.map((b, i) => (
-            <BranchCard key={b.id} b={b} canManage={canManage} delay={i * 40} onEdit={() => setEditing(b)} onAction={(kind) => (kind === 'activate' ? update.mutate({ branch: b, kind }) : setAction({ branch: b, kind }))} />
+        <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
+          {list.map((b) => (
+            <BranchCard key={b.id} b={b} canManage={canManage} onEdit={() => setEditing(b)} onAction={(kind) => (kind === 'activate' ? update.mutate({ branch: b, kind }) : setAction({ branch: b, kind }))} />
           ))}
-        </div>
+        </ul>
       )}
       {editing ? <BranchDrawer branch={editing} org={org.data} onClose={() => setEditing(null)} onDone={invalidate} /> : null}
       <ConfirmDialog

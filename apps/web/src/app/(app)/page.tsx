@@ -7,8 +7,8 @@ import { useRouter } from 'next/navigation';
 import { api, ApiClientError } from '@/lib/api';
 import { useCurrentMembership, useSession } from '@/lib/session';
 import { useState } from 'react';
-import { BarChart, Donut, FilterChips, Meter, Sparkline } from '@/components/kit';
-import { Badge, Button, Card, EmptyState, ErrorState, SkeletonRows, Stat, Table, Td, Th, Tr, cn, fmtDate, money } from '@/components/ui';
+import { BarChart, compactInr, Donut, FilterChips } from '@/components/kit';
+import { Button, Card, EmptyState, ErrorState, MetricGroup, PageHeader, SkeletonRows, Stat, StatusBadge, Table, Td, Th, Tr, cn, fmtDate, money } from '@/components/ui';
 
 interface Checklist {
   steps: Array<{ key: string; label: string; complete: boolean; required?: boolean }>;
@@ -59,8 +59,6 @@ interface Aging {
 
 const AGING_LABELS: Record<string, string> = { CURRENT: 'Not due', D1_30: '1–30 d', D31_60: '31–60 d', D61_90: '61–90 d', D90_PLUS: '90+ d' };
 const METHOD_LABELS: Record<string, string> = { CASH: 'Cash', UPI: 'UPI', CARD: 'Card', BANK: 'Bank', CREDIT: 'Credit' };
-const compactInr = (n: number) =>
-  n >= 1e7 ? `₹${(n / 1e7).toFixed(1)}Cr` : n >= 1e5 ? `₹${(n / 1e5).toFixed(1)}L` : n >= 1e3 ? `₹${(n / 1e3).toFixed(1)}k` : `₹${Math.round(n)}`;
 
 const MODULES = [
   { href: '/pos', label: 'POS billing', desc: 'Scan, FEFO batches, split tenders, GST invoice', icon: 'pos' as const, permission: 'sales.create' },
@@ -78,13 +76,6 @@ const STEP_LINKS: Record<string, string> = {
   warehouse: '/branches',
   users: '/users',
   tax_rates: '/configuration',
-};
-
-const STATUS_TONE: Record<string, 'green' | 'amber' | 'red' | 'neutral'> = {
-  POSTED: 'green',
-  PARTIALLY_RETURNED: 'amber',
-  RETURNED: 'red',
-  CANCELLED: 'neutral',
 };
 
 export default function DashboardPage() {
@@ -133,16 +124,10 @@ export default function DashboardPage() {
   }
   if (checklist.isLoading || org.isLoading) {
     return (
-      <div className="mx-auto max-w-6xl space-y-4">
+      <div className="space-y-6">
         <div className="mc-skeleton h-8 w-72" />
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className="mc-skeleton h-24 rounded-xl" style={{ animationDelay: `${i * 80}ms` }} />
-          ))}
-        </div>
-        <div className="rounded-xl border border-neutral-200 bg-white p-5">
-          <SkeletonRows rows={4} />
-        </div>
+        <div className="mc-skeleton h-[104px] rounded-xl" />
+        <SkeletonRows rows={4} />
       </div>
     );
   }
@@ -164,7 +149,11 @@ export default function DashboardPage() {
   const totalSteps = checklist.data?.steps.length ?? 1;
   const progressPct = Math.round((doneCount / totalSteps) * 100);
   const k = kpis.data;
-  const alerts = k
+  const overdue = (b?: { buckets: Record<string, string>; total: string }) => (b ? Number(b.total) - Number(b.buckets.CURRENT ?? 0) : 0);
+  const overdueReceivable = overdue(aging.data?.receivables);
+  const overduePayable = overdue(aging.data?.payables);
+  const setupLeft = checklist.data && !checklist.data.setupCompletedAt ? totalSteps - doneCount : 0;
+  const alerts: Array<{ n: number; display?: string; label: string; href: string; tone: 'red' | 'amber' | 'blue'; always?: boolean }> = k
     ? [
         ...(k.licences ?? []).map((l) => ({
           n: Math.abs(l.daysLeft),
@@ -178,128 +167,255 @@ export default function DashboardPage() {
         { n: k.alerts.lowStock, label: 'products at or below reorder level', href: '/batches', tone: 'amber' as const },
         { n: k.alerts.receiptsAwaitingInvoice, label: 'goods receipts awaiting supplier invoice', href: '/purchasing', tone: 'blue' as const },
         { n: k.alerts.openPurchaseOrders, label: 'open purchase orders', href: '/purchasing', tone: 'blue' as const },
+        { n: overdueReceivable, display: money(overdueReceivable), label: 'customer dues past due date', href: '/customers', tone: 'amber' as const },
+        { n: overduePayable, display: money(overduePayable), label: 'supplier dues past due date', href: '/vendors', tone: 'amber' as const },
+        { n: setupLeft, label: `setup step${setupLeft === 1 ? '' : 's'} still to complete`, href: '/settings', tone: 'amber' as const },
       ].filter((a) => ('always' in a && a.always) || a.n > 0)
     : [];
 
+  const linkCls = 'inline-flex items-center gap-0.5 text-xs font-medium text-teal-ink hover:underline';
+
+  const rangeChips = (
+    <FilterChips
+      allLabel={null}
+      value={trendDays}
+      onChange={(v) => v && setTrendDays(v)}
+      options={[
+        { id: '7', label: '7 days' },
+        { id: '14', label: '14 days' },
+        { id: '30', label: '30 days' },
+      ]}
+    />
+  );
+
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
-      <div className="mc-anim-fade-up flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-neutral-900">{org.data?.name}</h1>
-          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-sm text-neutral-500">
+    <div className="space-y-10">
+      <PageHeader
+        title={org.data?.name ?? 'Dashboard'}
+        subtitle={
+          <span className="flex flex-wrap items-center gap-1.5">
             <span className="font-mono text-xs">{org.data?.gstin ?? 'GSTIN not set'}</span>
-            <span>·</span>
+            <span aria-hidden>·</span>
             {sub ? (
               <>
                 {sub.planName} plan
-                <Badge tone={sub.status === 'TRIALING' ? 'amber' : sub.status === 'ACTIVE' ? 'green' : 'red'} dot>
-                  {({ TRIALING: 'Trial', ACTIVE: 'Active', PAST_DUE: 'Payment due', GRACE: 'Grace period', CANCELLED: 'Cancelled', EXPIRED: 'Expired' } as Record<string, string>)[sub.status] ?? sub.status}
-                </Badge>
+                <StatusBadge status={sub.status} label={({ TRIALING: 'Trial', ACTIVE: 'Active', PAST_DUE: 'Payment due', GRACE: 'Grace period', CANCELLED: 'Cancelled', EXPIRED: 'Expired' } as Record<string, string>)[sub.status]} />
               </>
             ) : (
               'No subscription'
             )}
-          </p>
-        </div>
-        {can('sales.create') ? (
-          <Link href="/pos">
-            <Button><Icon name="pos" size={15} /> New sale</Button>
-          </Link>
+            {checklist.data && !checklist.data.setupCompletedAt ? (
+              <>
+                <span aria-hidden>·</span>
+                <span className="text-warning">Setup {doneCount}/{totalSteps}</span>
+              </>
+            ) : null}
+          </span>
+        }
+        actions={
+          <>
+            {rangeChips}
+            {can('sales.create') ? (
+              <Link href="/pos">
+                <Button>
+                  <Icon name="pos" size={15} /> New sale
+                </Button>
+              </Link>
+            ) : null}
+          </>
+        }
+      />
+
+      <section aria-labelledby="overview-heading" className="space-y-6">
+        <h2 id="overview-heading" className="text-2xs font-medium uppercase tracking-[0.08em] text-faint">
+          Business overview
+        </h2>
+        {kpis.error ? (
+          <ErrorState message="Live KPIs could not be loaded." retry={() => void kpis.refetch()} />
+        ) : kpis.isLoading ? (
+          <div className="grid gap-8 lg:grid-cols-12">
+            <div className="mc-skeleton h-40 rounded-lg lg:col-span-4" />
+            <div className="mc-skeleton h-40 rounded-lg lg:col-span-8" />
+          </div>
+        ) : k ? (
+          <>
+            <div className="grid gap-8 lg:grid-cols-12">
+              <div className="flex flex-col lg:col-span-4">
+                <Stat
+                  variant="featured"
+                  label="Today's sales"
+                  value={money(k.today.revenue)}
+                  hint={`${k.today.invoices} invoice${k.today.invoices === 1 ? '' : 's'}${Number(k.today.returns) ? ` · ${money(k.today.returns)} returns` : ''}`}
+                  href="/sales-history"
+                  spark={trendValues.filter((v) => v > 0).length >= 2 ? trendValues : undefined}
+                />
+                {trend.data ? (
+                  <dl className="mt-auto grid grid-cols-2 gap-4 border-t border-line pt-4 text-xs">
+                    <div>
+                      <dt className="text-muted">Last {trendDays} days</dt>
+                      <dd className="num mt-0.5 text-[15px] font-medium text-ink">{money(trendTotal)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Daily average</dt>
+                      <dd className="num mt-0.5 text-[15px] font-medium text-ink">{money(trendTotal / Number(trendDays))}</dd>
+                    </div>
+                  </dl>
+                ) : null}
+              </div>
+              <div className="min-w-0 lg:col-span-8 lg:border-l lg:border-line lg:pl-8">
+                <div className="mb-3 flex items-baseline justify-between gap-2">
+                  <h3 className="text-section font-[550] text-ink">Sales trend</h3>
+                  <span className="text-xs text-muted">Daily net sales · last {trendDays} days</span>
+                </div>
+                {trend.isLoading ? (
+                  <div className="mc-skeleton h-[200px] rounded-lg" />
+                ) : trend.error ? (
+                  <ErrorState message="Trend unavailable." retry={() => void trend.refetch()} />
+                ) : (
+                  <BarChart
+                    height={200}
+                    format={compactInr}
+                    detailFormat={money}
+                    emptyLabel={`No sales in the last ${trendDays} days.`}
+                    sparseLabel={(n, total) => `Sales recorded on ${n} of ${total} days.`}
+                    data={(trend.data?.days ?? []).map((d) => ({
+                      label: new Date(`${d.date}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
+                      value: Number(d.revenue),
+                      hint: `${fmtDate(d.date)} · ${d.invoices} invoice${d.invoices === 1 ? '' : 's'}`,
+                    }))}
+                  />
+                )}
+              </div>
+            </div>
+            <MetricGroup bare>
+              <Stat icon="sales" label="This month" value={money(k.month.revenue)} hint={`${k.month.invoices} invoices${Number(k.month.returns) ? ` · net of ${money(k.month.returns)} returns` : ''}`} href="/reports" />
+              <Stat icon="batches" label="Stock valuation" value={money(k.stockValue)} hint="at purchase cost" href="/batches" />
+              <Stat icon="customers" label="Receivables" value={money(k.receivables)} hint="customer credit" tone={Number(k.receivables) > 0 ? 'amber' : 'neutral'} href="/customers" />
+              <Stat icon="vendors" label="Payables" value={money(k.payables)} hint="supplier dues" tone={Number(k.payables) > 0 ? 'amber' : 'neutral'} href="/vendors" />
+            </MetricGroup>
+          </>
         ) : null}
-      </div>
+      </section>
 
-      {kpis.error ? (
-        <ErrorState message="Live KPIs could not be loaded." retry={() => void kpis.refetch()} />
-      ) : kpis.isLoading ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className="mc-skeleton h-[88px] rounded-xl" style={{ animationDelay: `${i * 80}ms` }} />
-          ))}
-        </div>
-      ) : k ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-          <Stat
-            label="Today's sales"
-            value={money(k.today.revenue)}
-            hint={`${k.today.invoices} invoices${Number(k.today.returns) ? ` · net of ${money(k.today.returns)} returns` : ''}`}
-            tone="blue"
-            delay={0}
-            href="/sales-history"
-            footer={trendValues.length > 1 ? <Sparkline values={trendValues} className="h-8" /> : null}
-          />
-          <Stat label="This month" value={money(k.month.revenue)} hint={`${k.month.invoices} invoices${Number(k.month.returns) ? ` · net of ${money(k.month.returns)} returns` : ''}`} tone="green" delay={60} href="/reports" />
-          <Stat label="Stock value" value={money(k.stockValue)} hint="at purchase cost" tone="neutral" delay={120} href="/batches" />
-          <Stat label="Receivables" value={money(k.receivables)} hint="customer credit" tone="amber" delay={180} href="/customers" />
-          <Stat label="Payables" value={money(k.payables)} hint="supplier dues" tone="red" delay={240} href="/vendors" />
-        </div>
-      ) : null}
-
-      <div className="grid gap-5 lg:grid-cols-5">
-        <Card
-          title="Sales trend"
-          className="lg:col-span-3"
-          delay={120}
-          actions={
-            <FilterChips
-              allLabel={null}
-              value={trendDays}
-              onChange={(v) => v && setTrendDays(v)}
-              options={[
-                { id: '7', label: '7 days' },
-                { id: '14', label: '14 days' },
-                { id: '30', label: '30 days' },
-              ]}
-            />
-          }
-        >
+      <div className="grid gap-10 lg:grid-cols-12">
+        <Card variant="section" title="Top sellers" description="Best-selling products this month" className="lg:col-span-7">
           {trend.isLoading ? (
-            <div className="mc-skeleton h-[180px] rounded-lg" />
-          ) : trend.error ? (
-            <ErrorState message="Trend unavailable." retry={() => void trend.refetch()} />
-          ) : (
-            <>
-              <BarChart
-                format={compactInr}
-                data={(trend.data?.days ?? []).map((d) => ({
-                  label: new Date(`${d.date}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
-                  value: Number(d.revenue),
-                  hint: `${fmtDate(d.date)} · ${d.invoices} invoice${d.invoices === 1 ? '' : 's'}`,
-                }))}
-              />
-              <p className="mt-2 text-xs text-neutral-500">
-                {money(trendTotal)} over {trendDays} days · average {money(trendTotal / Number(trendDays))} a day
-              </p>
-            </>
-          )}
-        </Card>
-        <Card title="Top sellers this month" className="lg:col-span-2" delay={180}>
-          {trend.isLoading ? (
-            <SkeletonRows rows={5} cols={2} />
+            <SkeletonRows rows={5} cols={3} />
           ) : !trend.data?.topProducts.length ? (
-            <p className="py-8 text-center text-sm text-neutral-500">No sales this month yet.</p>
+            <p className="py-6 text-[13px] text-muted">No sales this month yet.</p>
           ) : (
-            <ol className="mc-stagger space-y-3">
+            <ol className="divide-y divide-line">
               {trend.data.topProducts.map((p, i) => (
-                <li key={p.productId}>
-                  <div className="mb-1 flex items-baseline justify-between gap-2 text-sm">
-                    <span className="truncate">
-                      <span className="mr-1.5 text-xs font-semibold text-neutral-400">{i + 1}</span>
-                      {p.product}
-                    </span>
-                    <span className="shrink-0 font-medium tabular-nums">{money(p.revenue)}</span>
+                <li key={p.productId} className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-x-3 py-2.5">
+                  <span className="num text-xs text-faint">{String(i + 1).padStart(2, '0')}</span>
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-medium text-ink">{p.product}</p>
+                    <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-subtle" aria-hidden>
+                      <div className="mc-anim-grow-x h-full origin-left rounded-full bg-accent/70" style={{ width: `${(Number(p.revenue) / topMax) * 100}%` }} />
+                    </div>
                   </div>
-                  <Meter value={(Number(p.revenue) / topMax) * 100} tone={i === 0 ? 'green' : 'brand'} />
-                  <p className="mt-0.5 text-[11px] text-neutral-400">{p.quantity.toLocaleString('en-IN')} units</p>
+                  <div className="text-right">
+                    <p className="num text-[13px] font-medium text-ink">{money(p.revenue)}</p>
+                    <p className="num text-2xs text-muted">{p.quantity.toLocaleString('en-IN')} units</p>
+                  </div>
                 </li>
               ))}
             </ol>
           )}
         </Card>
+
+        <Card variant="section" title="Needs attention" className="lg:col-span-5">
+          {kpis.isLoading ? (
+            <SkeletonRows rows={3} cols={2} />
+          ) : alerts.length === 0 ? (
+            <p className="flex items-center gap-2 py-3 text-[13px] text-muted">
+              <Icon name="checkCircle" size={15} className="shrink-0 text-success" />
+              All clear — no expiry, stock, purchasing or payment alerts.
+            </p>
+          ) : (
+            <ul className="divide-y divide-line">
+              {alerts.map((a) => (
+                <li key={a.label}>
+                  <Link href={a.href} className="group flex items-center gap-3 py-2.5">
+                    <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full', a.tone === 'red' ? 'bg-danger' : a.tone === 'amber' ? 'bg-warning' : 'bg-info')} />
+                    <span className="num min-w-7 shrink-0 text-right text-[15px] font-medium text-ink">{a.display ?? a.n}</span>
+                    <span className="flex-1 text-[13px] text-muted group-hover:text-ink">{a.label}</span>
+                    <Icon name="chevronRight" size={14} className="text-faint group-hover:text-teal-ink" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
       </div>
 
-      {canReports ? (
-        <div className="grid gap-5 lg:grid-cols-3">
-          <Card title="Payment mix · this month" delay={200}>
+      {checklist.data && !checklist.data.setupCompletedAt && can('organization.settings.manage') ? (
+        <Card
+          variant="section"
+          title="Setup checklist"
+          description="Real transactions are blocked until essential setup is complete."
+          actions={
+            <div className="flex items-center gap-2">
+              <div
+                className="h-1.5 w-32 overflow-hidden rounded-full bg-subtle"
+                role="progressbar"
+                aria-label="Setup progress"
+                aria-valuemin={0}
+                aria-valuemax={totalSteps}
+                aria-valuenow={doneCount}
+              >
+                <div className="h-full rounded-full bg-accent transition-[width] duration-500" style={{ width: `${progressPct}%` }} />
+              </div>
+              <span className="num text-xs text-muted">
+                {doneCount} of {totalSteps}
+              </span>
+            </div>
+          }
+        >
+          <ul className="grid gap-x-10 sm:grid-cols-2">
+            {checklist.data.steps.map((s) => (
+              <li key={s.key} className="border-b border-line">
+                <Link href={STEP_LINKS[s.key] ?? '/settings'} className="group flex items-center gap-2.5 py-2.5 text-[13px]">
+                  <Icon name={s.complete ? 'checkCircle' : 'circle'} size={16} className={s.complete ? 'text-success' : 'text-neutral-300'} />
+                  <span className={cn('flex-1', s.complete ? 'text-muted line-through decoration-neutral-300' : 'text-ink group-hover:text-teal-ink')}>{s.label}</span>
+                  {!s.complete ? <span className={cn('text-2xs font-medium', s.required === false ? 'text-faint' : 'text-warning')}>{s.required === false ? 'Recommended' : 'Required'}</span> : null}
+                  <Icon name="chevronRight" size={14} className="text-faint group-hover:text-teal-ink" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+          {checklist.data.allComplete ? (
+            <div className="mt-4 flex justify-end">
+              <Button disabled={completeSetup.isPending} onClick={() => completeSetup.mutate()}>
+                {completeSetup.isPending ? 'Completing…' : 'Complete setup'}
+              </Button>
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
+
+      <div className="grid gap-10 lg:grid-cols-12">
+        <Card variant="section" title="Recent invoices" className="lg:col-span-7" actions={<Link href="/sales-history" className={linkCls}>View all <Icon name="arrowRight" size={12} /></Link>}>
+          {kpis.isLoading ? (
+            <SkeletonRows rows={4} cols={4} />
+          ) : !k || k.recentInvoices.length === 0 ? (
+            <p className="py-6 text-[13px] text-muted">No sales yet. Your first POS invoice will appear here.</p>
+          ) : (
+            <Table head={<tr><Th>Invoice</Th><Th>Customer</Th><Th>Date</Th><Th>Status</Th><Th right>Total</Th></tr>}>
+              {k.recentInvoices.map((inv) => (
+                <Tr key={inv.id} onClick={() => router.push(`/sales-history/${inv.id}`)}>
+                  <Td className="font-mono text-xs font-medium text-teal-ink">{inv.invoiceNumber}</Td>
+                  <Td>{inv.party}</Td>
+                  <Td className="text-muted">{fmtDate(inv.invoiceDate)}</Td>
+                  <Td><StatusBadge status={inv.status} /></Td>
+                  <Td right className="font-medium">{money(inv.total)}</Td>
+                </Tr>
+              ))}
+            </Table>
+          )}
+        </Card>
+        {canReports ? (
+          <Card variant="section" title="Payment mix" description="Collected this month by tender" className="lg:col-span-5">
             {mix.isLoading ? (
               <div className="mc-skeleton h-32 rounded-lg" />
             ) : mix.error ? (
@@ -312,178 +428,74 @@ export default function DashboardPage() {
               />
             )}
           </Card>
-          <Card title="Expiry value at risk" delay={240} actions={<Link href="/expiry" className="text-xs font-medium text-brand-700 inline-flex items-center gap-0.5 hover:underline">Expiry dashboard <Icon name="arrowRight" size={12} /></Link>}>
+        ) : null}
+      </div>
+
+      {canReports ? (
+        <div className="grid gap-10 lg:grid-cols-2">
+          <Card variant="section" title="Expiry value at risk" actions={<Link href="/expiry" className={linkCls}>Expiry <Icon name="arrowRight" size={12} /></Link>}>
             {expiry.isLoading ? (
               <SkeletonRows rows={5} cols={2} />
             ) : expiry.error ? (
               <ErrorState message="Expiry values unavailable." retry={() => void expiry.refetch()} />
             ) : (
-              <ul className="mc-stagger space-y-2.5">
+              <ul className="divide-y divide-line">
                 {(expiry.data?.buckets ?? []).map((b) => (
-                  <li key={b.key}>
-                    <div className="mb-1 flex items-baseline justify-between text-xs">
-                      <span className={cn('font-medium', b.key === 'EXPIRED' ? 'text-red-700' : b.key === 'D0_30' ? 'text-amber-700' : 'text-neutral-600')}>
-                        {b.label}
-                        <span className="ml-1 font-normal text-neutral-400">· {b.batches} batch{b.batches === 1 ? '' : 'es'}</span>
-                      </span>
-                      <span className="tabular-nums text-neutral-800">{money(b.costValue)}</span>
+                  <li key={b.key} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 py-2">
+                    <div className="min-w-0">
+                      <p className="flex items-center gap-2 text-[13px]">
+                        <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', b.key === 'EXPIRED' ? 'bg-danger' : b.key === 'D0_30' ? 'bg-warning' : 'bg-neutral-300')} />
+                        <span className="text-ink">{b.label}</span>
+                        <span className="text-xs text-muted">{b.batches} batch{b.batches === 1 ? '' : 'es'}</span>
+                      </p>
+                      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-subtle" aria-hidden>
+                        <div className={cn('mc-anim-grow-x h-full origin-left rounded-full', b.key === 'EXPIRED' ? 'bg-danger/70' : b.key === 'D0_30' ? 'bg-warning/70' : 'bg-accent/50')} style={{ width: `${(Number(b.costValue) / expiryMax) * 100}%` }} />
+                      </div>
                     </div>
-                    <Meter value={(Number(b.costValue) / expiryMax) * 100} tone={b.key === 'EXPIRED' ? 'red' : b.key === 'D0_30' ? 'amber' : 'brand'} />
+                    <span className="num text-[13px] font-medium text-ink">{money(b.costValue)}</span>
                   </li>
                 ))}
               </ul>
             )}
           </Card>
-          <Card title="Receivable aging" delay={280} actions={<Link href="/reports" className="text-xs font-medium text-brand-700 inline-flex items-center gap-0.5 hover:underline">Reports <Icon name="arrowRight" size={12} /></Link>}>
+          <Card variant="section" title="Receivable aging" actions={<Link href="/reports" className={linkCls}>Reports <Icon name="arrowRight" size={12} /></Link>}>
             {aging.isLoading ? (
               <SkeletonRows rows={5} cols={2} />
             ) : aging.error ? (
               <ErrorState message="Aging unavailable." retry={() => void aging.refetch()} />
             ) : Number(aging.data?.receivables.total ?? 0) === 0 ? (
-              <p className="py-8 text-center text-sm text-neutral-500">No customer credit outstanding.</p>
+              <p className="py-6 text-[13px] text-muted">No customer credit outstanding.</p>
             ) : (
               <>
                 <BarChart
                   height={150}
                   tone="amber"
                   format={compactInr}
+                  detailFormat={money}
                   data={Object.entries(aging.data!.receivables.buckets).map(([key, v]) => ({ label: AGING_LABELS[key] ?? key, value: Number(v) }))}
                 />
-                <p className="mt-2 text-xs text-neutral-500">Total outstanding {money(aging.data!.receivables.total)}</p>
+                <p className="num mt-2 text-xs text-muted">Total outstanding {money(aging.data!.receivables.total)}</p>
               </>
             )}
           </Card>
         </div>
       ) : null}
 
-      {checklist.data && !checklist.data.setupCompletedAt && can('organization.settings.manage') ? (
-        <Card
-          title="Setup checklist"
-          delay={120}
-          actions={
-            <div className="flex items-center gap-2">
-              <div className="h-1.5 w-28 overflow-hidden rounded-full bg-neutral-100">
-                <div className="h-full rounded-full bg-gradient-to-r from-brand-400 to-brand-600 transition-[width] duration-700" style={{ width: `${progressPct}%` }} />
-              </div>
-              <span className="text-xs tabular-nums text-neutral-500">
-                {doneCount}/{totalSteps}
-              </span>
-            </div>
-          }
-        >
-          <div className="mc-stagger grid gap-2 sm:grid-cols-2">
-            {checklist.data.steps.map((s) => (
-              <Link
-                key={s.key}
-                href={STEP_LINKS[s.key] ?? '/settings'}
-                className="flex items-center justify-between rounded-lg border border-neutral-100 bg-neutral-50/50 px-3 py-2 transition-all duration-200 hover:border-brand-200 hover:bg-brand-50/40"
-              >
-                <span className="text-sm text-neutral-700">{s.label}</span>
-                <Badge tone={s.complete ? 'green' : s.required === false ? 'blue' : 'amber'} dot>
-                  {s.complete ? 'Done' : s.required === false ? 'Recommended' : 'Pending'}
-                </Badge>
-              </Link>
-            ))}
-          </div>
-          <div className="mt-4 flex items-center justify-between gap-3">
-            <p className="text-xs leading-relaxed text-neutral-500">
-              Real transactions are blocked until essential setup is complete. Configure business details under{' '}
-              <Link className="font-medium text-brand-700 hover:underline" href="/settings">
-                Settings
-              </Link>
-              , tax rates under{' '}
-              <Link className="font-medium text-brand-700 hover:underline" href="/configuration">
-                Configuration
-              </Link>{' '}
-              and a warehouse under{' '}
-              <Link className="font-medium text-brand-700 hover:underline" href="/branches">
-                Branches
-              </Link>
-              .
-            </p>
-            {checklist.data.allComplete ? (
-              <Button disabled={completeSetup.isPending} onClick={() => completeSetup.mutate()}>
-                {completeSetup.isPending ? 'Completing…' : 'Complete setup'}
-              </Button>
-            ) : null}
-          </div>
-        </Card>
-      ) : null}
-
-      <div className="grid gap-5 lg:grid-cols-5">
-        <Card title="Recent invoices" className="lg:col-span-3" delay={180} actions={<Link href="/sales-history" className="text-xs font-medium text-brand-700 inline-flex items-center gap-0.5 hover:underline">View all <Icon name="arrowRight" size={12} /></Link>}>
-          {kpis.isLoading ? (
-            <SkeletonRows rows={4} cols={4} />
-          ) : !k || k.recentInvoices.length === 0 ? (
-            <p className="py-6 text-center text-sm text-neutral-500">No sales yet — your first POS invoice will appear here.</p>
-          ) : (
-            <Table head={<tr><Th>Invoice</Th><Th>Customer</Th><Th>Date</Th><Th>Status</Th><Th right>Total</Th></tr>}>
-              {k.recentInvoices.map((inv) => (
-                <Tr key={inv.id} onClick={() => router.push(`/sales-history/${inv.id}`)}>
-                  <Td className="font-mono text-xs font-medium text-brand-700">{inv.invoiceNumber}</Td>
-                  <Td>{inv.party}</Td>
-                  <Td className="text-neutral-500">{fmtDate(inv.invoiceDate)}</Td>
-                  <Td><Badge tone={STATUS_TONE[inv.status] ?? 'neutral'}>{inv.status.replace('_', ' ').toLowerCase()}</Badge></Td>
-                  <Td right className="font-medium">{money(inv.total)}</Td>
-                </Tr>
-              ))}
-            </Table>
-          )}
-        </Card>
-
-        <Card title="Needs attention" className="lg:col-span-2" delay={240}>
-          {kpis.isLoading ? (
-            <SkeletonRows rows={3} cols={2} />
-          ) : alerts.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-6 text-center">
-              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
-                <Icon name="checkCircle" size={20} />
-              </span>
-              <p className="text-sm text-neutral-600">All clear — no expiry, stock or purchasing alerts.</p>
-            </div>
-          ) : (
-            <ul className="mc-stagger space-y-2">
-              {alerts.map((a) => (
-                <li key={a.label}>
-                  <Link href={a.href} className="flex items-center gap-3 rounded-lg border border-neutral-100 px-3 py-2 transition-all duration-200 hover:border-brand-200 hover:bg-brand-50/40">
-                    <span
-                      className={cn(
-                        'flex h-7 min-w-7 items-center justify-center rounded-lg px-1.5 text-sm font-semibold tabular-nums',
-                        a.tone === 'red' ? 'bg-red-50 text-red-700' : a.tone === 'amber' ? 'bg-amber-50 text-amber-800' : 'bg-sky-50 text-sky-700',
-                      )}
-                    >
-                      {a.n}
-                    </span>
-                    <span className="text-sm text-neutral-700">{a.label}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </div>
-
-      <Card title="Modules" delay={300}>
-        <div className="mc-stagger grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <Card variant="section" title="Quick links">
+        <ul className="grid gap-x-10 sm:grid-cols-2 lg:grid-cols-3">
           {MODULES.filter((m) => can(m.permission)).map((m) => (
-            <Link
-              key={m.href}
-              href={m.href}
-              className="group flex items-start gap-3 rounded-xl border border-neutral-200/80 bg-gradient-to-br from-white to-neutral-50/60 px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md"
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700 ring-1 ring-brand-100 transition-transform group-hover:scale-110">
-                <Icon name={m.icon} size={18} />
-              </span>
-              <span>
-                <span className="flex items-center gap-1.5 text-sm font-semibold text-neutral-800 group-hover:text-brand-700">
-                  {m.label}
-                  <Badge tone="green" dot>Live</Badge>
+            <li key={m.href} className="border-b border-line">
+              <Link href={m.href} className="group flex items-center gap-3 py-2.5">
+                <Icon name={m.icon} size={16} className="text-faint transition-colors group-hover:text-teal-ink" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-medium text-ink group-hover:text-teal-ink">{m.label}</span>
+                  <span className="block truncate text-xs text-muted">{m.desc}</span>
                 </span>
-                <span className="mt-0.5 block text-xs text-neutral-500">{m.desc}</span>
-              </span>
-            </Link>
+                <Icon name="chevronRight" size={14} className="text-faint transition-colors group-hover:text-teal-ink" />
+              </Link>
+            </li>
           ))}
-        </div>
+        </ul>
       </Card>
     </div>
   );

@@ -122,12 +122,12 @@ function TaxRateForm({ onDone }: { onDone: () => void }) {
     create.mutate(body);
   };
   return (
-    <Card title="New GST rate version" actions={<span className="text-[11px] text-neutral-400">Effective-dated · history is never overwritten</span>}>
+    <Card title="New GST rate version" actions={<span className="text-2xs text-faint">Effective-dated · history is never overwritten</span>}>
       <form onSubmit={submit} className="space-y-3" noValidate>
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-neutral-500">Quick slab:</span>
+          <span className="text-xs text-muted">Quick slab:</span>
           {SLABS.map((s) => (
-            <button key={s} type="button" onClick={() => applySlab(s)} className="rounded-full border border-neutral-200 bg-white px-2.5 py-0.5 text-xs font-medium text-neutral-600 transition-all hover:border-brand-300 hover:text-brand-700 active:scale-95">
+            <button key={s} type="button" onClick={() => applySlab(s)} className="rounded-full border border-line bg-surface px-2.5 py-0.5 text-xs font-medium text-neutral-600 transition-colors hover:border-neutral-300 hover:text-teal-ink">
               {s}%
             </button>
           ))}
@@ -157,11 +157,11 @@ function TaxRateForm({ onDone }: { onDone: () => void }) {
           <Field label="Effective to" error={errors.effectiveTo} hint="Leave blank if open-ended">
             <Input type="date" value={form.effectiveTo} min={form.effectiveFrom} onChange={(e) => set('effectiveTo', e.target.value)} />
           </Field>
-          <div className="flex items-end md:col-span-2">
+          <div className="flex items-start md:col-span-2 md:pt-[22px]">
             <Button type="submit" disabled={create.isPending}>{create.isPending ? 'Saving…' : 'Add version'}</Button>
           </div>
         </div>
-        <p className="text-[11px] text-neutral-400">Rates must come from the official CBIC schedules. Invoices snapshot the version in force on the document date.</p>
+        <p className="text-2xs text-faint">Rates must come from the official CBIC schedules. Invoices snapshot the version in force on the document date.</p>
       </form>
     </Card>
   );
@@ -199,12 +199,12 @@ function TaxTab({ rates, canManage, refresh }: { rates: TaxRate[]; canManage: bo
   return (
     <>
       {canManage ? (
-        <section className="mc-anim-fade-up flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200/70 bg-gradient-to-r from-brand-50 to-white px-4 py-3 shadow-sm">
+        <section className="mc-anim-fade-in flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-subtle px-4 py-3">
           <div>
-            <p className="text-sm font-semibold text-neutral-800">Standard pharmacy GST rates</p>
-            <p className="text-xs text-neutral-500">Chapter 30 medicines, dressings, diagnostics and devices (GST Council, effective 22 Sep 2025). Existing HSN codes are never overwritten.</p>
+            <p className="text-sm font-[550] text-ink">Standard pharmacy GST rates</p>
+            <p className="text-xs text-muted">Chapter 30 medicines, dressings, diagnostics and devices (GST Council, effective 22 Sep 2025). Existing HSN codes are never overwritten.</p>
           </div>
-          <Button disabled={loadStandard.isPending} onClick={() => loadStandard.mutate()}>{loadStandard.isPending ? 'Loading…' : 'Load standard rates'}</Button>
+          <Button variant="secondary" disabled={loadStandard.isPending} onClick={() => loadStandard.mutate()}>{loadStandard.isPending ? 'Loading…' : 'Load standard rates'}</Button>
         </section>
       ) : null}
       {canManage ? <TaxRateForm onDone={refresh} /> : null}
@@ -221,7 +221,7 @@ function TaxTab({ rates, canManage, refresh }: { rates: TaxRate[]; canManage: bo
               value={state}
               onChange={setState}
             />
-            <SearchInput value={search} onChange={setSearch} placeholder="HSN or description" className="w-48" />
+            <SearchInput value={search} onChange={setSearch} placeholder="HSN or description" className="w-full sm:w-48" />
           </div>
         }
       >
@@ -239,7 +239,7 @@ function TaxTab({ rates, canManage, refresh }: { rates: TaxRate[]; canManage: bo
                   <Td right className="text-sm">{pct(t.sgstPercent)}</Td>
                   <Td right className="text-sm font-medium">{pct(t.igstPercent)}</Td>
                   <Td right className="text-sm">{pct(t.cessPercent)}</Td>
-                  <Td className="text-xs text-neutral-500">{fmtDate(t.effectiveFrom)}{t.effectiveTo ? ` → ${fmtDate(t.effectiveTo)}` : ' →'}</Td>
+                  <Td className="text-xs text-muted">{fmtDate(t.effectiveFrom)}{t.effectiveTo ? ` → ${fmtDate(t.effectiveTo)}` : ' →'}</Td>
                   <Td><Badge tone={s === 'ACTIVE' ? 'green' : s === 'SCHEDULED' ? 'blue' : 'neutral'} dot={s !== 'ENDED'}>{s === 'ACTIVE' ? 'Active' : s === 'SCHEDULED' ? 'Scheduled' : 'Ended'}</Badge></Td>
                   <Td right>
                     {canManage && !t.effectiveTo ? (
@@ -335,17 +335,17 @@ function CategoryNode({ c, childrenOf, depth, canManage, onEdit, onDelete }: { c
   const kids = childrenOf.get(c.id) ?? [];
   return (
     <li>
-      <div className="group flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-neutral-50" style={{ paddingLeft: `${depth * 20 + 8}px` }}>
-        <button type="button" onClick={() => setOpen((o) => !o)} className={cn('h-5 w-5 rounded flex items-center justify-center text-neutral-400 transition-transform duration-200 hover:bg-neutral-100', !kids.length && 'invisible', open && 'rotate-90')} aria-label={open ? 'Collapse' : 'Expand'}>
+      <div className="group flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-subtle" style={{ paddingLeft: `${depth * 20 + 8}px` }}>
+        <button type="button" onClick={() => setOpen((o) => !o)} className={cn('h-5 w-5 rounded flex items-center justify-center text-faint transition-transform duration-200 hover:bg-subtle', !kids.length && 'invisible', open && 'rotate-90')} aria-label={open ? 'Collapse' : 'Expand'}>
           <Icon name="chevronRight" size={14} />
         </button>
-        <span className="text-sm font-medium text-neutral-800">{c.name}</span>
+        <span className="text-sm font-medium text-ink">{c.name}</span>
         <Badge tone={c._count?.products ? 'blue' : 'neutral'}>{c._count?.products ?? 0} products</Badge>
-        {c.description ? <span className="truncate text-xs text-neutral-400">{c.description}</span> : null}
+        {c.description ? <span className="truncate text-xs text-faint">{c.description}</span> : null}
         {canManage ? (
           <span className="ml-auto flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             <Button variant="ghost" className="text-xs" onClick={() => onEdit(c)}>Edit</Button>
-            <Button variant="ghost" className="text-xs text-red-600" onClick={() => onDelete(c)}>Delete</Button>
+            <Button variant="ghost" className="text-xs text-danger" onClick={() => onDelete(c)}>Delete</Button>
           </span>
         ) : null}
       </div>
@@ -383,7 +383,7 @@ function CategoriesTab({ categories, canManage, refresh }: { categories: Categor
         title={`Category tree (${categories.length})`}
         actions={
           <div className="flex items-center gap-2">
-            <SearchInput value={search} onChange={setSearch} placeholder="Find a category" className="w-48" />
+            <SearchInput value={search} onChange={setSearch} placeholder="Find a category" className="w-full sm:w-48" />
             {canManage ? <Button onClick={() => setEditing('new')}><Icon name="plus" size={15} strokeWidth={2.25} /> Category</Button> : null}
           </div>
         }
@@ -401,7 +401,7 @@ function CategoriesTab({ categories, canManage, refresh }: { categories: Categor
             <EmptyState title="No category matches" />
           )
         ) : (
-          <ul className="mc-stagger space-y-0.5">
+          <ul className="space-y-0.5">
             {(childrenOf.get(null) ?? []).map((c) => (
               <CategoryNode key={c.id} c={c} childrenOf={childrenOf} depth={0} canManage={canManage} onEdit={setEditing} onDelete={setDeleting} />
             ))}
@@ -491,7 +491,7 @@ function ManufacturersTab({ manufacturers, canManage, refresh }: { manufacturers
         title={`Manufacturers (${rows.length})`}
         actions={
           <div className="flex items-center gap-2">
-            <SearchInput value={search} onChange={setSearch} placeholder="Name or email" className="w-48" />
+            <SearchInput value={search} onChange={setSearch} placeholder="Name or email" className="w-full sm:w-48" />
             {canManage ? <Button onClick={() => setEditing('new')}><Icon name="plus" size={15} strokeWidth={2.25} /> Manufacturer</Button> : null}
           </div>
         }
@@ -505,15 +505,15 @@ function ManufacturersTab({ manufacturers, canManage, refresh }: { manufacturers
                 <Td className="text-sm font-medium">{m.name}</Td>
                 <Td className="text-xs text-neutral-600">
                   {m.contactEmail ?? '—'}
-                  {m.contactPhone ? <span className="block text-neutral-400">{m.contactPhone}</span> : null}
+                  {m.contactPhone ? <span className="block text-faint">{m.contactPhone}</span> : null}
                 </Td>
                 <Td right><Badge tone={m._count?.products ? 'blue' : 'neutral'}>{m._count?.products ?? 0}</Badge></Td>
-                <Td className="max-w-xs truncate text-xs text-neutral-500">{m.notes ?? '—'}</Td>
+                <Td className="max-w-xs truncate text-xs text-muted">{m.notes ?? '—'}</Td>
                 <Td right>
                   {canManage ? (
                     <span className="flex justify-end gap-1">
                       <Button variant="ghost" className="text-xs" onClick={() => setEditing(m)}>Edit</Button>
-                      <Button variant="ghost" className="text-xs text-red-600" disabled={Boolean(m._count?.products)} title={m._count?.products ? 'Reassign its products first' : undefined} onClick={() => setDeleting(m)}>Delete</Button>
+                      <Button variant="ghost" className="text-xs text-danger" disabled={Boolean(m._count?.products)} title={m._count?.products ? 'Reassign its products first' : undefined} onClick={() => setDeleting(m)}>Delete</Button>
                     </span>
                   ) : null}
                 </Td>
@@ -554,13 +554,13 @@ export default function ConfigurationPage() {
   const current = tab === 'tax' ? taxRates : tab === 'categories' ? categories : manufacturers;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-6">
       <PageHeader title="Catalog configuration" subtitle="GST rate versions, product categories and manufacturers." />
-      <KpiGrid cols={4}>
-        <Stat label="Active GST rates" value={active.length} hint={`${new Set(active.map((t) => t.hsnCode)).size} HSN codes covered`} tone="green" />
-        <Stat label="Scheduled changes" value={(taxRates.data ?? []).filter((t) => rateState(t, today) === 'SCHEDULED').length} hint="Future-dated versions" tone="blue" delay={60} />
-        <Stat label="Categories" value={categories.data?.length ?? '…'} hint={`${(categories.data ?? []).filter((c) => !c.parentId).length} top level`} delay={120} />
-        <Stat label="Manufacturers" value={manufacturers.data?.length ?? '…'} delay={180} />
+      <KpiGrid bare cols={4}>
+        <Stat label="Active GST rates" value={active.length} hint={`${new Set(active.map((t) => t.hsnCode)).size} HSN codes covered`} />
+        <Stat label="Scheduled changes" value={(taxRates.data ?? []).filter((t) => rateState(t, today) === 'SCHEDULED').length} hint="Future-dated versions" />
+        <Stat label="Categories" value={categories.data?.length ?? '…'} hint={`${(categories.data ?? []).filter((c) => !c.parentId).length} top level`} />
+        <Stat label="Manufacturers" value={manufacturers.data?.length ?? '…'} />
       </KpiGrid>
       <Tabs
         value={tab}

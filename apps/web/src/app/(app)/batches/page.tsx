@@ -19,7 +19,7 @@ import {
   type ProductHit,
 } from '@/lib/stock';
 import { ConfirmDialog, ExpiryPill, FilterChips, FormSection, KpiGrid, MoneyInput, Pagination, QtyInput, SearchInput, useDebouncedValue, useFieldErrors, type PageInfo } from '@/components/kit';
-import { Badge, Button, Card, Drawer, EmptyState, ErrorState, Field, Input, PageHeader, Select, SkeletonRows, Stat, Table, Tabs, Td, Th, Tr, cn, fmtDate, money, todayIso } from '@/components/ui';
+import { Badge, Button, Card, Drawer, EmptyState, ErrorState, Field, Input, PageHeader, Select, SkeletonRows, Stat, Table, Tabs, Td, Th, Tr, cn, fmtDate, money, todayIso, StatusBadge, MetricGroup } from '@/components/ui';
 
 interface BatchRow {
   id: string;
@@ -157,7 +157,7 @@ function OpeningStockDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
             label="Expiry date"
             required
             error={errors.expiryDate}
-            hint={days !== null && days >= 0 ? (days < 180 ? <span className="text-amber-700"><Icon name="warning" size={13} /> Short expiry — {days} days left</span> : `${days} days left`) : undefined}
+            hint={days !== null && days >= 0 ? (days < 180 ? <span className="text-warning"><Icon name="warning" size={13} /> Short expiry — {days} days left</span> : `${days} days left`) : undefined}
           >
             <Input type="date" value={f.expiryDate} min={shiftIso(1)} onChange={(e) => set('expiryDate', e.target.value)} />
           </Field>
@@ -180,7 +180,7 @@ function OpeningStockDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
         </div>
         {Number(f.quantity) > 0 && Number(f.purchaseRate) > 0 ? (
           <p className="mc-anim-fade-in text-xs text-neutral-600">
-            Stock value at cost: <span className="font-semibold tabular-nums">{money((Number(f.quantity) + Number(f.freeQuantity || 0)) * Number(f.purchaseRate))}</span> — posted to Inventory / Opening balance.
+            Stock value at cost: <span className="font-semibold num">{money((Number(f.quantity) + Number(f.freeQuantity || 0)) * Number(f.purchaseRate))}</span> — posted to Inventory / Opening balance.
           </p>
         ) : null}
       </FormSection>
@@ -212,18 +212,18 @@ function BatchDrawer({ batch, warehouseName, onClose, onAction, can }: { batch: 
       title={`${batch.product.name} · ${batch.batchNumber}`}
       subtitle={
         <span className="flex flex-wrap items-center gap-2">
-          <Badge tone={BATCH_STATUS_TONE[batch.status] ?? 'neutral'}>{BATCH_STATUS_LABEL[batch.status] ?? batch.status}</Badge>
+          <StatusBadge status={batch.status} label={BATCH_STATUS_LABEL[batch.status]} tone={BATCH_STATUS_TONE[batch.status]} />
           <ExpiryPill days={days} />
           <span>{warehouseName}</span>
         </span>
       }
     >
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <MetricGroup columns={2}>
         <Stat label="On hand" value={qtyFmt(qty)} />
-        <Stat label="Cost value" value={money(qty * Number(batch.purchaseRate))} hint={`@ ${money(batch.purchaseRate)}`} delay={40} />
-        <Stat label="MRP value" value={money(qty * Number(batch.mrp))} hint={`@ ${money(batch.mrp)}`} delay={80} />
-        <Stat label="Expiry" value={fmtDate(batch.expiryDate)} hint={batch.manufacturingDate ? `Mfg ${fmtDate(batch.manufacturingDate)}` : undefined} delay={120} />
-      </div>
+        <Stat label="Cost value" value={money(qty * Number(batch.purchaseRate))} hint={`@ ${money(batch.purchaseRate)}`} />
+        <Stat label="MRP value" value={money(qty * Number(batch.mrp))} hint={`@ ${money(batch.mrp)}`} />
+        <Stat label="Expiry" value={fmtDate(batch.expiryDate)} hint={batch.manufacturingDate ? `Mfg ${fmtDate(batch.manufacturingDate)}` : undefined} />
+      </MetricGroup>
       {can('inventory.recall') ? (
         <div className="flex flex-wrap gap-2">
           {batch.status === 'SALEABLE' ? (
@@ -245,7 +245,7 @@ function BatchDrawer({ batch, warehouseName, onClose, onAction, can }: { batch: 
           ) : null}
         </div>
       ) : null}
-      <Card title="Movements">
+      <Card variant="section" title="Movements">
         {ledger.isLoading ? (
           <SkeletonRows rows={3} cols={4} />
         ) : (ledger.data?.items.length ?? 0) === 0 ? (
@@ -265,16 +265,16 @@ function BatchDrawer({ batch, warehouseName, onClose, onAction, can }: { batch: 
               const q = Number(m.quantity);
               return (
                 <Tr key={m.id}>
-                  <Td className="whitespace-nowrap text-xs text-neutral-500">{new Date(m.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</Td>
+                  <Td className="whitespace-nowrap text-xs text-muted">{new Date(m.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</Td>
                   <Td>
                     <div className="text-sm">{MOVEMENT_LABELS[m.movementType] ?? m.movementType}</div>
-                    {m.reason ? <div className="text-[11px] text-neutral-500">{m.reason}</div> : null}
+                    {m.reason ? <div className="text-2xs text-muted">{m.reason}</div> : null}
                   </Td>
-                  <Td right className={cn('font-medium', q >= 0 ? 'text-emerald-700' : 'text-red-600')}>
+                  <Td right className={cn('font-medium', q >= 0 ? 'text-success' : 'text-danger')}>
                     {q > 0 ? '+' : ''}
                     {qtyFmt(q)}
                   </Td>
-                  <Td className="text-xs text-neutral-500">{m.actorName ?? '—'}</Td>
+                  <Td className="text-xs text-muted">{m.actorName ?? '—'}</Td>
                 </Tr>
               );
             })}
@@ -331,14 +331,14 @@ function RecallsPanel({ can }: { can: (p: string) => boolean }) {
           >
             {items.map((r) => (
               <Tr key={r.id}>
-                <Td className="whitespace-nowrap text-xs text-neutral-500">{fmtDate(r.createdAt)}</Td>
+                <Td className="whitespace-nowrap text-xs text-muted">{fmtDate(r.createdAt)}</Td>
                 <Td>
-                  <div className="font-medium text-neutral-800">{r.batch.product.name}</div>
-                  <div className="font-mono text-xs text-neutral-500">{r.batch.batchNumber}</div>
+                  <div className="font-medium text-ink">{r.batch.product.name}</div>
+                  <div className="font-mono text-xs text-muted">{r.batch.batchNumber}</div>
                 </Td>
                 <Td className="max-w-xs text-xs text-neutral-600">
                   {r.reason}
-                  {r.resolutionNotes ? <div className="mt-0.5 text-emerald-700"><Icon name="check" size={13} strokeWidth={2.5} /> {r.resolutionNotes}</div> : null}
+                  {r.resolutionNotes ? <div className="mt-0.5 text-success"><Icon name="check" size={13} strokeWidth={2.5} /> {r.resolutionNotes}</div> : null}
                 </Td>
                 <Td>
                   <Badge tone={r.status === 'OPEN' ? 'red' : 'green'} dot={r.status === 'OPEN'}>
@@ -460,13 +460,13 @@ function BatchesInner() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Batch inventory"
         subtitle="Live batch balances by warehouse with expiry, status, quarantine and recalls."
         actions={
           <>
-            <Select className="w-56" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} aria-label="Warehouse">
+            <Select className="w-full sm:w-56" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} aria-label="Warehouse">
               <option value="">All warehouses</option>
               {warehouses.list.map((w) => (
                 <option key={w.id} value={w.id}>
@@ -480,17 +480,17 @@ function BatchesInner() {
       />
 
       {s ? (
-        <KpiGrid cols={4}>
-          <Stat label="Stock at cost" value={money(s.value.cost)} hint={`MRP value ${money(s.value.mrp)}`} tone="blue" />
-          <Stat label="Saleable batches" value={(s.batches.SALEABLE?.batches ?? 0).toLocaleString('en-IN')} hint={`${qtyFmt(s.batches.SALEABLE?.quantity ?? 0)} units`} tone="green" delay={60} />
-          <Stat label="Blocked / recalled" value={blocked.toLocaleString('en-IN')} hint="Quarantined, damaged, recalled or blocked" tone={blocked > 0 ? 'amber' : 'green'} delay={120} />
+        <KpiGrid bare cols={4}>
+          <Stat icon="rupee" label="Stock at cost" value={money(s.value.cost)} hint={`MRP value ${money(s.value.mrp)}`} />
+          <Stat icon="batches" label="Saleable batches" value={(s.batches.SALEABLE?.batches ?? 0).toLocaleString('en-IN')} hint={`${qtyFmt(s.batches.SALEABLE?.quantity ?? 0)} units`} />
+          <Stat variant="alert" label="Blocked / recalled" value={blocked.toLocaleString('en-IN')} hint="Quarantined, damaged, recalled or blocked" tone={blocked > 0 ? 'amber' : 'neutral'} />
           <Stat
+            variant="alert"
             label="Expiring ≤ 30 days"
             value={money(s.expiring30.cost)}
             hint={`${s.expiring30.batches} batches · ${s.expired.batches} already expired (${money(s.expired.cost)})`}
-            tone={s.expiring30.batches + s.expired.batches > 0 ? 'red' : 'green'}
+            tone={s.expiring30.batches + s.expired.batches > 0 ? 'red' : 'neutral'}
             href="/expiry"
-            delay={180}
           />
         </KpiGrid>
       ) : null}
@@ -507,7 +507,7 @@ function BatchesInner() {
       {tab === 'recalls' ? (
         <RecallsPanel can={can} />
       ) : (
-        <Card title="Batches" actions={<SearchInput value={search} onChange={setSearch} placeholder="Batch, product or SKU…" className="w-64" />}>
+        <Card title="Batches" actions={<SearchInput value={search} onChange={setSearch} placeholder="Batch, product or SKU…" className="w-full sm:w-64" />}>
           <div className="mb-3 flex flex-wrap items-center gap-3">
             <FilterChips
               options={(['SALEABLE', 'QUARANTINED', 'RECALLED', 'DAMAGED', 'EXPIRED_BLOCKED'] as const).map((k) => ({
@@ -562,13 +562,13 @@ function BatchesInner() {
                   const qty = onHandOf(b);
                   const days = daysUntil(b.expiryDate);
                   return (
-                    <Tr key={b.id} onClick={() => setSelected(b)} className={cn(days < 0 && qty > 0 && b.status === 'SALEABLE' && 'bg-red-50/40')}>
+                    <Tr key={b.id} onClick={() => setSelected(b)} className={cn(days < 0 && qty > 0 && b.status === 'SALEABLE' && 'bg-danger/[0.04]')}>
                       <Td>
-                        <div className="flex items-center gap-1.5 font-medium text-neutral-800">
+                        <div className="flex items-center gap-1.5 font-medium text-ink">
                           {b.product.name}
-                          {b.product.requiresRefrigeration ? <span className="text-sky-600" title="Cold chain"><Icon name="cold" size={13} label="Cold chain" /></span> : null}
+                          {b.product.requiresRefrigeration ? <span className="text-info" title="Cold chain"><Icon name="cold" size={13} label="Cold chain" /></span> : null}
                         </div>
-                        <div className="text-xs text-neutral-500">
+                        <div className="text-xs text-muted">
                           <span className="font-mono">{b.product.sku}</span>
                           {!warehouseId ? ` · ${warehouses.nameOf(b.warehouseId)}` : ''}
                           {b.product.rackLocation ? ` · Rack ${b.product.rackLocation}` : ''}
@@ -579,16 +579,16 @@ function BatchesInner() {
                         <div className="text-xs text-neutral-600">{fmtDate(b.expiryDate)}</div>
                         <ExpiryPill days={days} />
                       </Td>
-                      <Td right className={cn('font-medium', qty <= 0 && 'text-neutral-400')}>
+                      <Td right className={cn('font-medium', qty <= 0 && 'text-faint')}>
                         {qtyFmt(qty)}
                       </Td>
                       <Td right className="text-xs">
                         {money(b.purchaseRate)}
-                        <div className="text-neutral-400">{money(b.mrp)}</div>
+                        <div className="text-faint">{money(b.mrp)}</div>
                       </Td>
                       <Td right className="text-sm">{money(qty * Number(b.purchaseRate))}</Td>
                       <Td>
-                        <Badge tone={BATCH_STATUS_TONE[b.status] ?? 'neutral'}>{BATCH_STATUS_LABEL[b.status] ?? b.status}</Badge>
+                        <StatusBadge status={b.status} label={BATCH_STATUS_LABEL[b.status]} tone={BATCH_STATUS_TONE[b.status]} />
                       </Td>
                       <Td className="whitespace-nowrap text-right">
                         <span onClick={(e) => e.stopPropagation()} className="inline-flex gap-1">

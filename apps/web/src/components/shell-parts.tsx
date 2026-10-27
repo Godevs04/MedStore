@@ -75,8 +75,14 @@ export function CommandPalette({ open, onClose, navItems }: { open: boolean; onC
 
   useEffect(() => {
     if (!open) return;
+    const opener = document.activeElement as HTMLElement | null;
     const t = setTimeout(() => inputRef.current?.focus(), 10);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      setTimeout(() => {
+        if (opener && opener !== document.body && document.contains(opener) && !document.activeElement?.closest('[role=dialog]')) opener.focus({ preventScroll: true });
+      }, 0);
+    };
   }, [open]);
 
   const rows = useMemo<PaletteRow[]>(() => {
@@ -131,11 +137,11 @@ export function CommandPalette({ open, onClose, navItems }: { open: boolean; onC
   if (!open) return null;
   let lastGroup = '';
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center px-4 pt-[12vh]" role="dialog" aria-modal="true" aria-label="Command palette">
-      <button aria-label="Close" className="mc-anim-fade-in absolute inset-0 bg-neutral-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="mc-anim-scale-in relative w-full max-w-xl overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl">
-        <div className="flex items-center gap-3 border-b border-neutral-100 px-4">
-          <Icon name="search" size={17} className="text-neutral-400" />
+    <div className="fixed inset-0 z-dialog flex items-start justify-center px-4 pt-[12vh]" role="dialog" aria-modal="true" aria-label="Command palette">
+      <button aria-label="Close" className="mc-anim-fade-in absolute inset-0 bg-neutral-950/30" onClick={onClose} />
+      <div className="mc-anim-scale-in relative w-full max-w-xl overflow-hidden rounded-xl border border-line bg-surface shadow-overlay">
+        <div className="flex items-center gap-3 border-b border-line px-4">
+          <Icon name="search" size={16} className="text-muted" />
           <input
             ref={inputRef}
             value={query}
@@ -145,14 +151,14 @@ export function CommandPalette({ open, onClose, navItems }: { open: boolean; onC
             }}
             onKeyDown={onKeyDown}
             placeholder="Search pages, medicines, customers, invoices, batches…"
-            className="h-12 flex-1 bg-transparent text-sm outline-none placeholder:text-neutral-400"
+            className="h-12 flex-1 bg-transparent text-sm outline-none placeholder:text-quiet"
             aria-label="Search"
           />
           {search.isFetching ? <Spinner /> : <Kbd>Esc</Kbd>}
         </div>
         <div ref={listRef} className="max-h-[50vh] overflow-y-auto p-2">
           {rows.length === 0 ? (
-            <div className="px-3 py-8 text-center text-sm text-neutral-500">
+            <div className="px-3 py-8 text-center text-sm text-muted">
               {debounced.length >= 2 && !search.isFetching ? `No matches for “${debounced}”.` : 'Type at least 2 characters to search records.'}
             </div>
           ) : (
@@ -161,27 +167,27 @@ export function CommandPalette({ open, onClose, navItems }: { open: boolean; onC
               lastGroup = row.group;
               return (
                 <div key={row.key}>
-                  {header ? <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-400">{header}</div> : null}
+                  {header ? <div className="px-3 pb-1 pt-2 text-2xs font-semibold uppercase tracking-wider text-muted">{header}</div> : null}
                   <button
                     data-index={i}
                     onMouseEnter={() => setActive(i)}
                     onClick={() => choose(row)}
                     className={cn(
-                      'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors',
-                      i === safeActive ? 'bg-brand-50 text-brand-800' : 'text-neutral-700 hover:bg-neutral-50',
+                      'flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors',
+                      i === safeActive ? 'bg-mint text-ink' : 'text-neutral-700',
                     )}
                   >
                     <span
                       className={cn(
-                        'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors',
-                        i === safeActive ? 'bg-white text-brand-600 shadow-sm ring-1 ring-brand-100' : 'bg-neutral-100 text-neutral-500',
+                        'flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors',
+                        i === safeActive ? 'bg-surface text-teal-ink ring-1 ring-brand-100' : 'bg-subtle text-muted',
                       )}
                     >
                       <Icon name={row.icon} size={15} />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{row.title}</span>
-                      {row.subtitle ? <span className="block truncate text-xs text-neutral-500">{row.subtitle}</span> : null}
+                      {row.subtitle ? <span className="block truncate text-xs text-muted">{row.subtitle}</span> : null}
                     </span>
                     {i === safeActive ? (
                       <Kbd>
@@ -194,7 +200,7 @@ export function CommandPalette({ open, onClose, navItems }: { open: boolean; onC
             })
           )}
         </div>
-        <div className="flex items-center gap-3 border-t border-neutral-100 bg-neutral-50/70 px-4 py-2 text-[11px] text-neutral-500">
+        <div className="flex items-center gap-3 border-t border-line bg-subtle/60 px-4 py-2 text-2xs text-muted">
           <span className="flex items-center gap-1">
             <Kbd>
               <Icon name="arrowUp" size={10} strokeWidth={2.25} />
@@ -236,9 +242,9 @@ interface AppNotification {
 }
 
 const NOTIFICATION_TONE: Record<string, { icon: IconName; tone: string }> = {
-  LOW_STOCK: { icon: 'arrowDown', tone: 'bg-amber-100 text-amber-700' },
-  NEAR_EXPIRY: { icon: 'expiry', tone: 'bg-red-100 text-red-700' },
-  LICENCE_EXPIRY: { icon: 'compliance', tone: 'bg-violet-100 text-violet-700' },
+  LOW_STOCK: { icon: 'arrowDown', tone: 'bg-warning/10 text-warning' },
+  NEAR_EXPIRY: { icon: 'expiry', tone: 'bg-danger/10 text-danger' },
+  LICENCE_EXPIRY: { icon: 'compliance', tone: 'bg-info/10 text-info' },
 };
 
 function notificationHref(n: AppNotification): string {
@@ -322,28 +328,26 @@ export function NotificationBell({ organizationId }: { organizationId: string })
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="relative flex h-8 w-8 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-sm transition-all hover:border-brand-300 hover:text-brand-700"
+        className="relative flex h-control-sm w-8 items-center justify-center rounded-md text-neutral-600 transition-colors hover:bg-subtle hover:text-ink"
         aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}
         aria-expanded={open}
       >
-        <span key={unread} className={cn('flex', unread > 0 && 'mc-anim-ring')}>
-          <Icon name="bell" size={15} />
-        </span>
+        <Icon name="bell" size={16} />
         {unread > 0 ? (
-          <span className="mc-anim-pop absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white ring-2 ring-white">
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-semibold text-white ring-2 ring-surface">
             {unread > 9 ? '9+' : unread}
           </span>
         ) : null}
       </button>
       {open ? (
-        <div className="mc-anim-drop absolute right-0 top-10 z-50 w-80 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-xl">
-          <div className="flex items-center justify-between border-b border-neutral-100 px-3 py-2">
-            <div className="text-sm font-semibold">Notifications</div>
+        <div className="mc-anim-drop absolute right-0 top-10 z-dropdown w-[min(20rem,calc(100vw-1.5rem))] overflow-hidden rounded-lg border border-line bg-surface shadow-pop">
+          <div className="flex items-center justify-between border-b border-line px-3 py-2">
+            <div className="text-sm font-medium text-ink">Notifications</div>
             <div className="flex gap-1">
-              <button className="rounded px-1.5 py-0.5 text-[11px] font-medium text-brand-700 hover:bg-brand-50 disabled:opacity-50" disabled={generate.isPending} onClick={() => generate.mutate()}>
+              <button className="rounded px-1.5 py-0.5 text-2xs font-medium text-teal-ink hover:bg-mint disabled:opacity-50" disabled={generate.isPending} onClick={() => generate.mutate()}>
                 {generate.isPending ? 'Scanning…' : 'Refresh alerts'}
               </button>
-              <button className="rounded px-1.5 py-0.5 text-[11px] font-medium text-neutral-600 hover:bg-neutral-100 disabled:opacity-50" disabled={!unread || markAll.isPending} onClick={() => markAll.mutate()}>
+              <button className="rounded px-1.5 py-0.5 text-2xs font-medium text-muted hover:bg-subtle disabled:opacity-50" disabled={!unread || markAll.isPending} onClick={() => markAll.mutate()}>
                 Mark all read
               </button>
             </div>
@@ -358,22 +362,22 @@ export function NotificationBell({ organizationId }: { organizationId: string })
                 <EmptyState title="You're all caught up" hint="Low-stock, near-expiry and licence alerts appear here." />
               </div>
             ) : (
-              <ul className="mc-stagger divide-y divide-neutral-100">
+              <ul className="divide-y divide-line">
                 {list.data!.items.map((n) => {
-                  const tone = NOTIFICATION_TONE[n.type] ?? { icon: 'info' as const, tone: 'bg-brand-100 text-brand-700' };
+                  const tone = NOTIFICATION_TONE[n.type] ?? { icon: 'info' as const, tone: 'bg-mint text-teal-ink' };
                   return (
                     <li key={n.id}>
-                      <button onClick={() => open_(n)} className={cn('flex w-full gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-neutral-50', !n.readAt && 'bg-brand-50/40')}>
-                        <span className={cn('mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full', tone.tone)}>
+                      <button onClick={() => open_(n)} className={cn('flex w-full gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-subtle', !n.readAt && 'bg-mint/40')}>
+                        <span className={cn('mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md', tone.tone)}>
                           <Icon name={tone.icon} size={13} strokeWidth={2} />
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="flex items-center gap-1.5">
-                            <span className={cn('truncate text-xs', n.readAt ? 'text-neutral-700' : 'font-semibold text-neutral-900')}>{n.title}</span>
-                            {!n.readAt ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" /> : null}
+                            <span className={cn('truncate text-xs', n.readAt ? 'text-neutral-700' : 'font-semibold text-ink')}>{n.title}</span>
+                            {!n.readAt ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" /> : null}
                           </span>
-                          <span className="line-clamp-2 block text-[11px] text-neutral-500">{n.body}</span>
-                          <span className="block text-[10px] text-neutral-400">{timeAgo(n.createdAt)}</span>
+                          <span className="line-clamp-2 block text-2xs text-muted">{n.body}</span>
+                          <span className="block text-[10px] text-faint num">{timeAgo(n.createdAt)}</span>
                         </span>
                       </button>
                     </li>
@@ -460,7 +464,7 @@ function ChangePasswordDrawer({ open, onClose }: { open: boolean; onClose: () =>
               key={i}
               className={cn(
                 'h-1 flex-1 rounded-full transition-colors duration-300',
-                i < strength ? (strength <= 1 ? 'bg-red-400' : strength === 2 ? 'bg-amber-400' : 'bg-emerald-500') : 'bg-neutral-200',
+                i < strength ? (strength <= 1 ? 'bg-danger' : strength === 2 ? 'bg-warning' : 'bg-success') : 'bg-neutral-200',
               )}
             />
           ))}
@@ -495,10 +499,10 @@ function SessionsDrawer({ open, onClose }: { open: boolean; onClose: () => void 
       {sessions.isLoading ? (
         <Spinner label="Loading sessions" />
       ) : (
-        <ul className="mc-stagger space-y-2">
+        <ul className="divide-y divide-line rounded-lg border border-line">
           {(sessions.data ?? []).map((s) => (
-            <li key={s.id} className="flex items-center gap-3 rounded-xl border border-neutral-200 p-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500">
+            <li key={s.id} className="flex items-center gap-3 p-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-md bg-subtle text-muted">
                 <Icon name="sessions" size={17} />
               </span>
               <div className="min-w-0 flex-1">
@@ -506,12 +510,12 @@ function SessionsDrawer({ open, onClose }: { open: boolean; onClose: () => void 
                   {describeAgent(s.userAgent)}
                   {s.id === currentId ? <Badge tone="green" dot>Most recent</Badge> : null}
                 </div>
-                <div className="text-xs text-neutral-500">
+                <div className="text-xs text-muted">
                   {s.ipAddress ?? 'Unknown IP'} · active {timeAgo(s.lastSeenAt)} · signed in {fmtDate(s.createdAt)}
                 </div>
               </div>
               {s.id !== currentId ? (
-                <Button variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" disabled={revoke.isPending} onClick={() => revoke.mutate(s.id)}>
+                <Button variant="ghost" size="sm" className="text-danger hover:bg-danger/10" disabled={revoke.isPending} onClick={() => revoke.mutate(s.id)}>
                   Sign out
                 </Button>
               ) : null}
@@ -534,37 +538,37 @@ export function ProfileMenu({ fullName, email, roleName, onLogout }: { fullName:
     .map((w) => w[0]?.toUpperCase() ?? '')
     .join('');
 
-  const item = 'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm text-neutral-700 transition-colors hover:bg-neutral-100';
+  const item = 'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] text-neutral-700 transition-colors hover:bg-subtle hover:text-ink';
   return (
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 rounded-full border border-neutral-200 bg-white py-1 pl-1 pr-2.5 shadow-sm transition-all hover:border-brand-300"
+        className="flex h-control-sm items-center gap-2 rounded-md pl-1 pr-1.5 transition-colors hover:bg-subtle"
         aria-expanded={open}
         aria-label="Account menu"
       >
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-brand-600 text-[10px] font-bold text-white">{initials}</span>
-        <span className="hidden max-w-32 truncate text-xs font-medium text-neutral-700 sm:block">{fullName}</span>
-        <Icon name="chevronDown" size={13} className={cn('text-neutral-400 transition-transform duration-200', open && 'rotate-180')} />
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-100 text-[10px] font-semibold text-brand-deep">{initials}</span>
+        <span className="hidden max-w-32 truncate text-xs font-medium text-neutral-700 lg:block">{fullName}</span>
+        <Icon name="chevronDown" size={13} className={cn('text-faint transition-transform duration-150', open && 'rotate-180')} />
       </button>
       {open ? (
-        <div className="mc-anim-drop absolute right-0 top-10 z-50 w-64 rounded-xl border border-neutral-200 bg-white p-1.5 shadow-xl">
-          <div className="border-b border-neutral-100 px-2.5 pb-2 pt-1">
-            <div className="truncate text-sm font-semibold">{fullName}</div>
-            <div className="truncate text-xs text-neutral-500">{email}</div>
-            {roleName ? <div className="mt-1"><Badge tone="blue">{roleName}</Badge></div> : null}
+        <div className="mc-anim-drop absolute right-0 top-10 z-dropdown w-64 rounded-lg border border-line bg-surface p-1 shadow-pop">
+          <div className="border-b border-line px-2.5 pb-2 pt-1.5">
+            <div className="truncate text-sm font-semibold text-ink">{fullName}</div>
+            <div className="truncate text-xs text-muted">{email}</div>
+            {roleName ? <div className="mt-1.5"><Badge tone="neutral">{roleName}</Badge></div> : null}
           </div>
           <div className="pt-1">
             <button className={item} onClick={() => { setPanel('password'); setOpen(false); }}>
-              <Icon name="key" size={15} className="text-neutral-400" /> Change password
+              <Icon name="key" size={15} className="text-faint" /> Change password
             </button>
             <button className={item} onClick={() => { setPanel('sessions'); setOpen(false); }}>
-              <Icon name="sessions" size={15} className="text-neutral-400" /> Active sessions
+              <Icon name="sessions" size={15} className="text-faint" /> Active sessions
             </button>
             <Link href="/settings" className={item} onClick={() => setOpen(false)}>
-              <Icon name="settings" size={15} className="text-neutral-400" /> Workspace settings
+              <Icon name="settings" size={15} className="text-faint" /> Workspace settings
             </Link>
-            <button className={cn(item, 'text-red-600 hover:bg-red-50')} onClick={onLogout}>
+            <button className={cn(item, 'text-danger hover:bg-danger/10 hover:text-danger')} onClick={onLogout}>
               <Icon name="logout" size={15} /> Sign out
             </button>
           </div>
@@ -583,21 +587,21 @@ export function Breadcrumbs({ pathname }: { pathname: string }) {
   if (!found) return null;
   const isDetail = pathname !== found.item.href;
   return (
-    <nav aria-label="Breadcrumb" className="hidden min-w-0 items-center gap-1.5 text-xs text-neutral-500 lg:flex">
-      <span className="truncate">{found.section}</span>
-      <Icon name="chevronRight" size={12} className="text-neutral-300" />
+    <nav aria-label="Breadcrumb" className="hidden min-w-0 items-center gap-1.5 text-[13px] text-muted md:flex">
+      <span className="hidden truncate lg:inline">{found.section}</span>
+      <Icon name="chevronRight" size={12} className="hidden shrink-0 text-quiet lg:block" />
       {isDetail ? (
         <>
-          <Link href={found.item.href} className="inline-flex items-center gap-1.5 truncate hover:text-brand-700">
+          <Link href={found.item.href} className="inline-flex items-center gap-1.5 truncate hover:text-teal-ink">
             <Icon name={found.item.icon} size={13} />
             {found.item.label}
           </Link>
-          <Icon name="chevronRight" size={12} className="text-neutral-300" />
-          <span className="truncate font-medium text-neutral-800">Details</span>
+          <Icon name="chevronRight" size={12} className="text-quiet" />
+          <span className="truncate font-medium text-ink">Details</span>
         </>
       ) : (
-        <span className="inline-flex items-center gap-1.5 truncate font-medium text-neutral-800">
-          <Icon name={found.item.icon} size={13} className="text-brand-600" />
+        <span className="inline-flex items-center gap-1.5 truncate font-medium text-ink">
+          <Icon name={found.item.icon} size={14} className="text-teal-ink" />
           {found.item.label}
         </span>
       )}

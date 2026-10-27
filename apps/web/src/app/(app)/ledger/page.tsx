@@ -9,7 +9,7 @@ import { api, ApiClientError, downloadCsv } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { MOVEMENT_LABELS, qtyFmt, useCan, useWarehouses } from '@/lib/stock';
 import { DateRangePicker, FilterChips, Pagination, SearchInput, useDebouncedValue, type DateRange, type PageInfo } from '@/components/kit';
-import { Badge, Button, Card, EmptyState, ErrorState, PageHeader, Select, SkeletonRows, Table, Td, Th, Tr, cn } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, ErrorState, PageHeader, Select, SkeletonRows, Table, Td, Th, Tr, cn, Alert, IconButton } from '@/components/ui';
 
 interface LedgerRow {
   id: string;
@@ -110,14 +110,15 @@ export default function LedgerPage() {
   const filtered = filters.toString().length > 0;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Stock ledger"
         subtitle="Every stock movement — append-only, never edited, traceable to its source document and user."
         actions={
           <>
             <Button variant="secondary" onClick={() => runReconcile.mutate()} disabled={runReconcile.isPending}>
-              {runReconcile.isPending ? 'Checking…' : '⟲ Reconcile'}
+              <Icon name={runReconcile.isPending ? 'loading' : 'refresh'} size={14} className={runReconcile.isPending ? 'animate-spin' : undefined} />
+              {runReconcile.isPending ? 'Checking…' : 'Reconcile'}
             </Button>
             {can('reports.export') ? (
               <Button variant="secondary" onClick={() => void exportCsv()}>
@@ -129,19 +130,13 @@ export default function LedgerPage() {
       />
 
       {reconcile ? (
-        <div className={cn('mc-anim-fade-up rounded-xl px-4 py-3 text-sm ring-1', reconcile.consistent ? 'bg-emerald-50 text-emerald-800 ring-emerald-200' : 'bg-red-50 text-red-800 ring-red-200')}>
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-medium">
-              <Icon name={reconcile.consistent ? 'checkCircle' : 'warning'} size={14} className="mr-1" />
-              {reconcile.consistent ? 'Balances and ledger agree' : `${reconcile.mismatches.length} balance(s) differ from the ledger`} — {reconcile.checked.toLocaleString('en-IN')} batch balances checked
-              {warehouseId ? ` in ${warehouses.nameOf(warehouseId)}` : ''}.
-            </span>
-            <Button variant="ghost" onClick={() => setReconcile(null)} aria-label="Dismiss">
-              <Icon name="close" size={14} />
-            </Button>
-          </div>
+        <Alert
+          tone={reconcile.consistent ? 'success' : 'danger'}
+          title={`${reconcile.consistent ? 'Balances and ledger agree' : `${reconcile.mismatches.length} balance(s) differ from the ledger`} — ${reconcile.checked.toLocaleString('en-IN')} batch balances checked${warehouseId ? ` in ${warehouses.nameOf(warehouseId)}` : ''}.`}
+          action={<IconButton icon="close" label="Dismiss" size="sm" onClick={() => setReconcile(null)} />}
+        >
           {!reconcile.consistent ? (
-            <ul className="mt-2 space-y-0.5 text-xs">
+            <ul className="mt-1 space-y-0.5">
               {reconcile.mismatches.slice(0, 10).map((m) => (
                 <li key={`${m.batchId}-${m.warehouseId}`}>
                   <Link href={`/batches?focus=${m.batchId}`} className="underline">
@@ -152,10 +147,10 @@ export default function LedgerPage() {
               ))}
             </ul>
           ) : null}
-        </div>
+        </Alert>
       ) : null}
 
-      <Card title={`Movements (${(ledger.data?.pageInfo.totalItems ?? 0).toLocaleString('en-IN')})`} actions={<SearchInput value={search} onChange={setSearch} placeholder="Batch, product or SKU…" className="w-64" />}>
+      <Card title={`Movements (${(ledger.data?.pageInfo.totalItems ?? 0).toLocaleString('en-IN')})`} actions={<SearchInput value={search} onChange={setSearch} placeholder="Batch, product or SKU…" className="w-full sm:w-64" />}>
         <div className="mb-3 space-y-3">
           <div className="flex flex-wrap items-center gap-3">
             <FilterChips
@@ -166,7 +161,7 @@ export default function LedgerPage() {
               value={direction}
               onChange={setDirection}
             />
-            <Select value={movementType} onChange={(e) => setMovementType(e.target.value)} className="w-48" aria-label="Movement type">
+            <Select value={movementType} onChange={(e) => setMovementType(e.target.value)} className="w-full sm:w-48" aria-label="Movement type">
               <option value="">All movement types</option>
               {MOVEMENT_TYPES.map((t) => (
                 <option key={t} value={t}>
@@ -174,7 +169,7 @@ export default function LedgerPage() {
                 </option>
               ))}
             </Select>
-            <Select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className="w-48" aria-label="Warehouse">
+            <Select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className="w-full sm:w-48" aria-label="Warehouse">
               <option value="">All warehouses</option>
               {warehouses.list.map((w) => (
                 <option key={w.id} value={w.id}>
@@ -211,8 +206,8 @@ export default function LedgerPage() {
           <EmptyState title={filtered ? 'No movements match these filters' : 'No stock movements yet'} />
         ) : (
           <>
-            <p className="mb-2 text-xs text-neutral-500">
-              This page: <span className="font-medium text-emerald-700">+{qtyFmt(pageIn)}</span> in · <span className="font-medium text-red-600">{qtyFmt(pageOut)}</span> out
+            <p className="mb-2 text-xs text-muted">
+              This page: <span className="font-medium text-success">+{qtyFmt(pageIn)}</span> in · <span className="font-medium text-danger">{qtyFmt(pageOut)}</span> out
             </p>
             <Table
               head={
@@ -232,32 +227,32 @@ export default function LedgerPage() {
                 const link = docLink(row);
                 return (
                   <Tr key={row.id}>
-                    <Td className="whitespace-nowrap text-xs text-neutral-500">{new Date(row.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</Td>
+                    <Td className="whitespace-nowrap text-xs text-muted">{new Date(row.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</Td>
                     <Td>
-                      <Link href={`/batches?focus=${row.batch.id}`} className="font-medium text-neutral-800 hover:text-brand-700">
+                      <Link href={`/batches?focus=${row.batch.id}`} className="font-medium text-ink hover:text-teal-ink">
                         {row.batch.product.name}
                       </Link>
-                      <div className="font-mono text-xs text-neutral-500">{row.batch.batchNumber}</div>
+                      <div className="font-mono text-xs text-muted">{row.batch.batchNumber}</div>
                     </Td>
                     <Td>
                       <Badge tone={qty >= 0 ? 'green' : 'amber'}>{MOVEMENT_LABELS[row.movementType] ?? row.movementType}</Badge>
-                      {row.reason ? <div className="mt-0.5 max-w-[220px] truncate text-[11px] text-neutral-500" title={row.reason}>{row.reason}</div> : null}
+                      {row.reason ? <div className="mt-0.5 max-w-[220px] truncate text-2xs text-muted" title={row.reason}>{row.reason}</div> : null}
                     </Td>
-                    <Td right className={cn('font-semibold', qty >= 0 ? 'text-emerald-700' : 'text-red-600')}>
+                    <Td right className={cn('font-semibold', qty >= 0 ? 'text-success' : 'text-danger')}>
                       {qty > 0 ? '+' : ''}
                       {qtyFmt(qty)}
                     </Td>
                     <Td className="text-xs text-neutral-600">{warehouses.nameOf(row.warehouseId)}</Td>
                     <Td className="text-xs">
                       {link ? (
-                        <Link href={link.href} className="font-medium text-brand-700 hover:underline">
+                        <Link href={link.href} className="font-medium text-teal-ink hover:underline">
                           {link.label} <Icon name="external" size={12} />
                         </Link>
                       ) : (
                         '—'
                       )}
                     </Td>
-                    <Td className="text-xs text-neutral-500">{row.actorName ?? '—'}</Td>
+                    <Td className="text-xs text-muted">{row.actorName ?? '—'}</Td>
                   </Tr>
                 );
               })}

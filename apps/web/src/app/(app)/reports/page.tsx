@@ -7,8 +7,8 @@ import { useMemo, useState } from 'react';
 import { api, ApiClientError, downloadCsv } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { BATCH_STATUS_LABEL, BATCH_STATUS_TONE, qtyFmt, useCan, useWarehouses } from '@/lib/stock';
-import { BarChart, DateRangePicker, Donut, FilterChips, KpiGrid, Pagination, SearchInput, SortableTh, datePresets, type DateRange, type PageInfo, type SortState } from '@/components/kit';
-import { Badge, Button, Card, EmptyState, ErrorState, PageHeader, Select, SkeletonRows, Stat, Table, Tabs, Td, Th, Tr, cn, fmtDate, money } from '@/components/ui';
+import { BarChart, compactInr, DateRangePicker, Donut, FilterChips, KpiGrid, Pagination, SearchInput, SortableTh, datePresets, type DateRange, type PageInfo, type SortState } from '@/components/kit';
+import { Badge, Button, Card, EmptyState, ErrorState, PageHeader, Select, SkeletonRows, Stat, Table, Tabs, Td, Th, Tr, cn, fmtDate, money, StatusBadge } from '@/components/ui';
 
 interface SalesSummary {
   totals: {
@@ -161,27 +161,25 @@ function SalesTab({ canExport }: { canExport: boolean }) {
         <ErrorState message="Failed to load sales report." retry={() => void sales.refetch()} />
       ) : (
         <div className={cn('space-y-4 transition-opacity', sales.isFetching && 'opacity-60')}>
-          <KpiGrid cols={4}>
-            <Stat label="Billed (incl. GST)" value={money(s.totals.revenue)} hint={`${s.totals.invoices} invoices · avg ${money(s.totals.averageBill)}`} tone="blue" />
-            <Stat label="Returns" value={money(s.totals.returnsValue)} hint={`${s.totals.returns} credit notes · net billed ${money(s.totals.netRevenue)}`} tone="amber" delay={60} />
-            <Stat label="Net sales" value={money(s.totals.netSales)} hint={`before GST, after returns · GST ${money(s.totals.tax)}`} delay={120} />
-            <Stat label="Gross margin" value={money(s.totals.grossMargin)} hint={`${marginPct.toFixed(1)}% · cost of goods ${money(s.totals.costOfGoods)}`} tone="green" delay={180} />
+          <KpiGrid bare cols={4}>
+            <Stat label="Billed (incl. GST)" value={money(s.totals.revenue)} hint={`${s.totals.invoices} invoices · avg ${money(s.totals.averageBill)}`} />
+            <Stat label="Returns" value={money(s.totals.returnsValue)} hint={`${s.totals.returns} credit notes · net billed ${money(s.totals.netRevenue)}`} tone={n(s.totals.returnsValue) > 0 ? 'amber' : 'neutral'} />
+            <Stat label="Net sales" value={money(s.totals.netSales)} hint={`before GST, after returns · GST ${money(s.totals.tax)}`} />
+            <Stat label="Gross margin" value={money(s.totals.grossMargin)} hint={`${marginPct.toFixed(1)}% · cost of goods ${money(s.totals.costOfGoods)}`} />
           </KpiGrid>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <Card title="Daily sales" className="lg:col-span-2" actions={csv('sales-by-day')}>
-              {s.byDay.length === 0 ? (
-                <EmptyState title="No sales in this range" />
-              ) : (
-                <BarChart
-                  data={s.byDay.map((d) => ({ label: d.date.slice(5).split('-').reverse().join('/'), value: n(d.revenue), hint: `${fmtDate(d.date)} · ${d.invoices} bill${d.invoices === 1 ? '' : 's'}` }))}
-                  format={(v) => money(v)}
-                  height={200}
-                />
-              )}
+              <BarChart
+                data={s.byDay.map((d) => ({ label: d.date.slice(5).split('-').reverse().join('/'), value: n(d.revenue), hint: `${fmtDate(d.date)} · ${d.invoices} bill${d.invoices === 1 ? '' : 's'}` }))}
+                format={compactInr}
+                detailFormat={(v) => money(v)}
+                height={200}
+                emptyLabel="No sales in this range."
+              />
             </Card>
             <Card title="Tender mix">
               <Donut data={s.byPayment.map((p) => ({ label: METHOD_LABEL[p.method] ?? p.method, value: n(p.amount) }))} format={(v) => money(v)} centerLabel="Collected" />
-              <p className="pt-2 text-[11px] text-neutral-400">Credit sales collected later appear as receipts, not here.</p>
+              <p className="pt-2 text-2xs text-muted">Credit sales collected later appear as receipts, not here.</p>
             </Card>
           </div>
           <Card title={`Products sold (${s.byProduct.length})`} actions={csv('sales-by-product')}>
@@ -202,11 +200,11 @@ function SalesTab({ canExport }: { canExport: boolean }) {
                 >
                   {table.rows.map((p) => (
                     <Tr key={p.productId}>
-                      <Td className="text-sm font-medium"><Link href={`/products?focus=${p.productId}`} className="hover:text-brand-700 hover:underline">{p.product}</Link></Td>
+                      <Td className="text-sm font-medium"><Link href={`/products?focus=${p.productId}`} className="hover:text-teal-ink hover:underline">{p.product}</Link></Td>
                       <Td right>{qtyFmt(p.quantity)}</Td>
                       <Td right>{money(p.revenue)}</Td>
-                      <Td right className={n(p.margin) >= 0 ? 'text-emerald-700' : 'text-red-700'}>{money(p.margin)}</Td>
-                      <Td right className="text-xs text-neutral-500">{n(p.revenue) ? `${((n(p.margin) / n(p.revenue)) * 100).toFixed(1)}%` : '—'}</Td>
+                      <Td right className={n(p.margin) >= 0 ? 'text-success' : 'text-danger'}>{money(p.margin)}</Td>
+                      <Td right className="text-xs text-muted">{n(p.revenue) ? `${((n(p.margin) / n(p.revenue)) * 100).toFixed(1)}%` : '—'}</Td>
                     </Tr>
                   ))}
                 </Table>
@@ -234,17 +232,17 @@ function ValuationTab({ canExport }: { canExport: boolean }) {
   const v = valuation.data;
   return (
     <>
-      <KpiGrid cols={4}>
-        <Stat label="Stock at cost" value={money(v.totalValue)} tone="blue" />
-        <Stat label="Stock at MRP" value={money(v.totalMrp)} hint={n(v.totalValue) ? `${(((n(v.totalMrp) - n(v.totalValue)) / n(v.totalValue)) * 100).toFixed(0)}% potential mark-up` : undefined} delay={60} />
-        <Stat label="Expired / blocked" value={money(n(v.expiredValue) + n(v.blockedValue))} hint={`expired ${money(v.expiredValue)}`} tone="red" delay={120} />
-        <Stat label="Inventory in books" value={money(v.bookValue)} hint={n(v.unbookedDifference) ? `${money(v.unbookedDifference)} received but not yet billed` : 'matches physical stock'} tone="green" delay={180} />
+      <KpiGrid bare cols={4}>
+        <Stat label="Stock at cost" value={money(v.totalValue)} />
+        <Stat label="Stock at MRP" value={money(v.totalMrp)} hint={n(v.totalValue) ? `${(((n(v.totalMrp) - n(v.totalValue)) / n(v.totalValue)) * 100).toFixed(0)}% potential mark-up` : undefined} />
+        <Stat variant="alert" label="Expired / blocked" value={money(n(v.expiredValue) + n(v.blockedValue))} hint={`expired ${money(v.expiredValue)}`} tone={n(v.expiredValue) + n(v.blockedValue) > 0 ? 'red' : 'neutral'} />
+        <Stat label="Inventory in books" value={money(v.bookValue)} hint={n(v.unbookedDifference) ? `${money(v.unbookedDifference)} received but not yet billed` : 'matches physical stock'} />
       </KpiGrid>
       <Card
         title={`Batches on hand (${rows.length})`}
         actions={
           <div className="flex items-center gap-2">
-            <SearchInput value={search} onChange={(x) => { setSearch(x); table.setPage(1); }} placeholder="Product, SKU or batch" className="w-56" />
+            <SearchInput value={search} onChange={(x) => { setSearch(x); table.setPage(1); }} placeholder="Product, SKU or batch" className="w-full sm:w-56" />
             {canExport ? <Button variant="secondary" className="text-xs" onClick={() => void exportCsv('/reports/export/stock-valuation', 'stock-valuation.csv')}><Icon name="download" size={14} /> CSV</Button> : null}
           </div>
         }
@@ -271,11 +269,11 @@ function ValuationTab({ canExport }: { canExport: boolean }) {
                 <Tr key={r.batchId}>
                   <Td className="text-sm">
                     {r.product}
-                    <span className="block font-mono text-[10px] text-neutral-400">{r.sku}</span>
+                    <span className="block font-mono text-[10px] text-faint">{r.sku}</span>
                   </Td>
-                  <Td className="font-mono text-xs"><Link href={`/batches?focus=${r.batchId}`} className="hover:text-brand-700 hover:underline">{r.batchNumber}</Link></Td>
+                  <Td className="font-mono text-xs"><Link href={`/batches?focus=${r.batchId}`} className="hover:text-teal-ink hover:underline">{r.batchNumber}</Link></Td>
                   <Td className="text-xs">{fmtDate(r.expiryDate)}</Td>
-                  <Td><Badge tone={BATCH_STATUS_TONE[r.status] ?? 'neutral'}>{BATCH_STATUS_LABEL[r.status] ?? r.status}</Badge></Td>
+                  <Td><StatusBadge status={r.status} label={BATCH_STATUS_LABEL[r.status]} tone={BATCH_STATUS_TONE[r.status]} /></Td>
                   <Td right>{qtyFmt(r.quantity)}</Td>
                   <Td right className="text-xs">{money(r.purchaseRate, false)}</Td>
                   <Td right className="text-xs">{money(r.mrp, false)}</Td>
@@ -316,7 +314,7 @@ function DeadStockTab({ canExport }: { canExport: boolean }) {
             <FilterChips options={[{ id: '60', label: '60 days' }, { id: '90', label: '90 days' }, { id: '180', label: '180 days' }, { id: '365', label: '1 year' }]} value={days} onChange={(v) => setDays(v || '90')} allLabel={null} />
           </div>
           <div className="flex items-center gap-2">
-            <Select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className="w-52" aria-label="Warehouse">
+            <Select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className="w-full sm:w-52" aria-label="Warehouse">
               <option value="">All warehouses</option>
               {warehouses.list.map((w) => (
                 <option key={w.id} value={w.id}>{w.label}</option>
@@ -332,11 +330,11 @@ function DeadStockTab({ canExport }: { canExport: boolean }) {
         <ErrorState message="Failed to load the dead-stock report." retry={() => void dead.refetch()} />
       ) : (
         <>
-          <KpiGrid cols={4}>
-            <Stat label="Dead stock" value={money(d.summary.deadValue)} hint={`${d.summary.deadItems} products · no sale in ${d.days} days`} tone="red" />
-            <Stat label="Slow movers" value={money(d.summary.slowValue)} hint={`${d.summary.slowItems} products · over 6 months of cover`} tone="amber" delay={60} />
-            <Stat label="Capital locked" value={money(n(d.summary.deadValue) + n(d.summary.slowValue))} hint="At purchase cost" delay={120} />
-            <Stat label="Suggested action" value={d.summary.deadItems ? 'Return / discount' : 'Healthy'} hint={d.summary.deadItems ? 'Ask suppliers for returns before expiry' : 'Nothing dead in this window'} tone={d.summary.deadItems ? 'amber' : 'green'} delay={180} />
+          <KpiGrid bare cols={4}>
+            <Stat variant="alert" label="Dead stock" value={money(d.summary.deadValue)} hint={`${d.summary.deadItems} products · no sale in ${d.days} days`} tone={d.summary.deadItems > 0 ? 'red' : 'neutral'} />
+            <Stat label="Slow movers" value={money(d.summary.slowValue)} hint={`${d.summary.slowItems} products · over 6 months of cover`} tone={d.summary.slowItems > 0 ? 'amber' : 'neutral'} />
+            <Stat label="Capital locked" value={money(n(d.summary.deadValue) + n(d.summary.slowValue))} hint="At purchase cost" />
+            <Stat label="Suggested action" value={d.summary.deadItems ? 'Return / discount' : 'Healthy'} hint={d.summary.deadItems ? 'Ask suppliers for returns before expiry' : 'Nothing dead in this window'} tone={d.summary.deadItems ? 'amber' : 'green'} />
           </KpiGrid>
           <Card
             title={`Products (${rows.length})`}
@@ -362,8 +360,8 @@ function DeadStockTab({ canExport }: { canExport: boolean }) {
                   {table.rows.map((r) => (
                     <Tr key={r.productId}>
                       <Td>
-                        <Link href={`/products?focus=${r.productId}`} className="text-sm font-medium hover:text-brand-700 hover:underline">{r.name}</Link>
-                        <span className="block font-mono text-[10px] text-neutral-400">{r.sku}{r.rackLocation ? ` · rack ${r.rackLocation}` : ''}</span>
+                        <Link href={`/products?focus=${r.productId}`} className="text-sm font-medium hover:text-teal-ink hover:underline">{r.name}</Link>
+                        <span className="block font-mono text-[10px] text-faint">{r.sku}{r.rackLocation ? ` · rack ${r.rackLocation}` : ''}</span>
                       </Td>
                       <Td><Badge tone={r.classification === 'DEAD' ? 'red' : 'amber'} dot>{r.classification === 'DEAD' ? 'Dead' : 'Slow'}</Badge></Td>
                       <Td right>{qtyFmt(r.onHand)}</Td>
@@ -400,16 +398,16 @@ function AgingCard({ side, d, canExport }: { side: 'receivables' | 'payables'; d
         </div>
       }
     >
-      <div className="mb-3 flex h-2 overflow-hidden rounded-full bg-neutral-100">
+      <div className="mb-3 flex h-2 gap-px overflow-hidden rounded-full bg-neutral-100">
         {BUCKETS.map(([k], i) => (
-          <div key={k} className={cn('mc-anim-grow-x h-full origin-left', ['bg-emerald-500', 'bg-amber-300', 'bg-amber-500', 'bg-orange-500', 'bg-red-500'][i])} style={{ width: `${(n(d.buckets[k]) / total) * 100}%` }} />
+          <div key={k} className={cn('mc-anim-grow-x h-full origin-left', ['bg-success', 'bg-amber-300', 'bg-warning', 'bg-orange-600', 'bg-danger'][i])} style={{ width: `${(n(d.buckets[k]) / total) * 100}%` }} />
         ))}
       </div>
       <div className="mb-3 grid grid-cols-5 gap-1 text-center">
         {BUCKETS.map(([k, label]) => (
-          <div key={k} className="rounded-lg bg-neutral-50 px-1 py-1.5">
-            <p className="text-[10px] uppercase tracking-wide text-neutral-400">{label}</p>
-            <p className="text-xs font-semibold tabular-nums">{money(d.buckets[k] ?? 0, false)}</p>
+          <div key={k} className="rounded-lg bg-subtle px-1 py-1.5">
+            <p className="text-[10px] uppercase tracking-wide text-faint">{label}</p>
+            <p className="text-xs font-semibold num">{money(d.buckets[k] ?? 0, false)}</p>
           </div>
         ))}
       </div>
@@ -430,10 +428,10 @@ function AgingCard({ side, d, canExport }: { side: 'receivables' | 'payables'; d
             {table.rows.map((r) => (
               <Tr key={r.docId}>
                 <Td className="text-sm">
-                  {r.partyId ? <Link href={side === 'receivables' ? `/customers?focus=${r.partyId}` : `/vendors?focus=${r.partyId}`} className="hover:text-brand-700 hover:underline">{r.party}</Link> : r.party}
+                  {r.partyId ? <Link href={side === 'receivables' ? `/customers?focus=${r.partyId}` : `/vendors?focus=${r.partyId}`} className="hover:text-teal-ink hover:underline">{r.party}</Link> : r.party}
                 </Td>
                 <Td className="font-mono text-xs">
-                  <Link className="text-brand-700 hover:underline" href={side === 'receivables' ? `/sales-history/${r.docId}` : `/purchasing?tab=invoices&focus=${r.docId}`}>{r.doc}</Link>
+                  <Link className="text-teal-ink hover:underline" href={side === 'receivables' ? `/sales-history/${r.docId}` : `/purchasing?tab=invoices&focus=${r.docId}`}>{r.doc}</Link>
                 </Td>
                 <Td right className="font-medium">{money(r.outstanding)}</Td>
                 <Td right><Badge tone={r.daysOverdue > 60 ? 'red' : r.daysOverdue > 0 ? 'amber' : 'green'}>{r.daysOverdue ? `${r.daysOverdue}d` : 'current'}</Badge></Td>
@@ -464,7 +462,7 @@ export default function ReportsPage() {
   const canExport = can('reports.export');
   const [tab, setTab] = useState<Tab>('sales');
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-6">
       <PageHeader title="Reports" subtitle="Server-side aggregates over posted documents. Every export is audited; alerts live in the bell at the top." />
       <Tabs
         value={tab}

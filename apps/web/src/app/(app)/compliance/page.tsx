@@ -9,7 +9,7 @@ import { api, ApiClientError, downloadCsv } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { useCan } from '@/lib/stock';
 import { DateRangePicker, KpiGrid, Pagination, SearchInput, useDebouncedValue, useFieldErrors, type DateRange, type PageInfo } from '@/components/kit';
-import { Badge, Button, Card, Drawer, EmptyState, ErrorState, Field, Input, PageHeader, Select, SkeletonRows, Stat, Table, Tabs, Td, Th, Tr, cn, fmtDate, money, todayIso } from '@/components/ui';
+import { Badge, Button, Card, Drawer, EmptyState, ErrorState, Field, Input, PageHeader, Select, SkeletonRows, Stat, Table, Tabs, Td, Th, Tr, cn, fmtDate, money, todayIso, Alert, MetricGroup } from '@/components/ui';
 
 interface H1Row {
   id: string;
@@ -141,7 +141,7 @@ function H1Tab({ canExport }: { canExport: boolean }) {
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <DateRangePicker value={range} onChange={(r) => { setRange(r); setPage(1); }} />
-        <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="Patient, prescriber or drug…" className="w-60" />
+        <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="Patient, prescriber or drug…" className="w-full sm:w-60" />
       </div>
       {h1.isLoading ? (
         <SkeletonRows rows={5} cols={6} />
@@ -154,12 +154,12 @@ function H1Tab({ canExport }: { canExport: boolean }) {
           <Table head={<tr><Th>Date</Th><Th>Invoice</Th><Th>Patient</Th><Th>Prescriber</Th><Th>Drug</Th><Th right>Qty</Th></tr>}>
             {h1.data?.items.map((r) => (
               <Tr key={r.id}>
-                <Td className="whitespace-nowrap text-xs text-neutral-500">{fmtDate(r.dispensedAt)}</Td>
-                <Td><Link href={`/sales-history/${r.invoice.id}`} className="font-mono text-xs text-brand-700 hover:underline">{r.invoice.invoiceNumber}</Link></Td>
+                <Td className="whitespace-nowrap text-xs text-muted">{fmtDate(r.dispensedAt)}</Td>
+                <Td><Link href={`/sales-history/${r.invoice.id}`} className="font-mono text-xs text-teal-ink hover:underline">{r.invoice.invoiceNumber}</Link></Td>
                 <Td className="text-sm">{r.patientName}</Td>
                 <Td className="text-sm">
                   {r.prescriberName}
-                  <span className="block text-xs text-neutral-400">{r.prescriberAddress}</span>
+                  <span className="block text-xs text-faint">{r.prescriberAddress}</span>
                 </Td>
                 <Td className="text-sm">{r.drugName}</Td>
                 <Td right>{n(r.quantity)}</Td>
@@ -175,7 +175,7 @@ function H1Tab({ canExport }: { canExport: boolean }) {
 
 function HeadsRow({ label, h, strong }: { label: string; h: { txval?: string | number; iamt: string | number; camt: string | number; samt: string | number; csamt?: string | number }; strong?: boolean }) {
   return (
-    <Tr className={strong ? 'bg-neutral-50 font-semibold' : undefined}>
+    <Tr className={strong ? 'bg-subtle font-semibold' : undefined}>
       <Td className="text-sm">{label}</Td>
       <Td right>{h.txval !== undefined ? money(h.txval, false) : ''}</Td>
       <Td right>{money(h.iamt, false)}</Td>
@@ -217,7 +217,7 @@ function GstTab({ canExport }: { canExport: boolean }) {
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Select value={period} onChange={(e) => setPeriod(e.target.value)} className="w-44" aria-label="Return period">
+            <Select value={period} onChange={(e) => setPeriod(e.target.value)} className="w-full sm:w-44" aria-label="Return period">
               {periods.map((p) => (
                 <option key={p.value} value={p.value}>{p.label}</option>
               ))}
@@ -241,14 +241,14 @@ function GstTab({ canExport }: { canExport: boolean }) {
             </div>
           ) : null}
         </div>
-        <p className="mt-2 text-[11px] text-neutral-500">Due dates shown are for monthly filers; QRMP filers use IFF and quarterly GSTR-1. Filing itself happens on the GST portal.</p>
+        <p className="mt-2 text-2xs text-muted">Due dates shown are for monthly filers; QRMP filers use IFF and quarterly GSTR-1. Filing itself happens on the GST portal.</p>
       </Card>
 
-      <KpiGrid cols={4}>
-        <Stat label="Output tax" value={s3 ? money(outTax) : '…'} hint={s3 ? `Taxable ${money(s3.outward.txval ?? 0)}` : undefined} tone="blue" />
-        <Stat label="Input tax credit (net)" value={s3 ? money(itc) : '…'} hint={s3 && n(s3.itc.ineligible) ? `${money(s3.itc.ineligible)} not claimable` : 'After debit notes'} tone="green" delay={60} />
-        <Stat label="Cash to pay" value={s3 ? money(s3.payable.total) : '…'} hint="After Rule 88A set-off" tone={s3 && n(s3.payable.total) > 0 ? 'amber' : 'green'} delay={120} />
-        <Stat label="Credit carried forward" value={s3 ? money(cf) : '…'} delay={180} />
+      <KpiGrid bare cols={4}>
+        <Stat label="Output tax" value={s3 ? money(outTax) : '…'} hint={s3 ? `Taxable ${money(s3.outward.txval ?? 0)}` : undefined} />
+        <Stat label="Input tax credit (net)" value={s3 ? money(itc) : '…'} hint={s3 && n(s3.itc.ineligible) ? `${money(s3.itc.ineligible)} not claimable` : 'After debit notes'} />
+        <Stat label="Cash to pay" value={s3 ? money(s3.payable.total) : '…'} hint="After Rule 88A set-off" tone={s3 && n(s3.payable.total) > 0 ? 'amber' : 'green'} />
+        <Stat label="Credit carried forward" value={s3 ? money(cf) : '…'} />
       </KpiGrid>
 
       <Tabs
@@ -270,7 +270,7 @@ function GstTab({ canExport }: { canExport: boolean }) {
           <ErrorState message={errorText(g1.error, 'Failed to build GSTR-1.')} retry={() => void g1.refetch()} />
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            <MetricGroup columns={6}>
               {[
                 ['B2B invoices', g1.data.summary.b2b, '4A'],
                 ['B2C large', g1.data.summary.b2cl, '5A'],
@@ -278,13 +278,10 @@ function GstTab({ canExport }: { canExport: boolean }) {
                 ['Credit notes', g1.data.summary.creditNotes, '9B'],
                 ['HSN rows', g1.data.hsn.data.length, '12'],
                 ['Cancelled', g1.data.summary.cancelled, '13'],
-              ].map(([l, v, t], i) => (
-                <div key={l as string} className="mc-anim-fade-up rounded-xl border border-neutral-200 px-3 py-2.5" style={{ animationDelay: `${i * 40}ms` }}>
-                  <p className="text-[11px] uppercase tracking-wide text-neutral-500">{l} <span className="text-neutral-300">· table {t}</span></p>
-                  <p className="mt-0.5 text-lg font-semibold tabular-nums">{v}</p>
-                </div>
+              ].map(([l, v, t]) => (
+                <Stat key={l as string} label={l as string} value={v as number} hint={`Table ${t as string}`} />
               ))}
-            </div>
+            </MetricGroup>
             <Card title="B2B — registered buyers (table 4A)">
               {g1.data.b2b.length === 0 ? (
                 <EmptyState title="No B2B invoices this month" />
@@ -363,7 +360,7 @@ function GstTab({ canExport }: { canExport: boolean }) {
                       <Td right>{money(h.samt, false)}</Td>
                     </Tr>
                   ))}
-                  <Tr className="bg-neutral-50 font-semibold">
+                  <Tr className="bg-subtle font-semibold">
                     <Td>Total</Td>
                     <Td />
                     <Td />
@@ -394,7 +391,7 @@ function GstTab({ canExport }: { canExport: boolean }) {
                 <HeadsRow label="4(B) ITC reversed (debit notes)" h={s3.itc.reversed} />
                 <HeadsRow label="4(C) Net ITC available" h={{ iamt: s3.itc.net.igst, camt: s3.itc.net.cgst, samt: s3.itc.net.sgst, csamt: s3.itc.net.cess }} strong />
               </Table>
-              {n(s3.itc.ineligible) ? <p className="mt-2 text-xs text-amber-800">4(D) Ineligible: {money(s3.itc.ineligible)} of tax on bills from unregistered suppliers (s.16 CGST Act).</p> : null}
+              {n(s3.itc.ineligible) ? <p className="mt-2 text-xs text-warning">4(D) Ineligible: {money(s3.itc.ineligible)} of tax on bills from unregistered suppliers (s.16 CGST Act).</p> : null}
             </Card>
             <div className="grid gap-4 lg:grid-cols-2">
               <Card title="3.2 Inter-state supplies to unregistered persons">
@@ -413,17 +410,17 @@ function GstTab({ canExport }: { canExport: boolean }) {
                   {(['igst', 'cgst', 'sgst', 'cess'] as const).map((k) => (
                     <div key={k} className="flex justify-between">
                       <span className="uppercase text-neutral-600">{k}</span>
-                      <span className="tabular-nums">
+                      <span className="num">
                         {money(s3.payable[k])}
-                        {n(s3.carryForward[k]) ? <span className="ml-2 text-xs text-emerald-700">+{money(s3.carryForward[k])} c/f</span> : null}
+                        {n(s3.carryForward[k]) ? <span className="ml-2 text-xs text-success">+{money(s3.carryForward[k])} c/f</span> : null}
                       </span>
                     </div>
                   ))}
-                  <div className={cn('mt-2 flex justify-between rounded-lg px-3 py-2 font-semibold', n(s3.payable.total) > 0 ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-800')}>
+                  <div className={cn('mt-2 flex justify-between border-t-2 px-1 pt-2 font-semibold', n(s3.payable.total) > 0 ? 'border-warning text-warning' : 'border-success text-success')}>
                     <span>Cash ledger payment</span>
-                    <span className="tabular-nums">{money(s3.payable.total)}</span>
+                    <span className="num">{money(s3.payable.total)}</span>
                   </div>
-                  <p className="text-[11px] text-neutral-500">Set-off order per Rule 88A: IGST credit first against IGST, then CGST and SGST; CGST and SGST credits never cross-utilise.</p>
+                  <p className="text-2xs text-muted">Set-off order per Rule 88A: IGST credit first against IGST, then CGST and SGST; CGST and SGST credits never cross-utilise.</p>
                 </div>
               </Card>
             </div>
@@ -513,9 +510,9 @@ function LicencesTab({ canManage }: { canManage: boolean }) {
   return (
     <div className="space-y-4">
       {overview.data?.warnings.length ? (
-        <div className="mc-anim-fade-up space-y-1 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          {overview.data.warnings.map((w) => <p key={w}><Icon name="warning" size={13} /> {w}</p>)}
-        </div>
+        <Alert tone="warning" title="Licence attention needed">
+          <ul className="space-y-0.5">{overview.data.warnings.map((w) => <li key={w}>{w}</li>)}</ul>
+        </Alert>
       ) : null}
       {canManage ? (
         <Card title={editing ? 'Edit licence' : 'Add licence'}>
@@ -566,7 +563,7 @@ function LicencesTab({ canManage }: { canManage: boolean }) {
             {items.map((l) => (
               <Tr key={l.id}>
                 <Td className="text-sm font-medium">{LICENCE_LABELS[l.licenceType as keyof typeof LICENCE_LABELS] ?? l.licenceType}</Td>
-                <Td className="font-mono text-xs">{l.licenceNumber}<span className="block font-sans text-neutral-400">{l.issuingAuthority}</span></Td>
+                <Td className="font-mono text-xs">{l.licenceNumber}<span className="block font-sans text-faint">{l.issuingAuthority}</span></Td>
                 <Td className="text-xs">{l.branch?.name ?? 'All'}</Td>
                 <Td className="text-xs">{l.issueDate ? `${fmtDate(l.issueDate)} → ` : 'until '}{fmtDate(l.expiryDate)}</Td>
                 <Td><Badge tone={BUCKET_TONE[l.bucket] ?? 'neutral'} dot={l.bucket !== 'OK'}>{l.daysToExpiry < 0 ? `Expired ${-l.daysToExpiry}d ago` : `${l.daysToExpiry}d left`}</Badge></Td>
@@ -681,7 +678,7 @@ function IntegrationsTab({ canManage }: { canManage: boolean }) {
                 setErrors({});
                 setValues({ ...(row?.config ?? {}) });
               }}
-              className="flex items-center justify-between rounded-xl border border-neutral-200 px-3 py-2.5 text-left transition hover:border-brand-300 hover:shadow-sm disabled:cursor-default disabled:hover:border-neutral-200 disabled:hover:shadow-none"
+              className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-2.5 text-left transition-colors hover:bg-subtle/60 disabled:cursor-default disabled:hover:bg-transparent"
             >
               <span className="text-sm text-neutral-700">{p.label}</span>
               <Badge tone={status === 'CONNECTED' ? 'green' : status === 'ERROR' ? 'red' : row ? 'amber' : 'neutral'}>{row && status === 'NOT_CONNECTED' ? 'configured · not connected' : status.replace(/_/g, ' ').toLowerCase()}</Badge>
@@ -689,7 +686,7 @@ function IntegrationsTab({ canManage }: { canManage: boolean }) {
           );
         })}
       </div>
-      <p className="mt-3 text-xs text-neutral-500">Status is honest by construction: nothing shows connected until a provider adapter passes a live connectivity test. Never paste passwords or secret keys here.</p>
+      <p className="mt-3 text-xs text-muted">Status is honest by construction: nothing shows connected until a provider adapter passes a live connectivity test. Never paste passwords or secret keys here.</p>
       <Drawer open={Boolean(provider)} onClose={() => setOpen(null)} title={provider?.label ?? ''} subtitle="Non-secret settings only" width="max-w-lg">
         {provider ? (
           <div className="space-y-3">
@@ -728,16 +725,16 @@ export default function CompliancePage() {
   const upcoming = (alerts.data ?? []).filter((a) => a.bucket === 'DAYS_60').length;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-6">
       <PageHeader title="Compliance" subtitle="GST returns, statutory registers and licence tracking — built from posted documents under the Drugs & Cosmetics Rules and CGST Act." />
       {urgent.length ? (
-        <button type="button" onClick={() => setTab('licences')} className="mc-anim-fade-up block w-full rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-left text-sm text-red-800">
-          <Icon name="ban" size={14} /> {urgent.length} licence{urgent.length === 1 ? '' : 's'} expired or expiring within 30 days — selling scheduled drugs without a valid licence is an offence under s.18 of the Drugs & Cosmetics Act. <span className="font-semibold">Renew now</span> <Icon name="arrowRight" size={14} />
-        </button>
+        <Alert tone="danger" icon="ban" action={<Button size="sm" variant="secondary" onClick={() => setTab('licences')}>Renew now <Icon name="arrowRight" size={13} /></Button>}>
+          {urgent.length} licence{urgent.length === 1 ? '' : 's'} expired or expiring within 30 days — selling scheduled drugs without a valid licence is an offence under s.18 of the Drugs & Cosmetics Act.
+        </Alert>
       ) : upcoming ? (
-        <button type="button" onClick={() => setTab('licences')} className="mc-anim-fade-up block w-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-left text-sm text-amber-900">
-          <Icon name="expiry" size={14} /> {upcoming} licence{upcoming === 1 ? '' : 's'} expiring within 60 days — start the renewal application now <Icon name="arrowRight" size={14} />
-        </button>
+        <Alert tone="warning" icon="expiry" action={<Button size="sm" variant="secondary" onClick={() => setTab('licences')}>View licences <Icon name="arrowRight" size={13} /></Button>}>
+          {upcoming} licence{upcoming === 1 ? '' : 's'} expiring within 60 days — start the renewal application now.
+        </Alert>
       ) : null}
       <Tabs
         value={tab}

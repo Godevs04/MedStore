@@ -7,7 +7,7 @@ import { EXPENSE_CATEGORIES, expenseCreateSchema, financialYearOf } from '@medic
 import { api, ApiClientError, downloadCsv } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { useCan } from '@/lib/stock';
-import { ConfirmDialog, DateRangePicker, Donut, FilterChips, KpiGrid, MoneyInput, Pagination, SearchInput, useDebouncedValue, useFieldErrors, type DateRange, type PageInfo } from '@/components/kit';
+import { ConfirmDialog, DateRangePicker, Donut, FilterChips, KpiGrid, MoneyInput, niceTicks, Pagination, SearchInput, useDebouncedValue, useFieldErrors, type DateRange, type PageInfo } from '@/components/kit';
 import {
   Badge,
   Button,
@@ -29,8 +29,7 @@ import {
   cn,
   fmtDate,
   money,
-  todayIso,
-} from '@/components/ui';
+  todayIso, Alert, StatusBadge, Signed } from '@/components/ui';
 
 interface Account {
   id: string;
@@ -137,39 +136,87 @@ const errorText = (e: unknown, fb: string) => (e instanceof ApiClientError ? e.m
 /** Income vs expense bars per month with net profit beneath. */
 function TrendChart({ data }: { data: Array<{ month: string; income: string; expenses: string; net: string }> }) {
   const [hover, setHover] = useState<number | null>(null);
-  const max = Math.max(1, ...data.flatMap((d) => [n(d.income), n(d.expenses)]));
-  if (!data.length) return <p className="py-8 text-center text-xs text-neutral-400">No postings in this period.</p>;
+  const max = Math.max(0, ...data.flatMap((d) => [n(d.income), n(d.expenses)]));
+  if (!data.length || max <= 0) return <p className="py-6 text-[13px] text-muted">No postings in this period.</p>;
+  const ticks = niceTicks(max);
+  const top = ticks[0]!;
+  const short = (v: number) => {
+    const a = Math.abs(v);
+    return a >= 1e7 ? `${(a / 1e7).toFixed(1)}Cr` : a >= 1e5 ? `${(a / 1e5).toFixed(1)}L` : a >= 1e3 ? `${(a / 1e3).toFixed(1)}k` : `${Math.round(a)}`;
+  };
+  const move = (e: React.KeyboardEvent) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    e.preventDefault();
+    setHover((h) => Math.min(data.length - 1, Math.max(0, (h ?? (e.key === 'ArrowRight' ? -1 : data.length)) + (e.key === 'ArrowRight' ? 1 : -1))));
+  };
+  const active = hover !== null ? data[hover] : null;
   return (
-    <div>
-      <div className="flex h-40 items-end gap-1.5" onMouseLeave={() => setHover(null)}>
-        {data.map((d, i) => (
-          <div key={d.month} className="relative flex h-full flex-1 items-end justify-center gap-0.5" onMouseEnter={() => setHover(i)}>
-            <div className="mc-anim-grow w-1/2 max-w-4 origin-bottom rounded-t bg-brand-500/80" style={{ height: `${(n(d.income) / max) * 100}%`, animationDelay: `${i * 30}ms` }} />
-            <div className="mc-anim-grow w-1/2 max-w-4 origin-bottom rounded-t bg-amber-400/80" style={{ height: `${(n(d.expenses) / max) * 100}%`, animationDelay: `${i * 30 + 15}ms` }} />
-            {hover === i ? (
-              <div className="pointer-events-none absolute bottom-full z-10 mb-1 whitespace-nowrap rounded-lg bg-neutral-900 px-2 py-1 text-[11px] text-white shadow-lg">
-                <div className="font-semibold">{monthName(d.month)} {d.month.slice(0, 4)}</div>
-                <div>Income {money(d.income)}</div>
-                <div>Expenses {money(d.expenses)}</div>
-                <div className={n(d.net) < 0 ? 'text-red-300' : 'text-emerald-300'}>Net {money(d.net)}</div>
+    <div
+      tabIndex={0}
+      role="group"
+      aria-label="Monthly income and expenses. Use the left and right arrow keys to read values."
+      onKeyDown={move}
+      onBlur={() => setHover(null)}
+      className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+    >
+      <div className="flex gap-3">
+        <div className="relative h-40 w-10 shrink-0 text-right text-[10px] num text-faint" aria-hidden>
+          {ticks.map((t) => (
+            <span key={t} className="absolute right-0 -translate-y-1/2" style={{ top: `${(1 - t / top) * 100}%` }}>
+              ₹{short(t)}
+            </span>
+          ))}
+        </div>
+        <div className="relative min-w-0 flex-1">
+          <div className="absolute inset-x-0 top-0 h-40" aria-hidden>
+            {ticks.map((t) => (
+              <span key={t} className={cn('absolute inset-x-0 border-t', t === 0 ? 'border-line' : 'border-dashed border-line/80')} style={{ top: `${(1 - t / top) * 100}%` }} />
+            ))}
+          </div>
+          <div className="relative flex h-40 items-end gap-1.5" onMouseLeave={() => setHover(null)} aria-hidden>
+            {data.map((d, i) => (
+              <div key={d.month} className="relative flex h-full flex-1 items-end justify-center gap-0.5" onMouseEnter={() => setHover(i)}>
+                <div className={cn('mc-anim-grow w-1/2 max-w-4 origin-bottom rounded-t-[3px]', hover === i ? 'bg-teal-ink' : 'bg-accent/85')} style={{ height: `${(n(d.income) / top) * 100}%` }} />
+                <div className={cn('mc-anim-grow w-1/2 max-w-4 origin-bottom rounded-t-[3px]', hover === i ? 'bg-warning' : 'bg-warning/60')} style={{ height: `${(n(d.expenses) / top) * 100}%` }} />
+                {hover === i ? (
+                  <div className="mc-anim-fade-in pointer-events-none absolute bottom-full z-10 mb-1 whitespace-nowrap rounded-md bg-ink px-2.5 py-1.5 text-2xs text-white shadow-pop">
+                    <div className="font-medium">{monthName(d.month)} {d.month.slice(0, 4)}</div>
+                    <div className="num">Income {money(d.income)}</div>
+                    <div className="num">Expenses {money(d.expenses)}</div>
+                    <div className="num">Net {money(d.net)}</div>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            ))}
           </div>
-        ))}
-      </div>
-      <div className="mt-1 flex gap-1.5">
-        {data.map((d) => (
-          <div key={d.month} className="flex-1 text-center">
-            <div className="text-[10px] text-neutral-500">{monthName(d.month)}</div>
-            <div className={cn('text-[10px] font-semibold tabular-nums', n(d.net) < 0 ? 'text-red-600' : 'text-emerald-700')}>{n(d.net) === 0 ? '—' : `${n(d.net) < 0 ? '−' : ''}${Math.abs(n(d.net)) >= 100000 ? `${(Math.abs(n(d.net)) / 100000).toFixed(1)}L` : Math.abs(n(d.net)) >= 1000 ? `${(Math.abs(n(d.net)) / 1000).toFixed(1)}k` : Math.round(Math.abs(n(d.net)))}`}</div>
+          <div className="mt-1.5 flex gap-1.5" aria-hidden>
+            {data.map((d) => (
+              <div key={d.month} className="flex-1 text-center">
+                <div className="text-[10px] text-faint">{monthName(d.month)}</div>
+                <div className={cn('text-[10px] font-medium num', n(d.net) < 0 ? 'text-danger' : n(d.net) > 0 ? 'text-success' : 'text-faint')}>{n(d.net) === 0 ? '—' : `${n(d.net) < 0 ? '−' : ''}${short(n(d.net))}`}</div>
+              </div>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
-      <div className="mt-2 flex gap-4 text-[11px] text-neutral-500">
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-brand-500" /> Income</span>
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-amber-400" /> Expenses</span>
+      <div className="mt-3 flex flex-wrap gap-4 text-2xs text-muted">
+        <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-accent/85" /> Income</span>
+        <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-warning/60" /> Expenses</span>
         <span>Net profit under each month</span>
       </div>
+      <p className="sr-only" aria-live="polite">
+        {active ? `${monthName(active.month)} ${active.month.slice(0, 4)}: income ${money(active.income)}, expenses ${money(active.expenses)}, net ${money(active.net)}` : ''}
+      </p>
+      <table className="sr-only">
+        <thead>
+          <tr><th>Month</th><th>Income</th><th>Expenses</th><th>Net</th></tr>
+        </thead>
+        <tbody>
+          {data.map((d) => (
+            <tr key={d.month}><th scope="row">{monthName(d.month)} {d.month.slice(0, 4)}</th><td>{money(d.income)}</td><td>{money(d.expenses)}</td><td>{money(d.net)}</td></tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -194,7 +241,7 @@ function LedgerDrawer({ accountId, onClose }: { accountId: string; onClose: () =
         <>
           <div className="grid grid-cols-2 gap-3">
             <Stat label="Opening" value={money(q.data.opening)} />
-            <Stat label="Closing" value={money(q.data.closing)} tone="blue" />
+            <Stat label="Closing" value={money(q.data.closing)} />
           </div>
           {q.data.rows.length === 0 ? (
             <EmptyState title="No postings in this period" />
@@ -202,14 +249,14 @@ function LedgerDrawer({ accountId, onClose }: { accountId: string; onClose: () =
             <Table head={<tr><Th>Date</Th><Th>Entry</Th><Th>Narration</Th><Th right>Debit</Th><Th right>Credit</Th><Th right>Balance</Th></tr>}>
               {q.data.rows.map((r, i) => (
                 <Tr key={`${r.entryId}-${i}`}>
-                  <Td className="whitespace-nowrap text-xs text-neutral-500">{fmtDate(r.date)}</Td>
+                  <Td className="whitespace-nowrap text-xs text-muted">{fmtDate(r.date)}</Td>
                   <Td className="font-mono text-xs">
                     {r.entryNumber}
-                    {r.reversed ? <span className="ml-1 text-[10px] text-red-600">reversed</span> : null}
+                    {r.reversed ? <span className="ml-1 text-[10px] text-danger">reversed</span> : null}
                   </Td>
                   <Td className="max-w-[260px] text-xs">
                     <span className="block truncate">{r.memo}</span>
-                    {r.sourceType ? <span className="text-[10px] text-neutral-400">{SOURCE_LABEL[r.sourceType] ?? r.sourceType}</span> : null}
+                    {r.sourceType ? <span className="text-[10px] text-faint">{SOURCE_LABEL[r.sourceType] ?? r.sourceType}</span> : null}
                   </Td>
                   <Td right className="text-xs">{n(r.debit) ? money(r.debit, false) : ''}</Td>
                   <Td right className="text-xs">{n(r.credit) ? money(r.credit, false) : ''}</Td>
@@ -299,11 +346,11 @@ function ManualJournal({ accounts, lockedMonths, onDone }: { accounts: Account[]
           </div>
         ))}
       </div>
-      {errors.lines ? <p className="mc-anim-shake mt-1 text-xs text-red-600">{errors.lines}</p> : null}
+      {errors.lines ? <p className="mt-1 text-xs text-danger">{errors.lines}</p> : null}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <Button variant="secondary" onClick={() => setLines((s) => [...s, blank()])} disabled={lines.length >= 50}><Icon name="plus" size={15} strokeWidth={2.25} /> Line</Button>
-        <span className={cn('text-sm tabular-nums', dr === cr ? 'text-emerald-700' : 'text-red-600')}>
-          Dr {money(dr / 100)} · Cr {money(cr / 100)} {dr === cr ? <span className="inline-flex items-center gap-0.5 text-emerald-700"><Icon name="check" size={12} strokeWidth={2.5} /> balanced</span> : `· difference ${money(Math.abs(dr - cr) / 100)}`}
+        <span className={cn('text-sm num', dr === cr ? 'text-success' : 'text-danger')}>
+          Dr {money(dr / 100)} · Cr {money(cr / 100)} {dr === cr ? <span className="inline-flex items-center gap-0.5 text-success"><Icon name="check" size={12} strokeWidth={2.5} /> balanced</span> : `· difference ${money(Math.abs(dr - cr) / 100)}`}
         </span>
       </div>
       <div className="mt-3"><Button onClick={review}>Review & post</Button></div>
@@ -365,9 +412,9 @@ function ExpenseForm({ lockedMonths, onDone }: { lockedMonths: Set<string>; onDo
           <MoneyInput value={f.amount} onChange={(v) => set('amount', v)} invalid={Boolean(errors.amount)} />
         </Field>
         <Field label="Paid via" error={errors.method}>
-          <div className="inline-flex w-full rounded-lg bg-neutral-100 p-1">
+          <div className="inline-flex w-full rounded-lg border border-line bg-subtle p-0.5">
             {(['CASH', 'BANK', 'UPI'] as const).map((m) => (
-              <button key={m} type="button" onClick={() => set('method', m)} className={cn('flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-all', f.method === m ? 'bg-white text-brand-700 shadow-sm' : 'text-neutral-500')}>
+              <button key={m} type="button" onClick={() => set('method', m)} className={cn('flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-all', f.method === m ? 'bg-surface text-teal-ink ring-1 ring-line' : 'text-muted hover:text-ink')}>
                 {METHOD_LABEL[m]}
               </button>
             ))}
@@ -380,7 +427,7 @@ function ExpenseForm({ lockedMonths, onDone }: { lockedMonths: Set<string>; onDo
           <Input value={f.notes} onChange={(e) => set('notes', e.target.value)} maxLength={300} placeholder="Bill no., period…" />
         </Field>
       </div>
-      {locked ? <p className="mc-anim-fade-in mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900"><Icon name="lock" size={12} /> {f.expenseDate.slice(0, 7)} is locked. Postings dated in a locked month are refused.</p> : null}
+      {locked ? <Alert tone="warning" icon="lock" className="mt-2">{f.expenseDate.slice(0, 7)} is locked. Postings dated in a locked month are refused.</Alert> : null}
       <div className="mt-3">
         <Button onClick={submit} disabled={save.isPending}>{save.isPending ? 'Posting…' : 'Record expense'}</Button>
       </div>
@@ -492,12 +539,12 @@ export default function AccountingPage() {
   const opex = (expSummary.data?.byCategory ?? []).map((c) => ({ label: c.category, value: n(c.amount) }));
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Accounting"
         subtitle="Double-entry books posted automatically from every sale, purchase, payment, return and stock movement."
         actions={
-          <Select value={fyLabel} onChange={(e) => pickFy(e.target.value)} className="w-40" aria-label="Financial year">
+          <Select value={fyLabel} onChange={(e) => pickFy(e.target.value)} className="w-full sm:w-40" aria-label="Financial year">
             {fys.map((f) => (
               <option key={f.label} value={f.label}>{f.label}</option>
             ))}
@@ -511,11 +558,11 @@ export default function AccountingPage() {
         </Card>
       ) : null}
 
-      <KpiGrid cols={4}>
-        <Stat label="Net sales" value={p ? money(p.netSales) : '…'} hint={`${fmtDate(range.from)} – ${fmtDate(range.to)}`} tone="blue" />
-        <Stat label="Gross profit" value={p ? money(p.grossProfit) : '…'} hint={p ? `${margin.toFixed(1)}% margin` : undefined} tone="green" delay={60} />
-        <Stat label="Operating expenses" value={expSummary.data ? money(expSummary.data.total) : '…'} hint={expSummary.data ? `${expSummary.data.count} voucher${expSummary.data.count === 1 ? '' : 's'}` : undefined} tone="amber" delay={120} />
-        <Stat label="Net profit" value={p ? money(p.netProfit) : '…'} tone={p && n(p.netProfit) < 0 ? 'red' : 'green'} delay={180} />
+      <KpiGrid bare cols={4}>
+        <Stat label="Net sales" value={p ? money(p.netSales) : '…'} hint={`${fmtDate(range.from)} – ${fmtDate(range.to)}`} />
+        <Stat label="Gross profit" value={p ? money(p.grossProfit) : '…'} hint={p ? `${margin.toFixed(1)}% margin` : undefined} />
+        <Stat label="Operating expenses" value={expSummary.data ? money(expSummary.data.total) : '…'} hint={expSummary.data ? `${expSummary.data.count} voucher${expSummary.data.count === 1 ? '' : 's'}` : undefined} tone={expSummary.data && Number(expSummary.data.total) > 0 ? 'amber' : 'neutral'} />
+        <Stat label="Net profit" value={p ? money(p.netProfit) : '…'} tone={p && n(p.netProfit) < 0 ? 'red' : p && n(p.netProfit) > 0 ? 'green' : 'neutral'} />
       </KpiGrid>
 
       <Tabs
@@ -552,25 +599,25 @@ export default function AccountingPage() {
               <div className="grid gap-6 md:grid-cols-2">
                 {(['income', 'expenses'] as const).map((side) => (
                   <div key={side}>
-                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400">{side === 'income' ? 'Income' : 'Expenses'}</h3>
-                    <div className="divide-y divide-neutral-100">
+                    <h3 className="mb-2 text-2xs font-semibold uppercase tracking-[0.06em] text-faint">{side === 'income' ? 'Income' : 'Expenses'}</h3>
+                    <div className="divide-y divide-line">
                       {p[side].filter((r) => n(r.amount) !== 0).map((r) => (
-                        <button key={r.accountId} onClick={() => setGlAccount(r.accountId)} className="flex w-full justify-between px-1 py-1.5 text-left text-sm transition-colors hover:bg-brand-50/50">
-                          <span><span className="font-mono text-xs text-neutral-400">{r.code}</span> {r.name}</span>
-                          <span className="tabular-nums">{money(r.amount)}</span>
+                        <button key={r.accountId} onClick={() => setGlAccount(r.accountId)} className="flex w-full justify-between gap-4 px-1 py-2 text-left text-[13px] transition-colors hover:bg-mint/40">
+                          <span><span className="font-mono text-xs text-faint">{r.code}</span> {r.name}</span>
+                          <Signed value={r.amount} />
                         </button>
                       ))}
-                      <div className="flex justify-between px-1 py-2 text-sm font-semibold">
+                      <div className="flex justify-between border-t border-neutral-300 px-1 py-2 text-[13px] font-medium text-ink">
                         <span>Total {side}</span>
-                        <span className="tabular-nums">{money(side === 'income' ? p.totalIncome : p.totalExpenses)}</span>
+                        <span className="num">{money(side === 'income' ? p.totalIncome : p.totalExpenses)}</span>
                       </div>
                     </div>
                   </div>
                 ))}
-                <div className={cn('rounded-xl px-4 py-3 md:col-span-2', n(p.netProfit) >= 0 ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-800')}>
-                  <div className="flex justify-between text-base font-bold">
+                <div className={cn('border-t border-ink/30 px-1 pt-3 md:col-span-2', n(p.netProfit) > 0 ? 'text-success' : n(p.netProfit) < 0 ? 'text-danger' : 'text-ink')}>
+                  <div className="flex justify-between text-section font-[550]">
                     <span>Net {n(p.netProfit) >= 0 ? 'profit' : 'loss'}</span>
-                    <span className="tabular-nums">{money(Math.abs(n(p.netProfit)))}</span>
+                    <span className="num">{money(Math.abs(n(p.netProfit)))}</span>
                   </div>
                 </div>
               </div>
@@ -584,7 +631,7 @@ export default function AccountingPage() {
           title="Trial balance"
           actions={
             <div className="flex items-center gap-2">
-              <span className="text-xs text-neutral-500">as of</span>
+              <span className="whitespace-nowrap text-xs text-muted">as of</span>
               <Input type="date" className="w-36" value={asOf} max={todayIso()} onChange={(e) => setAsOf(e.target.value || todayIso())} />
               {tb.data ? <Badge tone={tb.data.balanced ? 'green' : 'red'} dot>{tb.data.balanced ? 'Balanced' : 'Unbalanced'}</Badge> : null}
             </div>
@@ -599,13 +646,13 @@ export default function AccountingPage() {
               {tb.data.rows.filter((r) => n(r.debit) !== 0 || n(r.credit) !== 0).map((r) => (
                 <Tr key={r.accountId} onClick={() => setGlAccount(r.accountId)}>
                   <Td className="font-mono text-xs">{r.code}</Td>
-                  <Td className="text-sm text-brand-800">{r.name}</Td>
+                  <Td className="text-sm text-brand-deep">{r.name}</Td>
                   <Td><Badge>{r.type.toLowerCase()}</Badge></Td>
                   <Td right>{n(r.debit) ? money(r.debit, false) : ''}</Td>
                   <Td right>{n(r.credit) ? money(r.credit, false) : ''}</Td>
                 </Tr>
               ))}
-              <Tr className="bg-neutral-50 font-semibold">
+              <Tr className="font-medium text-ink [&>td]:border-t [&>td]:border-neutral-300">
                 <Td />
                 <Td>Total</Td>
                 <Td />
@@ -614,7 +661,7 @@ export default function AccountingPage() {
               </Tr>
             </Table>
           )}
-          <p className="mt-2 text-xs text-neutral-500">Click any account to drill into its general ledger.</p>
+          <p className="mt-2 text-xs text-muted">Click any account to drill into its general ledger.</p>
         </Card>
       ) : null}
 
@@ -623,7 +670,7 @@ export default function AccountingPage() {
           title="Balance sheet"
           actions={
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-neutral-500">as of</span>
+              <span className="whitespace-nowrap text-xs text-muted">as of</span>
               <Input type="date" className="w-36" value={asOf} max={todayIso()} onChange={(e) => setAsOf(e.target.value || todayIso())} />
               {bs.data ? <Badge tone={bs.data.balanced ? 'green' : 'red'} dot>{bs.data.balanced ? 'Assets = Liabilities + Equity' : 'Out of balance'}</Badge> : null}
               {canExport ? <Button variant="secondary" onClick={() => void exportCsv(`/accounting/balance-sheet/export?asOf=${asOf}`, `balance-sheet-${asOf}.csv`)}><Icon name="download" size={14} /> CSV</Button> : null}
@@ -637,49 +684,49 @@ export default function AccountingPage() {
           ) : (
             <div className="grid gap-6 md:grid-cols-2">
               <div>
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400">Assets</h3>
+                <h3 className="mb-2 text-2xs font-semibold uppercase tracking-[0.06em] text-faint">Assets</h3>
                 {bs.data.assets.filter((r) => n(r.amount) !== 0).map((r) => (
-                  <button key={r.accountId} onClick={() => setGlAccount(r.accountId)} className="flex w-full justify-between px-1 py-1.5 text-left text-sm hover:bg-brand-50/50">
+                  <button key={r.accountId} onClick={() => setGlAccount(r.accountId)} className="flex w-full justify-between gap-4 border-b border-line px-1 py-2 text-left text-[13px] transition-colors hover:bg-mint/40">
                     <span>{r.name}</span>
-                    <span className={cn('tabular-nums', n(r.amount) < 0 && 'text-red-600')}>{money(r.amount)}</span>
+                    <Signed value={r.amount} />
                   </button>
                 ))}
                 {bs.data.assets.some((r) => n(r.amount) < 0 && /cash|bank/i.test(r.name)) ? (
-                  <p className="mt-1 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                  <Alert tone="warning" className="mt-1">
                     A cash or bank balance is negative — payments were recorded before the money was received. Record the opening capital or receipts.
-                  </p>
+                  </Alert>
                 ) : null}
-                <div className="mt-1 flex justify-between border-t border-neutral-200 px-1 pt-2 font-semibold">
+                <div className="mt-1 flex justify-between border-t border-neutral-300 px-1 pt-2 font-medium text-ink">
                   <span>Total assets</span>
-                  <span className="tabular-nums">{money(bs.data.totalAssets)}</span>
+                  <span className="num">{money(bs.data.totalAssets)}</span>
                 </div>
               </div>
               <div>
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400">Liabilities</h3>
+                <h3 className="mb-2 text-2xs font-semibold uppercase tracking-[0.06em] text-faint">Liabilities</h3>
                 {bs.data.liabilities.filter((r) => n(r.amount) !== 0).map((r) => (
-                  <button key={r.accountId} onClick={() => setGlAccount(r.accountId)} className="flex w-full justify-between px-1 py-1.5 text-left text-sm hover:bg-brand-50/50">
+                  <button key={r.accountId} onClick={() => setGlAccount(r.accountId)} className="flex w-full justify-between gap-4 border-b border-line px-1 py-2 text-left text-[13px] transition-colors hover:bg-mint/40">
                     <span>{r.name}</span>
-                    <span className="tabular-nums">{money(r.amount)}</span>
+                    <Signed value={r.amount} />
                   </button>
                 ))}
                 <div className="flex justify-between px-1 py-1.5 text-sm font-medium text-neutral-600">
                   <span>Total liabilities</span>
-                  <span className="tabular-nums">{money(bs.data.totalLiabilities)}</span>
+                  <span className="num">{money(bs.data.totalLiabilities)}</span>
                 </div>
-                <h3 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wider text-neutral-400">Equity</h3>
+                <h3 className="mb-2 mt-4 text-2xs font-medium uppercase tracking-[0.06em] text-faint">Equity</h3>
                 {bs.data.equity.filter((r) => n(r.amount) !== 0).map((r) => (
-                  <button key={r.accountId} onClick={() => setGlAccount(r.accountId)} className="flex w-full justify-between px-1 py-1.5 text-left text-sm hover:bg-brand-50/50">
+                  <button key={r.accountId} onClick={() => setGlAccount(r.accountId)} className="flex w-full justify-between gap-4 border-b border-line px-1 py-2 text-left text-[13px] transition-colors hover:bg-mint/40">
                     <span>{r.name}</span>
-                    <span className="tabular-nums">{money(r.amount)}</span>
+                    <Signed value={r.amount} />
                   </button>
                 ))}
                 <div className="flex justify-between px-1 py-1.5 text-sm">
                   <span>Current period profit / (loss)</span>
-                  <span className="tabular-nums">{money(bs.data.retainedEarnings)}</span>
+                  <Signed value={bs.data.retainedEarnings} />
                 </div>
-                <div className="mt-1 flex justify-between border-t border-neutral-200 px-1 pt-2 font-semibold">
+                <div className="mt-1 flex justify-between border-t border-neutral-300 px-1 pt-2 font-medium text-ink">
                   <span>Liabilities + equity</span>
-                  <span className="tabular-nums">{money(n(bs.data.totalLiabilities) + n(bs.data.totalEquity))}</span>
+                  <span className="num">{money(n(bs.data.totalLiabilities) + n(bs.data.totalEquity))}</span>
                 </div>
               </div>
             </div>
@@ -693,7 +740,7 @@ export default function AccountingPage() {
           <Card
             title={`Journal entries (${journals.data?.pageInfo.totalItems ?? 0})`}
             actions={
-              <Select className="w-48" value={sourceType} onChange={(e) => { setSourceType(e.target.value); setJournalPage(1); }} aria-label="Source">
+              <Select className="w-full sm:w-48" value={sourceType} onChange={(e) => { setSourceType(e.target.value); setJournalPage(1); }} aria-label="Source">
                 <option value="">All sources</option>
                 {Object.entries(SOURCE_LABEL).map(([k, v]) => (
                   <option key={k} value={k}>{v}</option>
@@ -709,22 +756,22 @@ export default function AccountingPage() {
               <EmptyState title="No journal entries" hint="Sales, purchases, payments and stock movements post here automatically." />
             ) : (
               <>
-                <div className="space-y-2">
-                  {journals.data?.items.map((j, idx) => {
+                <div className="-mx-4 divide-y divide-line border-t border-line">
+                  {journals.data?.items.map((j) => {
                     const total = j.lines.reduce((s, l) => s + n(l.debit), 0);
                     const canReverse = canPost && !j.reversedById && j.sourceType !== 'JOURNAL_REVERSAL';
                     return (
-                      <div key={j.id} className={cn('mc-anim-fade-up rounded-xl border px-3 py-2.5', j.reversedById ? 'border-neutral-200 bg-neutral-50/70 opacity-75' : 'border-neutral-200')} style={{ animationDelay: `${Math.min(idx, 10) * 25}ms` }}>
+                      <div key={j.id} className={cn('px-4 py-3', j.reversedById && 'bg-subtle/50 opacity-75')}>
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-semibold text-neutral-800">{j.entryNumber}</span>
-                            <span className="text-xs text-neutral-400">{fmtDate(j.entryDate)}</span>
+                            <span className="font-mono text-xs font-semibold text-ink">{j.entryNumber}</span>
+                            <span className="text-xs text-faint">{fmtDate(j.entryDate)}</span>
                             {j.sourceType ? <Badge tone={j.sourceType === 'JOURNAL_REVERSAL' ? 'red' : j.sourceType === 'MANUAL' ? 'blue' : 'neutral'}>{SOURCE_LABEL[j.sourceType] ?? j.sourceType}</Badge> : null}
                             {j.reversedById ? <Badge tone="red">Reversed</Badge> : null}
                             {lockedMonths.has(j.entryDate.slice(0, 7)) ? <Badge tone="amber"><Icon name="lock" size={12} /> locked month</Badge> : null}
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold tabular-nums">{money(total)}</span>
+                            <span className="text-sm font-semibold num">{money(total)}</span>
                             {canReverse ? (
                               <Button variant="ghost" className="text-xs" onClick={() => setReversing(j)}><Icon name="reverse" size={14} /> Reverse</Button>
                             ) : null}
@@ -733,11 +780,11 @@ export default function AccountingPage() {
                         <p className="mt-0.5 text-xs text-neutral-600">{j.memo}</p>
                         <div className="mt-1.5 grid grid-cols-1 gap-x-6 text-xs sm:grid-cols-2">
                           {j.lines.map((l, i) => (
-                            <div key={i} className="flex justify-between border-b border-dashed border-neutral-100 py-0.5">
-                              <span className={n(l.credit) > 0 ? 'pl-4 text-neutral-500' : 'text-neutral-700'}>
+                            <div key={i} className="flex justify-between border-b border-dashed border-line py-0.5">
+                              <span className={n(l.credit) > 0 ? 'pl-4 text-muted' : 'text-neutral-700'}>
                                 {n(l.credit) > 0 ? 'To ' : ''}{l.account.name}
                               </span>
-                              <span className="tabular-nums">{n(l.debit) > 0 ? `Dr ${money(l.debit, false)}` : `Cr ${money(l.credit, false)}`}</span>
+                              <span className="num">{n(l.debit) > 0 ? `Dr ${money(l.debit, false)}` : `Cr ${money(l.credit, false)}`}</span>
                             </div>
                           ))}
                         </div>
@@ -762,8 +809,8 @@ export default function AccountingPage() {
           </div>
           <Card title={`Expense vouchers (${expenses.data?.pageInfo.totalItems ?? 0}) · ${money(expenses.data?.total ?? 0)}`}>
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              <SearchInput value={expSearch} onChange={(v) => { setExpSearch(v); setExpPage(1); }} placeholder="Payee, voucher no., notes" className="w-60" />
-              <Select value={expCategory} onChange={(e) => { setExpCategory(e.target.value); setExpPage(1); }} className="w-48" aria-label="Category">
+              <SearchInput value={expSearch} onChange={(v) => { setExpSearch(v); setExpPage(1); }} placeholder="Payee, voucher no., notes" className="w-full sm:w-60" />
+              <Select value={expCategory} onChange={(e) => { setExpCategory(e.target.value); setExpPage(1); }} className="w-full sm:w-48" aria-label="Category">
                 <option value="">All categories</option>
                 {[...new Set([...(expSummary.data?.byCategory.map((c) => c.category) ?? []), ...EXPENSE_CATEGORIES])].map((c) => (
                   <option key={c} value={c}>{c}</option>
@@ -782,12 +829,12 @@ export default function AccountingPage() {
                 <Table head={<tr><Th>Date</Th><Th>Voucher</Th><Th>Category</Th><Th>Payee</Th><Th>Via</Th><Th right>Amount</Th></tr>}>
                   {expenses.data?.items.map((x) => (
                     <Tr key={x.id}>
-                      <Td className="whitespace-nowrap text-xs text-neutral-500">{fmtDate(x.expenseDate)}</Td>
+                      <Td className="whitespace-nowrap text-xs text-muted">{fmtDate(x.expenseDate)}</Td>
                       <Td className="font-mono text-xs">{x.expenseNumber}</Td>
                       <Td><Badge>{x.category}</Badge></Td>
                       <Td className="text-sm">
                         {x.payee}
-                        {x.notes ? <div className="max-w-[220px] truncate text-[11px] text-neutral-500" title={x.notes}>{x.notes}</div> : null}
+                        {x.notes ? <div className="max-w-[220px] truncate text-2xs text-muted" title={x.notes}>{x.notes}</div> : null}
                       </Td>
                       <Td className="text-xs">{METHOD_LABEL[x.method]}</Td>
                       <Td right className="font-semibold">{money(x.amount)}</Td>
@@ -799,7 +846,7 @@ export default function AccountingPage() {
             )}
           </Card>
           <Card title="Accounting periods">
-            <p className="mb-3 text-xs text-neutral-500">Lock a month after GST returns are filed. Locking blocks any posting — including reversals and backdated documents — dated inside it.</p>
+            <p className="mb-3 text-xs text-muted">Lock a month after GST returns are filed. Locking blocks any posting — including reversals and backdated documents — dated inside it.</p>
             {canPost ? (
               <div className="mb-3 flex flex-wrap items-end gap-2">
                 <Field label="Month">
@@ -810,13 +857,13 @@ export default function AccountingPage() {
               </div>
             ) : null}
             {(periods.data?.length ?? 0) === 0 ? (
-              <p className="text-sm text-neutral-500">All periods are open.</p>
+              <p className="text-sm text-muted">All periods are open.</p>
             ) : (
               <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
                 {periods.data?.map((pr) => (
-                  <div key={pr.id} className="flex items-center justify-between rounded-lg border border-neutral-100 px-3 py-1.5 text-sm">
+                  <div key={pr.id} className="flex items-center justify-between rounded-md border border-line px-3 py-1.5 text-[13px]">
                     <span className="font-mono">{monthName(pr.periodLabel)} {pr.periodLabel.slice(0, 4)}</span>
-                    <Badge tone={pr.status === 'LOCKED' ? 'red' : 'green'} dot>{pr.status.toLowerCase()}{pr.lockedAt ? ` · ${fmtDate(pr.lockedAt)}` : ''}</Badge>
+                    <StatusBadge status={pr.status} tone={pr.status === 'LOCKED' ? 'red' : 'green'} label={`${pr.status.charAt(0)}${pr.status.slice(1).toLowerCase()}${pr.lockedAt ? ` · ${fmtDate(pr.lockedAt)}` : ''}`} />
                   </div>
                 ))}
               </div>

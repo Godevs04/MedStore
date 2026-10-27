@@ -16,12 +16,13 @@ import {
   Pagination,
   SearchInput,
   SortableTh,
+  TableToolbar,
   useDebouncedValue,
   type DateRange,
   type PageInfo,
   type SortState,
 } from '@/components/kit';
-import { Badge, Button, Card, EmptyState, ErrorState, PageHeader, Select, SkeletonRows, Stat, Table, Tabs, Td, Th, Tr, fmtDate, money } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, ErrorState, PageHeader, Select, SkeletonRows, Stat, StatusBadge, Table, Tabs, Td, Th, Tr, fmtDate, money, statusTone } from '@/components/ui';
 
 interface InvoiceRow {
   id: string;
@@ -64,12 +65,6 @@ interface Summary {
 type SortField = 'invoiceDate' | 'invoiceNumber' | 'total' | 'creditAmount';
 type Status = 'POSTED' | 'PARTIALLY_RETURNED' | 'RETURNED' | 'CANCELLED';
 
-const STATUS_TONE: Record<string, 'green' | 'amber' | 'red' | 'neutral'> = {
-  POSTED: 'green',
-  PARTIALLY_RETURNED: 'amber',
-  RETURNED: 'red',
-  CANCELLED: 'neutral',
-};
 const STATUS_LABEL: Record<string, string> = { POSTED: 'Posted', PARTIALLY_RETURNED: 'Part returned', RETURNED: 'Returned', CANCELLED: 'Cancelled' };
 const PAGE_SIZE = 25;
 
@@ -152,7 +147,7 @@ export default function SalesHistoryPage() {
   const anyFilter = Boolean(debouncedSearch || range.from || range.to || status || method || creditOnly);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Sales & returns"
         subtitle="Every POS invoice with its tender split, credit and return status. Open one to print, collect a balance, return or cancel."
@@ -174,18 +169,25 @@ export default function SalesHistoryPage() {
 
       {tab === 'invoices' ? (
         <>
-          <KpiGrid cols={4}>
-            <Stat label="Invoices" value={s ? <AnimatedNumber value={s.invoices} /> : '…'} hint={s?.cancelled ? `${s.cancelled} cancelled (excluded)` : anyFilter ? 'matching filters' : 'all time'} tone="blue" delay={0} />
-            <Stat label="Gross sales" value={s ? <AnimatedNumber value={Number(s.gross)} format={(n) => money(n)} /> : '…'} hint={s ? `Avg bill ${money(s.averageBill)}` : undefined} tone="green" delay={60} />
-            <Stat label="Credit open" value={s ? money(s.creditOutstanding) : '…'} hint="still to collect" tone="amber" delay={120} />
-            <Stat label="Returned" value={s ? money(s.returned) : '…'} hint={s && Number(s.discount) ? `Discounts ${money(s.discount)}` : 'credit notes'} tone="red" delay={180} />
+          <KpiGrid bare cols={4}>
+            <Stat label="Invoices" value={s ? <AnimatedNumber value={s.invoices} /> : '…'} hint={s?.cancelled ? `${s.cancelled} cancelled (excluded)` : anyFilter ? 'matching filters' : 'all time'} />
+            <Stat label="Gross sales" value={s ? <AnimatedNumber value={Number(s.gross)} format={(n) => money(n)} /> : '…'} hint={s ? `Avg bill ${money(s.averageBill)}` : undefined} />
+            <Stat label="Credit open" value={s ? money(s.creditOutstanding) : '…'} hint="still to collect" tone={s && Number(s.creditOutstanding) > 0 ? 'amber' : 'neutral'} />
+            <Stat label="Returned" value={s ? money(s.returned) : '…'} hint={s && Number(s.discount) ? `Discounts ${money(s.discount)}` : 'credit notes'} tone="neutral" />
           </KpiGrid>
 
-          <Card>
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <SearchInput className="w-64" value={search} onChange={resetPage(setSearch)} placeholder="Invoice no., customer or mobile…" />
-                <Select className="w-40" value={method} onChange={(e) => resetPage(setMethod)(e.target.value)} aria-label="Payment method">
+          <div className="space-y-2">
+            <TableToolbar
+              actions={
+                canExport ? (
+                  <Button variant="secondary" onClick={() => void exportCsv(`/sales/invoices/export?${filters.toString()}`, 'sales-invoices.csv')}>
+                    <Icon name="download" size={14} /> Export CSV
+                  </Button>
+                ) : null
+              }
+            >
+                <SearchInput className="w-full sm:w-64" value={search} onChange={resetPage(setSearch)} placeholder="Invoice no., customer or mobile…" />
+                <Select className="w-full sm:w-40" value={method} onChange={(e) => resetPage(setMethod)(e.target.value)} aria-label="Payment method">
                   <option value="">Any tender</option>
                   <option value="CASH">Cash</option>
                   <option value="UPI">UPI</option>
@@ -194,21 +196,15 @@ export default function SalesHistoryPage() {
                   <option value="CREDIT">Credit</option>
                 </Select>
                 <FilterChips allLabel={null} value={creditOnly} onChange={resetPage(setCreditOnly)} options={[{ id: 'credit', label: 'Credit due', tone: 'amber' }]} />
-                {canExport ? (
-                  <Button variant="secondary" className="ml-auto" onClick={() => void exportCsv(`/sales/invoices/export?${filters.toString()}`, 'sales-invoices.csv')}>
-                    <Icon name="download" size={14} /> Export CSV
-                  </Button>
-                ) : null}
-              </div>
+            </TableToolbar>
               <DateRangePicker value={range} onChange={resetPage(setRange)} />
               <FilterChips
                 value={status}
                 onChange={resetPage(setStatus)}
                 allLabel="All statuses"
-                options={(['POSTED', 'PARTIALLY_RETURNED', 'RETURNED', 'CANCELLED'] as const).map((id) => ({ id, label: STATUS_LABEL[id]!, tone: STATUS_TONE[id] }))}
+                options={(['POSTED', 'PARTIALLY_RETURNED', 'RETURNED', 'CANCELLED'] as const).map((id) => ({ id, label: STATUS_LABEL[id]!, tone: statusTone(id) }))}
               />
-            </div>
-          </Card>
+          </div>
 
           <Card>
             {invoices.isLoading ? (
@@ -242,11 +238,11 @@ export default function SalesHistoryPage() {
                 >
                   {items.map((i) => (
                     <Tr key={i.id} onClick={() => router.push(`/sales-history/${i.id}`)} className={i.status === 'CANCELLED' ? 'opacity-60' : undefined}>
-                      <Td className="font-mono text-xs font-semibold text-brand-700">{i.invoiceNumber}</Td>
-                      <Td className="whitespace-nowrap text-xs text-neutral-500">{fmtDate(i.invoiceDate)}</Td>
+                      <Td className="font-mono text-xs font-semibold text-teal-ink">{i.invoiceNumber}</Td>
+                      <Td className="whitespace-nowrap text-xs text-muted">{fmtDate(i.invoiceDate)}</Td>
                       <Td className="text-sm">
                         <div>{i.customer?.name ?? i.walkInName ?? 'Walk-in'}</div>
-                        {i.customer?.phone ? <div className="text-[11px] text-neutral-400">{i.customer.phone}</div> : null}
+                        {i.customer?.phone ? <div className="text-2xs text-faint">{i.customer.phone}</div> : null}
                       </Td>
                       <Td className="max-w-[200px] truncate text-xs text-neutral-600">{i.lines.map((l) => `${l.productName} ×${Number(l.quantity)}`).join(', ')}</Td>
                       <Td>
@@ -259,9 +255,9 @@ export default function SalesHistoryPage() {
                         </div>
                       </Td>
                       <Td>
-                        <Badge tone={STATUS_TONE[i.status] ?? 'neutral'}>{STATUS_LABEL[i.status] ?? i.status}</Badge>
+                        <StatusBadge status={i.status} label={STATUS_LABEL[i.status]} />
                       </Td>
-                      <Td right className={Number(i.creditAmount) > 0 ? 'font-medium text-amber-700' : 'text-neutral-400'}>
+                      <Td right className={Number(i.creditAmount) > 0 ? 'font-medium text-warning' : 'text-faint'}>
                         {Number(i.creditAmount) > 0 ? money(i.creditAmount) : '—'}
                       </Td>
                       <Td right className={i.status === 'CANCELLED' ? 'font-semibold line-through' : 'font-semibold'}>{money(i.total)}</Td>
@@ -275,10 +271,17 @@ export default function SalesHistoryPage() {
         </>
       ) : (
         <>
-          <Card>
-            <div className="flex flex-wrap items-center gap-2">
+          <TableToolbar
+            actions={
+              canExport ? (
+                <Button variant="secondary" onClick={() => void exportCsv(`/sales/returns/export?${rFilters.toString()}`, 'sales-returns.csv')}>
+                  <Icon name="download" size={14} /> Export CSV
+                </Button>
+              ) : null
+            }
+          >
               <SearchInput
-                className="w-64"
+                className="w-full sm:w-64"
                 value={rSearch}
                 onChange={(v) => {
                   setRSearch(v);
@@ -293,13 +296,7 @@ export default function SalesHistoryPage() {
                   setRPage(1);
                 }}
               />
-              {canExport ? (
-                <Button variant="secondary" className="ml-auto" onClick={() => void exportCsv(`/sales/returns/export?${rFilters.toString()}`, 'sales-returns.csv')}>
-                  <Icon name="download" size={14} /> Export CSV
-                </Button>
-              ) : null}
-            </div>
-          </Card>
+          </TableToolbar>
           <Card title="Sales returns (credit notes)">
             {returns.isLoading ? (
               <SkeletonRows rows={4} cols={6} />
@@ -315,12 +312,12 @@ export default function SalesHistoryPage() {
                     return (
                       <Tr key={r.id} onClick={() => router.push(`/sales-history/${r.invoiceId}`)}>
                         <Td>
-                          <div className="font-mono text-xs font-semibold text-neutral-800">{r.returnNumber}</div>
-                          <div className="text-xs text-neutral-500">{fmtDate(r.createdAt)}</div>
+                          <div className="font-mono text-xs font-semibold text-ink">{r.returnNumber}</div>
+                          <div className="text-xs text-muted">{fmtDate(r.createdAt)}</div>
                         </Td>
                         <Td>
-                          <div className="font-mono text-xs text-brand-700">{r.invoice.invoiceNumber}</div>
-                          <div className="text-xs text-neutral-500">{r.invoice.customer?.name ?? r.invoice.walkInName ?? 'Walk-in'}</div>
+                          <div className="font-mono text-xs text-teal-ink">{r.invoice.invoiceNumber}</div>
+                          <div className="text-xs text-muted">{r.invoice.customer?.name ?? r.invoice.walkInName ?? 'Walk-in'}</div>
                         </Td>
                         <Td className="max-w-[200px] truncate text-xs text-neutral-600">{r.reason}</Td>
                         <Td className="text-xs">
