@@ -483,9 +483,11 @@ function BatchesInner() {
         <KpiGrid bare cols={4}>
           <Stat icon="rupee" label="Stock at cost" value={money(s.value.cost)} hint={`MRP value ${money(s.value.mrp)}`} />
           <Stat icon="batches" label="Saleable batches" value={(s.batches.SALEABLE?.batches ?? 0).toLocaleString('en-IN')} hint={`${qtyFmt(s.batches.SALEABLE?.quantity ?? 0)} units`} />
-          <Stat variant="alert" label="Blocked / recalled" value={blocked.toLocaleString('en-IN')} hint="Quarantined, damaged, recalled or blocked" tone={blocked > 0 ? 'amber' : 'neutral'} />
+          <Stat variant="alert" hue="amber" icon="ban" label="Blocked / recalled" value={blocked.toLocaleString('en-IN')} hint="Quarantined, damaged, recalled or blocked" tone={blocked > 0 ? 'amber' : 'neutral'} />
           <Stat
             variant="alert"
+            hue="red"
+            icon="expiry"
             label="Expiring ≤ 30 days"
             value={money(s.expiring30.cost)}
             hint={`${s.expiring30.batches} batches · ${s.expired.batches} already expired (${money(s.expired.cost)})`}

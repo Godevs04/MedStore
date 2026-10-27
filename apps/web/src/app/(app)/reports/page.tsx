@@ -235,7 +235,7 @@ function ValuationTab({ canExport }: { canExport: boolean }) {
       <KpiGrid bare cols={4}>
         <Stat label="Stock at cost" value={money(v.totalValue)} />
         <Stat label="Stock at MRP" value={money(v.totalMrp)} hint={n(v.totalValue) ? `${(((n(v.totalMrp) - n(v.totalValue)) / n(v.totalValue)) * 100).toFixed(0)}% potential mark-up` : undefined} />
-        <Stat variant="alert" label="Expired / blocked" value={money(n(v.expiredValue) + n(v.blockedValue))} hint={`expired ${money(v.expiredValue)}`} tone={n(v.expiredValue) + n(v.blockedValue) > 0 ? 'red' : 'neutral'} />
+        <Stat variant="alert" hue="red" icon="expiry" label="Expired / blocked" value={money(n(v.expiredValue) + n(v.blockedValue))} hint={`expired ${money(v.expiredValue)}`} tone={n(v.expiredValue) + n(v.blockedValue) > 0 ? 'red' : 'neutral'} />
         <Stat label="Inventory in books" value={money(v.bookValue)} hint={n(v.unbookedDifference) ? `${money(v.unbookedDifference)} received but not yet billed` : 'matches physical stock'} />
       </KpiGrid>
       <Card
@@ -331,7 +331,7 @@ function DeadStockTab({ canExport }: { canExport: boolean }) {
       ) : (
         <>
           <KpiGrid bare cols={4}>
-            <Stat variant="alert" label="Dead stock" value={money(d.summary.deadValue)} hint={`${d.summary.deadItems} products · no sale in ${d.days} days`} tone={d.summary.deadItems > 0 ? 'red' : 'neutral'} />
+            <Stat variant="alert" hue="red" icon="ban" label="Dead stock" value={money(d.summary.deadValue)} hint={`${d.summary.deadItems} products · no sale in ${d.days} days`} tone={d.summary.deadItems > 0 ? 'red' : 'neutral'} />
             <Stat label="Slow movers" value={money(d.summary.slowValue)} hint={`${d.summary.slowItems} products · over 6 months of cover`} tone={d.summary.slowItems > 0 ? 'amber' : 'neutral'} />
             <Stat label="Capital locked" value={money(n(d.summary.deadValue) + n(d.summary.slowValue))} hint="At purchase cost" />
             <Stat label="Suggested action" value={d.summary.deadItems ? 'Return / discount' : 'Healthy'} hint={d.summary.deadItems ? 'Ask suppliers for returns before expiry' : 'Nothing dead in this window'} tone={d.summary.deadItems ? 'amber' : 'green'} />

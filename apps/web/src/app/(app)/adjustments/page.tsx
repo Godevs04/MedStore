@@ -301,7 +301,7 @@ export default function AdjustmentsPage() {
       {s ? (
         <>
           <KpiGrid bare cols={3}>
-            <Stat variant="alert" label="Stock lost" value={money(s.outValue)} hint={topOut ? `Mostly ${ADJUSTMENT_REASON_LABELS[topOut.reason]?.toLowerCase()}` : 'No losses'} tone={Number(s.outValue) > 0 ? 'red' : 'neutral'} />
+            <Stat variant="alert" hue="red" icon="warning" label="Stock lost" value={money(s.outValue)} hint={topOut ? `Mostly ${ADJUSTMENT_REASON_LABELS[topOut.reason]?.toLowerCase()}` : 'No losses'} tone={Number(s.outValue) > 0 ? 'red' : 'neutral'} />
             <Stat label="Stock gained" value={money(s.inValue)} hint="Corrections and finds" />
             <Stat label="Net impact" value={money(s.netValue)} hint={`${s.count} adjustment${s.count === 1 ? '' : 's'}`} tone={Number(s.netValue) < 0 ? 'amber' : 'neutral'} />
           </KpiGrid>

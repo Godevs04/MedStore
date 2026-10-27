@@ -325,7 +325,7 @@ export default function PlatformPage() {
         <Stat label="Users" value={o?.users ?? '…'} />
         <Stat label="Invoices this month" value={o ? o.invoicesThisMonth.toLocaleString('en-IN') : '…'} />
         <Stat label="Paying" value={o?.byStatus.find((s) => s.status === 'ACTIVE')?.count ?? 0} hint={`${o?.byStatus.find((s) => s.status === 'TRIALING')?.count ?? 0} on trial`} />
-        <Stat variant="alert" label="Suspended" value={o?.suspended ?? '…'} tone={o?.suspended ? 'red' : 'neutral'} />
+        <Stat variant="alert" hue="red" icon="ban" label="Suspended" value={o?.suspended ?? '…'} tone={o?.suspended ? 'red' : 'neutral'} />
       </div>
       {o && (o.byPlan.length || o.byStatus.length) ? (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

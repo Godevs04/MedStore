@@ -546,7 +546,7 @@ function VendorDrawer({ vendor, onClose, onSaved }: { vendor: VendorRow; onClose
       {canLedger ? (
         <KpiGrid cols={3}>
           <Stat label="Payable" value={ledger.data ? money(ledger.data.outstanding) : '…'} tone={Number(ledger.data?.outstanding ?? 0) > 0 ? 'amber' : 'green'} />
-          <Stat variant="alert" label="Overdue" value={ledger.data ? money(overdue) : '…'} tone={overdue > 0 ? 'red' : 'neutral'} />
+          <Stat variant="alert" hue="red" icon="warning" label="Overdue" value={ledger.data ? money(overdue) : '…'} tone={overdue > 0 ? 'red' : 'neutral'} />
           <Stat
             label="Terms"
             value={`${vendor.creditDays} days`}
@@ -736,11 +736,11 @@ function VendorsView() {
 
       <KpiGrid bare cols={4}>
         <Stat label="Vendors" value={vendors.data ? vendors.data.pageInfo.totalItems.toLocaleString('en-IN') : '…'} hint={status || stateCode || debounced ? 'matching filters' : 'all suppliers'} />
-        <Stat variant="alert" label="Licence alerts" value={vendors.data ? licenceAlerts : '…'} tone={licenceAlerts > 0 ? 'red' : 'neutral'} hint="missing or expiring ≤ 30 d (this page)" />
+        <Stat variant="alert" hue="red" icon="warning" label="Licence alerts" value={vendors.data ? licenceAlerts : '…'} tone={licenceAlerts > 0 ? 'red' : 'neutral'} hint="missing or expiring ≤ 30 d (this page)" />
         {aging.data ? (
           <>
             <Stat label="Payables" value={money(aging.data.payables.total)} tone={Number(aging.data.payables.total) > 0 ? 'amber' : 'neutral'} hint="all suppliers" />
-            <Stat variant="alert" label="Overdue payables" value={money(payablesOverdue)} tone={payablesOverdue > 0 ? 'red' : 'neutral'} hint="past due date" />
+            <Stat variant="alert" hue="red" icon="warning" label="Overdue payables" value={money(payablesOverdue)} tone={payablesOverdue > 0 ? 'red' : 'neutral'} hint="past due date" />
           </>
         ) : null}
       </KpiGrid>

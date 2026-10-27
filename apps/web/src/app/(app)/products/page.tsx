@@ -658,6 +658,8 @@ function ProductsInner() {
           <Stat icon="products" label="Active products" value={s.products.active.toLocaleString('en-IN')} hint={`${s.products.inactive} inactive`} />
           <Stat
             variant="alert"
+            hue="amber"
+            icon="ban"
             label="Out of stock"
             value={s.products.outOfStock.toLocaleString('en-IN')}
             hint={`${s.products.inStock} in stock`}
@@ -665,6 +667,8 @@ function ProductsInner() {
           />
           <Stat
             variant="alert"
+            hue="red"
+            icon="warning"
             label="Below reorder level"
             value={s.products.belowReorder.toLocaleString('en-IN')}
             hint="Open reorder suggestions"

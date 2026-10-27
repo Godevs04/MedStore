@@ -165,9 +165,9 @@ export default function ExpiryPage() {
       ) : d ? (
         <>
           <KpiGrid bare cols={3}>
-            <Stat variant="alert" label="Value at risk (cost)" value={money(d.valueAtRisk.cost)} hint="Expired + expiring within 90 days" tone={Number(d.valueAtRisk.cost) > 0 ? 'red' : 'neutral'} />
+            <Stat variant="alert" hue="red" icon="expiry" label="Value at risk (cost)" value={money(d.valueAtRisk.cost)} hint="Expired + expiring within 90 days" tone={Number(d.valueAtRisk.cost) > 0 ? 'red' : 'neutral'} />
             <Stat icon="rupee" label="Value at risk (MRP)" value={money(d.valueAtRisk.mrp)} hint="Potential sales lost if not sold or returned" tone={Number(d.valueAtRisk.mrp) > 0 ? 'amber' : 'neutral'} />
-            <Stat variant="alert" label="Expired, still in stock" value={money(d.bucketValues.EXPIRED.cost)} hint={`${d.buckets.EXPIRED} batches — write off or return to supplier`} tone={d.buckets.EXPIRED > 0 ? 'red' : 'neutral'} />
+            <Stat variant="alert" hue="red" icon="expiry" label="Expired, still in stock" value={money(d.bucketValues.EXPIRED.cost)} hint={`${d.buckets.EXPIRED} batches — write off or return to supplier`} tone={d.buckets.EXPIRED > 0 ? 'red' : 'neutral'} />
           </KpiGrid>
 
           <MetricGroup columns={6}>

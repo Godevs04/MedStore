@@ -228,7 +228,7 @@ export default function UsersPage() {
       <KpiGrid bare cols={4}>
         <Stat label="Active" value={counts.ACTIVE} />
         <Stat label="Pending invites" value={counts.INVITED} hint="Links expire after 7 days" tone={counts.INVITED > 0 ? 'amber' : 'neutral'} />
-        <Stat variant="alert" label="Suspended" value={counts.SUSPENDED} tone={counts.SUSPENDED > 0 ? 'red' : 'neutral'} />
+        <Stat variant="alert" hue="red" icon="ban" label="Suspended" value={counts.SUSPENDED} tone={counts.SUSPENDED > 0 ? 'red' : 'neutral'} />
         <Stat
           label="Seats on your plan"
           value={seats ? (seats.limit && seats.limit > 0 ? `${seats.used} / ${seats.limit}` : seats.used) : '…'}

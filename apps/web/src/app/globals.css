@@ -119,6 +119,27 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
 .mc-collapse[data-open='true'] { grid-template-rows: 1fr; }
 .mc-collapse > * { overflow: hidden; }
 
+/* Metric cards: one tone variable drives the wash, border, icon chip and wave. */
+.mc-card {
+  --mc-tone: var(--mc-accent);
+  --mc-tone-ink: var(--mc-teal-ink);
+  background: linear-gradient(155deg, rgb(var(--mc-tone) / 0.09) 0%, rgb(var(--mc-surface)) 58%);
+  border: 1px solid rgb(var(--mc-tone) / 0.2);
+  box-shadow: 0 1px 2px rgb(18 59 58 / 0.04), 0 10px 24px -18px rgb(var(--mc-tone) / 0.45);
+  transition: box-shadow 0.2s var(--mc-ease), transform 0.2s var(--mc-ease), border-color 0.2s var(--mc-ease);
+}
+.mc-card[data-tone='blue'] { --mc-tone: 59 130 246; --mc-tone-ink: var(--mc-info); }
+.mc-card[data-tone='green'] { --mc-tone: 16 185 129; --mc-tone-ink: var(--mc-success); }
+.mc-card[data-tone='amber'] { --mc-tone: 245 158 11; --mc-tone-ink: var(--mc-warning); }
+.mc-card[data-tone='red'] { --mc-tone: 239 68 68; --mc-tone-ink: var(--mc-danger); }
+/* Neutral cards alternate teal and blue so a row never reads as one block. */
+.mc-metric-grid > .mc-card[data-tone='neutral']:nth-child(even) { --mc-tone: 59 130 246; --mc-tone-ink: var(--mc-info); }
+a.mc-card:hover { border-color: rgb(var(--mc-tone) / 0.38); box-shadow: 0 1px 2px rgb(18 59 58 / 0.05), 0 14px 30px -18px rgb(var(--mc-tone) / 0.6); transform: translateY(-1px); }
+.mc-card-chip { background: rgb(var(--mc-tone) / 0.13); color: rgb(var(--mc-tone-ink)); }
+.mc-card-wave { fill: rgb(var(--mc-tone) / 0.1); }
+.mc-card-arrow { border: 1px solid rgb(var(--mc-tone) / 0.22); color: rgb(var(--mc-tone-ink)); }
+@media (prefers-reduced-motion: reduce) { a.mc-card:hover { transform: none; } }
+
 /* Auth-page brand panel */
 .mc-auth-backdrop {
   background:

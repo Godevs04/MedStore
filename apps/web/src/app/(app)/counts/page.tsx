@@ -358,7 +358,7 @@ export default function CountsPage() {
       <KpiGrid bare cols={3}>
         <Stat label="Awaiting post" value={String(pending.data?.pageInfo.totalItems ?? 0)} hint={`Net ${money(pendingValue)} pending`} tone={(pending.data?.pageInfo.totalItems ?? 0) > 0 ? 'amber' : 'green'} />
         <Stat label="Count accuracy" value={posted.data?.items.length ? `${recent.accuracy.toFixed(1)}%` : '—'} hint={posted.data?.items.length ? `Exact lines in last ${posted.data.items.length} posted counts` : 'No posted counts yet'} tone={!posted.data?.items.length ? 'neutral' : recent.accuracy >= 95 ? 'green' : recent.accuracy >= 85 ? 'amber' : 'red'} />
-        <Stat variant="alert" label="Shrinkage (recent)" value={money(recent.loss)} hint={`Gains ${money(recent.gain)}`} tone={recent.loss > 0 ? 'red' : 'neutral'} />
+        <Stat variant="alert" hue="red" icon="warning" label="Shrinkage (recent)" value={money(recent.loss)} hint={`Gains ${money(recent.gain)}`} tone={recent.loss > 0 ? 'red' : 'neutral'} />
       </KpiGrid>
 
       {creating ? <CountSheet onClose={() => setCreating(false)} onDone={refresh} /> : null}

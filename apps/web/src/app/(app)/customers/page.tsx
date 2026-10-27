@@ -604,7 +604,7 @@ function CustomersView() {
         {aging.data ? (
           <>
             <Stat label="Receivables" value={money(aging.data.receivables.total)} tone={Number(aging.data.receivables.total) > 0 ? 'amber' : 'neutral'} hint="all customers" />
-            <Stat variant="alert" label="Overdue" value={money(overdueTotal)} tone={overdueTotal > 0 ? 'red' : 'neutral'} hint="past credit days" />
+            <Stat variant="alert" hue="red" icon="warning" label="Overdue" value={money(overdueTotal)} tone={overdueTotal > 0 ? 'red' : 'neutral'} hint="past credit days" />
           </>
         ) : null}
       </KpiGrid>

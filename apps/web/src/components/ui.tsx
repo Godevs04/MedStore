@@ -480,9 +480,6 @@ export function PageHeader({
 
 // ── Metrics ──────────────────────────────────────────────────────────────────
 
-type MetricLayout = 'boxed' | 'bare' | null;
-const InMetricGroup = createContext<MetricLayout>(null);
-
 const countTiles = (children: ReactNode): number =>
   Children.toArray(children).reduce<number>(
     (n, c) => n + (isValidElement<{ children?: ReactNode }>(c) && c.type === Fragment ? countTiles(c.props.children) : 1),
@@ -490,26 +487,21 @@ const countTiles = (children: ReactNode): number =>
   );
 
 /**
- * A row of metrics separated by hairlines. `bare` drops the surrounding surface so the row sits
- * directly on the canvas with vertical dividers only.
+ * A responsive grid of metric cards. `bare` is kept for call-site compatibility; every group now
+ * renders the same card grid.
  */
-export function MetricGroup({ children, className, columns, bare }: { children: ReactNode; className?: string; columns?: number; bare?: boolean }) {
+export function MetricGroup({ children, className, columns }: { children: ReactNode; className?: string; columns?: number; bare?: boolean }) {
   const count = columns ?? countTiles(children);
   return (
-    <InMetricGroup.Provider value={bare ? 'bare' : 'boxed'}>
-      <div
-        className={cn(
-          'mc-anim-fade-in grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-[repeat(var(--mc-cols),minmax(0,1fr))]',
-          bare
-            ? 'gap-y-5 border-y border-line py-4 lg:gap-y-0 lg:divide-x lg:divide-line'
-            : 'gap-px overflow-hidden rounded-xl border border-line bg-line min-[480px]:[&>*:last-child:nth-child(odd)]:col-span-2 lg:[&>*:last-child:nth-child(odd)]:col-span-1',
-          className,
-        )}
-        style={{ '--mc-cols': Math.max(1, count) } as CSSProperties}
-      >
-        {children}
-      </div>
-    </InMetricGroup.Provider>
+    <div
+      className={cn(
+        'mc-metric-grid mc-anim-fade-in grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 sm:gap-4 lg:grid-cols-[repeat(var(--mc-cols),minmax(0,1fr))]',
+        className,
+      )}
+      style={{ '--mc-cols': Math.min(Math.max(1, count), 4) } as CSSProperties}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -522,7 +514,7 @@ const TONE_TEXT: Record<Tone, string> = {
 };
 
 /** Tiny inline trend line (no axes). Only pass real series. */
-export function Sparkline({ values, className, tone = 'brand' }: { values: number[]; className?: string; tone?: 'brand' | 'red' | 'amber' }) {
+export function Sparkline({ values, className, tone = 'brand', color }: { values: number[]; className?: string; tone?: 'brand' | 'red' | 'amber'; color?: string }) {
   const id = useId();
   if (values.length < 2) return null;
   const max = Math.max(...values, 1);
@@ -530,7 +522,7 @@ export function Sparkline({ values, className, tone = 'brand' }: { values: numbe
   const span = max - min || 1;
   const pts = values.map((v, i) => [(i / (values.length - 1)) * 100, 36 - ((v - min) / span) * 32]);
   const line = pts.map(([x, y]) => `${x!.toFixed(2)},${y!.toFixed(2)}`).join(' ');
-  const stroke = { brand: 'rgb(var(--mc-accent))', red: 'rgb(var(--mc-danger))', amber: 'rgb(var(--mc-warning))' }[tone];
+  const stroke = color ?? { brand: 'rgb(var(--mc-accent))', red: 'rgb(var(--mc-danger))', amber: 'rgb(var(--mc-warning))' }[tone];
   return (
     <svg viewBox="0 0 100 40" preserveAspectRatio="none" className={cn('h-10 w-full overflow-visible', className)} aria-hidden>
       <defs>
@@ -557,6 +549,7 @@ export function Stat({
   value,
   hint,
   tone = 'neutral',
+  hue,
   href,
   footer,
   icon,
@@ -569,6 +562,8 @@ export function Stat({
   value: ReactNode;
   hint?: ReactNode;
   tone?: Tone;
+  /** Card colour identity; defaults to `tone`, or amber for a calm `alert` card. */
+  hue?: Tone;
   /** Kept for call-site compatibility; metrics no longer stagger in. */
   delay?: number;
   href?: string;
@@ -580,68 +575,95 @@ export function Stat({
   variant?: MetricVariant;
   className?: string;
 }) {
-  const layout = useContext(InMetricGroup);
   const featured = variant === 'featured';
   const up = trend ? trend.value >= 0 : false;
   const good = trend ? (trend.positiveIsGood === false ? !up : up) : false;
-  const classes = cn(
-    'group relative block h-full min-w-0 transition-colors duration-150',
-    layout === 'boxed' && 'bg-surface px-4 py-3.5',
-    layout === 'bare' && 'pr-4 lg:px-6 lg:first:pl-0 lg:last:pr-0',
-    layout === null && !featured && 'rounded-xl border border-line bg-surface px-4 py-3.5',
-    href && layout === 'boxed' && 'hover:bg-mint/40',
-    href && layout === null && !featured && 'hover:border-neutral-300',
-    href && 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60',
-    className,
-  );
+  const trendChip = trend ? (
+    <span className={cn('inline-flex items-center gap-0.5 text-xs font-medium num', good ? 'text-success' : 'text-danger')}>
+      <Icon name={up ? 'arrowUp' : 'arrowDown'} size={12} strokeWidth={2.25} />
+      {Math.abs(trend.value).toFixed(Math.abs(trend.value) < 10 ? 1 : 0)}%
+      {trend.label ? <span className="font-normal text-faint">{trend.label}</span> : null}
+    </span>
+  ) : null;
+  const valueTone = variant === 'alert' && tone !== 'neutral' ? TONE_TEXT[tone] : 'text-ink';
+  const focus = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2';
+
+  if (featured || variant === 'compact') {
+    const classes = cn('group relative block h-full min-w-0', href && focus, href && 'rounded-md', className);
+    const body = (
+      <>
+        <p className={cn('flex items-center gap-1.5 text-muted', featured ? 'text-[13px] font-medium' : 'text-xs')}>
+          {icon ? <Icon name={icon} size={featured ? 16 : 14} className="shrink-0 text-faint" /> : null}
+          <span className="min-w-0 truncate">{label}</span>
+          {href ? (
+            <span aria-hidden className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line text-faint transition-colors group-hover:border-accent/50 group-hover:text-teal-ink">
+              <Icon name="chevronRight" size={11} strokeWidth={2.25} />
+            </span>
+          ) : null}
+        </p>
+        <p className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className={cn('num leading-tight', featured ? 'text-metric-lg font-semibold' : 'text-lg font-medium', valueTone)}>{value}</span>
+          {trendChip}
+        </p>
+        {hint ? <p className="mt-1 text-xs text-muted">{hint}</p> : null}
+        {spark && spark.length > 1 ? <Sparkline values={spark} className={cn('mt-3', featured ? 'h-14' : 'h-8')} /> : null}
+        {footer ? <div className="mt-2">{footer}</div> : null}
+      </>
+    );
+    return href ? <Link href={href} className={classes}>{body}</Link> : <div className={classes}>{body}</div>;
+  }
+
+  const hasSpark = Boolean(spark && spark.length > 1);
+  const cardTone: Tone = hue ?? (variant === 'alert' && tone === 'neutral' ? 'amber' : tone);
+  const classes = cn('mc-card group relative isolate flex h-full min-w-0 flex-col overflow-hidden rounded-2xl p-4 pb-12', href && focus, className);
   const body = (
     <>
-      <p className={cn('flex items-center gap-1.5 text-muted', featured ? 'text-[13px] font-medium' : 'text-xs')}>
-        {variant === 'alert' ? (
-          <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full', tone === 'neutral' ? 'bg-neutral-300' : DOT_TONES[tone])} />
-        ) : icon ? (
-          <Icon name={icon} size={featured ? 16 : 14} className="shrink-0 text-faint" />
-        ) : null}
-        <span className="min-w-0 truncate">{label}</span>
-        {href ? (
-          <span aria-hidden className="ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-line text-faint transition-colors group-hover:border-accent/50 group-hover:text-teal-ink">
-            <Icon name="chevronRight" size={10} strokeWidth={2.25} />
-          </span>
-        ) : null}
-      </p>
-      <p className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span
-          className={cn(
-            'num leading-tight',
-            featured ? 'text-metric-lg font-semibold text-ink' : variant === 'compact' ? 'text-lg font-medium text-ink' : 'text-metric font-[550]',
-            variant === 'alert' && tone !== 'neutral' ? TONE_TEXT[tone] : !featured && 'text-ink',
-          )}
-        >
-          {value}
+      <div className="flex items-start gap-3">
+        <span aria-hidden className="mc-card-chip flex h-10 w-10 shrink-0 items-center justify-center rounded-full">
+          <Icon name={icon ?? DEFAULT_METRIC_ICON[cardTone]} size={18} strokeWidth={2} />
         </span>
-        {trend ? (
-          <span className={cn('inline-flex items-center gap-0.5 text-xs font-medium num', good ? 'text-success' : 'text-danger')}>
-            <Icon name={up ? 'arrowUp' : 'arrowDown'} size={12} strokeWidth={2.25} />
-            {Math.abs(trend.value).toFixed(Math.abs(trend.value) < 10 ? 1 : 0)}%
-            {trend.label ? <span className="font-normal text-faint">{trend.label}</span> : null}
-          </span>
-        ) : null}
-      </p>
-      {hint ? (
-        <p className={cn('mt-1 text-xs', variant !== 'alert' && tone !== 'neutral' && tone !== 'blue' ? TONE_TEXT[tone] : 'text-muted')}>{hint}</p>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-medium text-muted">{label}</p>
+          <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className={cn('num text-[1.625rem] font-semibold leading-tight tracking-tight', valueTone)}>{value}</span>
+            {trendChip}
+          </p>
+          {hint ? <p className="mt-1 text-xs leading-snug text-muted">{hint}</p> : null}
+          {footer ? <div className="mt-2">{footer}</div> : null}
+        </div>
+      </div>
+      {hasSpark ? (
+        <Sparkline values={spark!} color="rgb(var(--mc-tone))" className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-12" />
+      ) : (
+        <svg aria-hidden viewBox="0 0 200 40" preserveAspectRatio="none" className="mc-card-wave pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-10 w-full">
+          <path d="M0 30 C 30 22, 55 34, 85 26 S 140 12, 170 18 S 195 10, 200 8 V40 H0 Z" />
+        </svg>
+      )}
+      {href ? (
+        <span aria-hidden className="mc-card-arrow absolute bottom-3 right-3 flex h-7 w-7 items-center justify-center rounded-full bg-surface shadow-sm transition-transform duration-200 group-hover:translate-x-0.5">
+          <Icon name="chevronRight" size={14} strokeWidth={2.25} />
+        </span>
       ) : null}
-      {spark && spark.length > 1 ? <Sparkline values={spark} className={cn('mt-3', featured ? 'h-14' : 'h-8')} /> : null}
-      {footer ? <div className="mt-2">{footer}</div> : null}
     </>
   );
   return href ? (
-    <Link href={href} className={classes}>
+    <Link href={href} className={classes} data-tone={cardTone}>
       {body}
     </Link>
   ) : (
-    <div className={classes}>{body}</div>
+    <div className={classes} data-tone={cardTone}>
+      {body}
+    </div>
   );
 }
+
+const DEFAULT_METRIC_ICON: Record<Tone, IconName> = {
+  neutral: 'reports',
+  green: 'checkCircle',
+  amber: 'warning',
+  red: 'danger',
+  blue: 'info',
+};
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 
