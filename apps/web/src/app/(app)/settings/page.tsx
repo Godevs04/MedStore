@@ -3,14 +3,25 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { organizationSetupSchema } from '@medicore/validation';
+import { INDIAN_STATE_CODES, emailSchema, gstinSchema, indianPhoneSchema, organizationSetupSchema } from '@medicore/validation';
 import { zodResolver } from '@hookform/resolvers/zod';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { api, ApiClientError } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { Button, Card, ErrorState, Field, Input, Select, Spinner, SuccessBanner, ErrorBanner } from '@/components/ui';
+import { toast } from '@/lib/toast';
+import { Button, Card, ErrorState, Field, Input, Select, Spinner, SuccessBanner, ErrorBanner, PageHeader } from '@/components/ui';
 
-type OrgForm = z.input<typeof organizationSetupSchema>;
+// Optional inputs submit '' when left blank; treat that as "not provided".
+const blank = z.literal('');
+const settingsFormSchema = organizationSetupSchema.extend({
+  legalEntityName: z.string().trim().max(160).or(blank).nullish(),
+  gstin: gstinSchema.or(blank).nullish(),
+  pan: z.string().trim().toUpperCase().regex(/^[A-Z]{5}\d{4}[A-Z]$/, 'PAN must look like ABCDE1234F').or(blank).nullish(),
+  addressLine2: z.string().trim().max(200).or(blank).nullish(),
+  contactPhone: indianPhoneSchema.or(blank).nullish(),
+  contactEmail: emailSchema.or(blank).nullish(),
+});
+type OrgForm = z.input<typeof settingsFormSchema>;
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
@@ -39,7 +50,7 @@ export default function SettingsPage() {
   });
 
   const form = useForm<OrgForm>({
-    resolver: zodResolver(organizationSetupSchema),
+    resolver: zodResolver(settingsFormSchema),
     defaultValues: {
       businessName: '',
       legalEntityName: null,
@@ -78,6 +89,7 @@ export default function SettingsPage() {
   }, [org.data, form]);
 
   const save = useMutation({
+    meta: { success: 'Settings saved' },
     mutationFn: (data: OrgForm) =>
       api('/organizations', {
         method: 'PATCH',
@@ -92,7 +104,7 @@ export default function SettingsPage() {
           city: data.city,
           stateCode: data.stateCode,
           pinCode: data.pinCode,
-          contactPhone: data.contactPhone,
+          contactPhone: data.contactPhone || null,
           contactEmail: data.contactEmail || null,
           financialYearStartMonth: data.financialYearStartMonth,
         },
@@ -117,12 +129,19 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
-      <h1 className="text-lg font-semibold">Organization settings</h1>
+      <PageHeader title="Organization settings" subtitle="Business profile, GST identity and financial year." />
       {message ? <SuccessBanner>{message}</SuccessBanner> : null}
       {error ? <ErrorBanner>{error}</ErrorBanner> : null}
 
       <Card title="Business profile">
-        <form className="grid grid-cols-1 gap-3 sm:grid-cols-2" onSubmit={form.handleSubmit((d) => save.mutate(d))}>
+        <form className="grid grid-cols-1 gap-3 sm:grid-cols-2" onSubmit={form.handleSubmit(
+            (d) => {
+              setMessage(null);
+              setError(null);
+              save.mutate(d);
+            },
+            () => toast.error('Check the highlighted fields', 'Some details are missing or invalid.'),
+          )}>
           <Field label="Business name" error={form.formState.errors.businessName?.message}>
             <Input {...form.register('businessName')} />
           </Field>
@@ -161,8 +180,15 @@ export default function SettingsPage() {
           <Field label="City" error={form.formState.errors.city?.message}>
             <Input {...form.register('city')} />
           </Field>
-          <Field label="State code (GST)" error={form.formState.errors.stateCode?.message}>
-            <Input placeholder="e.g. 27 for Maharashtra" {...form.register('stateCode')} />
+          <Field label="State (GST)" error={form.formState.errors.stateCode?.message}>
+            <Select {...form.register('stateCode')}>
+              <option value="">Select state…</option>
+              {INDIAN_STATE_CODES.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.code} · {s.name}
+                </option>
+              ))}
+            </Select>
           </Field>
           <Field label="PIN code" error={form.formState.errors.pinCode?.message}>
             <Input {...form.register('pinCode')} />

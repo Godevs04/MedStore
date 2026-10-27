@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useCurrentMembership, useSession } from '@/lib/session';
 import { api } from '@/lib/api';
 import { Badge, Button, Select, cn } from './ui';
@@ -12,27 +13,109 @@ interface NavItem {
   label: string;
   icon: string;
   permission?: string;
+  /** Plan module key; the item shows a lock when the plan excludes it. */
+  module?: string;
 }
 
-const NAV: NavItem[] = [
-  { href: '/', label: 'Dashboard', icon: '◧' },
-  { href: '/products', label: 'Products', icon: '✚' },
-  { href: '/vendors', label: 'Vendors', icon: '⇄' },
-  { href: '/customers', label: 'Customers', icon: '☺' },
-  { href: '/batches', label: 'Batch inventory', icon: '▦' },
-  { href: '/expiry', label: 'Expiry dashboard', icon: '◔' },
-  { href: '/ledger', label: 'Stock ledger', icon: '≡' },
-  { href: '/adjustments', label: 'Adjustments', icon: '±' },
-  { href: '/transfers', label: 'Transfers', icon: '⇄' },
-  { href: '/counts', label: 'Stock counts', icon: '✓' },
-  { href: '/configuration', label: 'Configuration', icon: '⌗', permission: 'tax.read' },
-  { href: '/import', label: 'Import', icon: '⇪' },
-  { href: '/users', label: 'Users', icon: '◉', permission: 'users.read' },
-  { href: '/roles', label: 'Roles', icon: '⛨', permission: 'roles.read' },
-  { href: '/branches', label: 'Branches', icon: '⌂', permission: 'branches.read' },
-  { href: '/settings', label: 'Settings', icon: '⚙', permission: 'organization.read' },
-  { href: '/audit', label: 'Audit log', icon: '☰', permission: 'audit.read' },
+export interface SubscriptionSummary {
+  suspended: boolean;
+  subscription: {
+    status: string;
+    planKey: string;
+    planName: string;
+    planDescription: string | null;
+    trialEndsAt: string | null;
+    currentPeriodEnd: string;
+    endsAt: string;
+    daysLeft: number;
+    lapsed: boolean;
+    modules: string[];
+  } | null;
+  usage: Record<'branches' | 'users' | 'warehouses' | 'invoicesThisMonth', { used: number; limit: number | null }>;
+  plans: Array<{ key: string; name: string; description: string | null; limits: Record<string, unknown> }>;
+}
+
+const NAV: Array<{ section: string; items: NavItem[] }> = [
+  { section: 'Overview', items: [{ href: '/', label: 'Dashboard', icon: '◧' }] },
+  {
+    section: 'Sell',
+    items: [
+      { href: '/pos', label: 'POS billing', icon: '⌁', permission: 'sales.create', module: 'pos' },
+      { href: '/sales-history', label: 'Sales & returns', icon: '🧾', permission: 'sales.read' },
+      { href: '/customers', label: 'Customers', icon: '☺', permission: 'customers.read' },
+    ],
+  },
+  {
+    section: 'Buy',
+    items: [
+      { href: '/purchasing', label: 'Purchasing', icon: '⇣', permission: 'purchases.read', module: 'purchases' },
+      { href: '/vendors', label: 'Vendors', icon: '⇄', permission: 'vendors.read' },
+    ],
+  },
+  {
+    section: 'Stock',
+    items: [
+      { href: '/products', label: 'Products', icon: '✚', permission: 'products.read' },
+      { href: '/batches', label: 'Batch inventory', icon: '▦', permission: 'inventory.read' },
+      { href: '/expiry', label: 'Expiry dashboard', icon: '◔', permission: 'inventory.read' },
+      { href: '/ledger', label: 'Stock ledger', icon: '≡', permission: 'inventory.read' },
+      { href: '/adjustments', label: 'Adjustments', icon: '±', permission: 'inventory.adjust' },
+      { href: '/transfers', label: 'Transfers', icon: '⇆', permission: 'inventory.transfer' },
+      { href: '/counts', label: 'Stock counts', icon: '✓', permission: 'inventory.count' },
+    ],
+  },
+  {
+    section: 'Finance & compliance',
+    items: [
+      { href: '/accounting', label: 'Accounting', icon: '∑', permission: 'accounting.read', module: 'accounting' },
+      { href: '/compliance', label: 'Compliance', icon: '⚖', permission: 'compliance.read' },
+      { href: '/reports', label: 'Reports', icon: '▤', permission: 'reports.read' },
+    ],
+  },
+  {
+    section: 'Admin',
+    items: [
+      { href: '/configuration', label: 'Configuration', icon: '⌗', permission: 'tax.read' },
+      { href: '/import', label: 'Import', icon: '⇪', permission: 'products.import' },
+      { href: '/users', label: 'Users', icon: '◉', permission: 'users.read' },
+      { href: '/roles', label: 'Roles', icon: '⛨', permission: 'roles.read' },
+      { href: '/branches', label: 'Branches', icon: '⌂', permission: 'branches.read' },
+      { href: '/settings', label: 'Settings', icon: '⚙', permission: 'organization.read' },
+      { href: '/billing', label: 'Plan & billing', icon: '◈', permission: 'organization.read' },
+      { href: '/audit', label: 'Audit log', icon: '☰', permission: 'audit.read' },
+    ],
+  },
+  { section: 'Platform', items: [{ href: '/platform', label: 'Platform console', icon: '⬢', permission: 'platform' }] },
 ];
+
+function SubscriptionBanner({ data }: { data: SubscriptionSummary | undefined }) {
+  if (!data) return null;
+  const sub = data.subscription;
+  let tone = '';
+  let text = '';
+  if (data.suspended) {
+    tone = 'border-red-200 bg-red-50 text-red-800';
+    text = 'This workspace is suspended by the platform administrator. Contact MediCore support to restore access.';
+  } else if (sub?.lapsed) {
+    tone = 'border-red-200 bg-red-50 text-red-800';
+    text = `Your ${sub.planName} subscription has ended. Records stay readable, but billing and postings are paused until renewal.`;
+  } else if (sub && sub.status === 'TRIALING' && sub.daysLeft <= 14) {
+    tone = sub.daysLeft <= 3 ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-brand-100 bg-brand-50/70 text-brand-900';
+    text = `Free trial · ${sub.daysLeft} day${sub.daysLeft === 1 ? '' : 's'} left. Choose a plan to keep your pharmacy running without interruption.`;
+  } else if (sub && sub.daysLeft <= 7) {
+    tone = 'border-amber-200 bg-amber-50 text-amber-900';
+    text = `Your ${sub.planName} plan renews in ${sub.daysLeft} day${sub.daysLeft === 1 ? '' : 's'}.`;
+  }
+  if (!text) return null;
+  return (
+    <div className={cn('no-print mc-anim-fade-in flex items-center justify-between gap-3 border-b px-5 py-2 text-xs', tone)}>
+      <span>{text}</span>
+      <Link href="/billing" className="shrink-0 font-semibold underline-offset-2 hover:underline">
+        View plans →
+      </Link>
+    </div>
+  );
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, tenant, setTenant, refetch } = useSession();
@@ -41,11 +124,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
 
-  // Server remains authoritative — nav visibility is cosmetic only.
+  // Server remains authoritative — nav visibility only mirrors granted permissions.
+  const subscription = useQuery({
+    queryKey: ['subscription', tenant?.organizationId],
+    queryFn: () => api<SubscriptionSummary>('/organizations/subscription'),
+    enabled: Boolean(tenant?.organizationId),
+    refetchInterval: 5 * 60_000,
+  });
+  const modules = subscription.data?.subscription?.modules;
+  const locked = (module?: string) => Boolean(module && modules && !modules.includes('*') && !modules.includes(module));
+
   const canSee = (permission?: string) => {
     if (!permission) return true;
-    return Boolean(membership);
+    if (permission === 'platform') return Boolean(user?.isPlatformSuperadmin);
+    if (!membership) return false;
+    return membership.isOwner || membership.permissions.includes(permission);
   };
+  const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`));
+  let navIndex = 0;
 
   const switchOrg = (organizationId: string) => {
     const m = user?.memberships.find((x) => x.organizationId === organizationId);
@@ -62,7 +158,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen overflow-hidden">
       <aside
         className={cn(
-          'relative flex flex-col border-r border-neutral-200/80 bg-white transition-[width] duration-300 ease-out',
+          'no-print relative flex flex-col border-r border-neutral-200/80 bg-white transition-[width] duration-300 ease-out',
           collapsed ? 'w-16' : 'w-60',
         )}
       >
@@ -85,8 +181,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Navigation */}
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-2.5 pb-3">
-          {NAV.filter((item) => canSee(item.permission)).map((item, i) => {
-            const active = pathname === item.href;
+          {NAV.map((group) => ({ ...group, items: group.items.filter((item) => canSee(item.permission)) }))
+            .filter((group) => group.items.length > 0)
+            .map((group) => (
+              <div key={group.section} className="pt-2 first:pt-0">
+                {!collapsed && group.section !== 'Overview' ? (
+                  <div className="mc-anim-fade-in px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-400">
+                    {group.section}
+                  </div>
+                ) : null}
+                {group.items.map((item) => {
+            const active = isActive(item.href);
+            const i = navIndex++;
             return (
               <Link
                 key={item.href}
@@ -99,7 +205,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     ? 'bg-brand-50 font-semibold text-brand-700'
                     : 'text-neutral-600 hover:bg-neutral-100/80 hover:text-neutral-900',
                 )}
-                style={{ animationDelay: `${i * 35}ms` }}
+                style={{ animationDelay: `${i * 25}ms` }}
               >
                 {/* Active indicator bar */}
                 <span
@@ -118,9 +224,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   {item.icon}
                 </span>
                 {!collapsed && <span className="truncate">{item.label}</span>}
+                {!collapsed && locked(item.module) ? (
+                  <span className="ml-auto rounded-md bg-neutral-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-neutral-500" title="Not included in your plan">
+                    Upgrade
+                  </span>
+                ) : null}
               </Link>
             );
-          })}
+                })}
+              </div>
+            ))}
         </nav>
 
         {/* Org footer */}
@@ -135,6 +248,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <Badge tone={membership.isOwner ? 'green' : 'blue'} dot>
                     {membership.roleName}
                   </Badge>
+                  {subscription.data?.subscription ? (
+                    <Link href="/billing">
+                      <Badge tone={subscription.data.subscription.lapsed ? 'red' : 'neutral'}>{subscription.data.subscription.planName}</Badge>
+                    </Link>
+                  ) : null}
                 </div>
               </div>
             ) : (
@@ -156,7 +274,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="mc-anim-fade-in flex items-center gap-3 border-b border-neutral-200/80 bg-white/90 px-5 py-2.5 backdrop-blur">
+        <header data-shell className="no-print mc-anim-fade-in flex items-center gap-3 border-b border-neutral-200/80 bg-white/90 px-5 py-2.5 backdrop-blur">
           <div className="flex flex-1 items-center gap-2">
             <Select
               aria-label="Organization"
@@ -198,6 +316,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Button>
           </div>
         </header>
+        <SubscriptionBanner data={subscription.data} />
         <main key={pathname} className="mc-anim-fade-up min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_top,rgba(45,212,191,0.04),transparent_60%)] p-5">
           {children}
         </main>

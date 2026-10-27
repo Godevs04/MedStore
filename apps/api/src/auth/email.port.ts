@@ -20,11 +20,12 @@ export abstract class EmailSender {
 export class ConsoleEmailSender extends EmailSender {
   private readonly logger = new Logger('Email(console)');
 
-  async send(email: OutgoingEmail): Promise<void> {
+  send(email: OutgoingEmail): Promise<void> {
     // Console transport: development only. Logs the intent, not a delivery.
     this.logger.log(
       `EMAIL (console transport — not delivered): to=${email.to} subject="${email.subject}"\n${email.body}`,
     );
+    return Promise.resolve();
   }
 }
 

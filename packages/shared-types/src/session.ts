@@ -13,6 +13,8 @@ export interface SessionUser {
     status: string;
     roleName: string;
     isOwner: boolean;
+    /** Effective permission keys (owner = all). Server remains authoritative. */
+    permissions: string[];
     branches: Array<{ id: string; name: string; code: string | null }>;
   }>;
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import {
@@ -14,6 +14,16 @@ import { RequirePermissions, TenantContextGuard, type TenantRequest } from '../r
 import { CatalogService } from './catalog.service.js';
 
 const productUpdateSchema = productCreateSchema.partial();
+const endTaxRateSchema = z.object({ effectiveTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD') });
+const duplicatesCheckSchema = z
+  .array(
+    z.object({
+      name: z.string().trim().min(1).max(200),
+      genericName: z.string().trim().max(200).nullish(),
+      strength: z.string().trim().max(100).nullish(),
+    }),
+  )
+  .max(1000);
 
 @ApiTags('catalog')
 @UseGuards(TenantContextGuard)
@@ -70,6 +80,22 @@ export class CatalogController {
     return this.catalog.createTaxRate(req, dto);
   }
 
+  @Patch('tax-rates/:id/end')
+  @RequirePermissions('tax.manage')
+  endTaxRate(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(endTaxRateSchema)) body: z.infer<typeof endTaxRateSchema>,
+    @Req() req: TenantRequest,
+  ) {
+    return this.catalog.endTaxRate(req, id, body.effectiveTo);
+  }
+
+  @Post('tax-rates/load-standard')
+  @RequirePermissions('tax.manage')
+  loadStandardTaxRates(@Req() req: TenantRequest) {
+    return this.catalog.loadStandardTaxRates(req);
+  }
+
   // ── Products ───────────────────────────────────────────────────────────────
 
   @Get('products')
@@ -110,7 +136,7 @@ export class CatalogController {
   @Post('products/duplicates-check')
   @RequirePermissions('products.read')
   findDuplicates(
-    @Body() body: Array<{ name: string; genericName?: string | null; strength?: string | null }>,
+    @Body(new ZodValidationPipe(duplicatesCheckSchema)) body: z.infer<typeof duplicatesCheckSchema>,
     @Req() req: TenantRequest,
   ) {
     return this.catalog.findDuplicates(req, body);

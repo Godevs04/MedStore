@@ -3,7 +3,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, ApiClientError } from '@/lib/api';
-import { Badge, Button, Card, Field, Select, Table } from '@/components/ui';
+import { Badge, Button, Card, Field, Select, Table, PageHeader, ErrorBanner, SuccessBanner } from '@/components/ui';
 
 type ImportType = 'products' | 'vendors' | 'customers';
 
@@ -71,6 +71,7 @@ export default function ImportPage() {
   const [commitResult, setCommitResult] = useState<string | null>(null);
 
   const previewMutation = useMutation({
+    meta: { silent: true },
     mutationFn: (rows: Array<Record<string, string>>) =>
       api<PreviewResult>(`/imports/${type}/preview`, { method: 'POST', body: { rows } }),
     onSuccess: setPreview,
@@ -78,6 +79,7 @@ export default function ImportPage() {
   });
 
   const commitMutation = useMutation({
+    meta: { success: 'Import committed' },
     mutationFn: (validatedRows: Array<Record<string, unknown>>) =>
       api<{ created: number; skipped: number; rejected: number }>(`/imports/${type}/commit`, {
         method: 'POST',
@@ -105,9 +107,9 @@ export default function ImportPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <h1 className="text-lg font-semibold">Import data</h1>
-      {error ? <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p> : null}
-      {commitResult ? <p className="rounded border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">{commitResult}</p> : null}
+      <PageHeader title="Import data" subtitle="Bulk-load products, vendors and customers from CSV with server-side validation." />
+      {error ? <ErrorBanner>{error}</ErrorBanner> : null}
+      {commitResult ? <SuccessBanner>{commitResult}</SuccessBanner> : null}
 
       <Card title="Upload a CSV file">
         <div className="space-y-3">

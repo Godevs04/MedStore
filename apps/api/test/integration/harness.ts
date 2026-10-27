@@ -3,6 +3,7 @@
  * dedicated test database (medicore_test), isolated per test file run.
  * The database is reset between suites via TRUNCATE of all tables.
  */
+import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 
 export const TEST_BASE = process.env.TEST_API_URL ?? 'http://localhost:3101';
@@ -47,7 +48,6 @@ let bootPromise: Promise<void> | null = null;
 
 /** Applies migrations + seed to the test database (idempotent). */
 async function migrateTestDb(): Promise<void> {
-  const { spawnSync } = await import('node:child_process');
   const path = await import('node:path');
   const cwd = path.resolve(import.meta.dirname, '../..');
   const env = { ...process.env, DATABASE_URL: 'postgresql://medicore@localhost:5433/medicore_test' };
@@ -73,7 +73,6 @@ async function migrateTestDb(): Promise<void> {
 
 /** Kills any leftover process listening on the test port (orphan from a prior run). */
 function killPortHolders(): void {
-  const { spawnSync } = require('node:child_process') as typeof import('node:child_process');
   spawnSync('bash', ['-c', `lsof -ti tcp:3101 | xargs kill -9 2>/dev/null || true`], { stdio: 'ignore' });
 }
 

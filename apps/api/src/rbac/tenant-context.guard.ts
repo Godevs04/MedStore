@@ -11,6 +11,8 @@ import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { PrismaService } from '../prisma/prisma.module.js';
 import type { AuthenticatedRequest } from '../auth/session.guard.js';
+import { AppException } from '../common/app-exception.js';
+import { MODULE_KEY, MODULE_LABELS, planIncludes, subscriptionAccess, type PlanModule } from '../common/subscription-policy.js';
 
 export const PERMISSIONS_KEY = 'requiredPermissions';
 
@@ -66,7 +68,9 @@ export class TenantContextGuard implements CanActivate {
 
     // Platform-scope / public endpoints: no tenant headers and no permission
     // requirement means the endpoint is not org-scoped (e.g. /auth/*).
-    if (requiredPermissions === undefined && !request.headers[TENANT_HEADER_ORG]) {
+    // Auth and platform routes ignore stale tenant headers, so a different
+    // user signing in on a shared browser is never rejected by a foreign org.
+    if (requiredPermissions === undefined && (!request.headers[TENANT_HEADER_ORG] || /\/(auth|platform)\//.test(request.path))) {
       return true;
     }
 
@@ -117,6 +121,8 @@ export class TenantContextGuard implements CanActivate {
       branchId = branchHeader;
     }
 
+    await this.enforceSubscription(context, request, orgId);
+
     if (requiredPermissions && requiredPermissions.length > 0) {
       const missing = requiredPermissions.filter((p) => !permissions.has(p));
       if (missing.length > 0) {
@@ -132,5 +138,37 @@ export class TenantContextGuard implements CanActivate {
       isOwner,
     };
     return true;
+  }
+
+  /**
+   * SaaS access policy: platform suspension locks the tenant out (except the
+   * subscription screen), a lapsed subscription makes it read-only, and
+   * plan-gated modules require entitlement.
+   */
+  private async enforceSubscription(context: ExecutionContext, request: Request, orgId: string): Promise<void> {
+    // Platform and auth routes are not tenant business actions.
+    if (/\/(platform|auth)\//.test(request.path)) return;
+    const [subscription, settingsRow] = await Promise.all([
+      this.prisma.subscription.findUnique({ where: { organizationId: orgId }, include: { plan: true } }),
+      this.prisma.organizationSettings.findUnique({ where: { organizationId: orgId }, select: { settings: true } }),
+    ]);
+    const isRead = ['GET', 'HEAD', 'OPTIONS'].includes(request.method);
+    const isAccountScreen = /\/organizations(\/subscription)?\/?$/.test(request.path);
+    const suspended = (settingsRow?.settings as Record<string, unknown> | null)?.suspended === true;
+    if (suspended && !(isRead && isAccountScreen)) {
+      throw new AppException('SUBSCRIPTION_INACTIVE', 'This workspace has been suspended by the platform administrator. Contact MediCore support.', 403);
+    }
+    if (!subscription) return;
+    if (!isRead && subscriptionAccess(subscription).lapsed) {
+      throw new AppException(
+        'SUBSCRIPTION_INACTIVE',
+        `Your ${subscription.plan.name} subscription has ended. Records remain readable; renew to resume billing and postings.`,
+        402,
+      );
+    }
+    const module = this.reflector.getAllAndOverride<PlanModule | undefined>(MODULE_KEY, [context.getHandler(), context.getClass()]);
+    if (module && !planIncludes(subscription.plan.limits, module)) {
+      throw new AppException('FEATURE_NOT_ENTITLED', `${MODULE_LABELS[module]} is not included in the ${subscription.plan.name} plan. Upgrade to enable it.`, 403);
+    }
   }
 }

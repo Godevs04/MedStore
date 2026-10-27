@@ -1,10 +1,11 @@
 'use client';
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import type { SessionUser } from '@medicore/shared-types';
-import { api, getStoredTenant, storeTenant } from './api';
+import { api, ApiClientError, describeError, getStoredTenant, storeTenant, UNAUTHORIZED_EVENT } from './api';
+import { toast, Toaster } from './toast';
 
 const SessionContext = createContext<{
   user: SessionUser | null;
@@ -30,18 +31,57 @@ export function useCurrentMembership() {
   );
 }
 
+declare module '@tanstack/react-query' {
+  interface Register {
+    mutationMeta: {
+      /** Toast title shown on success; omit for the generic confirmation. */
+      success?: string;
+      /** Suppress the success toast (background or high-frequency actions). */
+      silent?: boolean;
+      /** Suppress the error toast (the page renders the error itself). */
+      silentError?: boolean;
+    };
+  }
+}
+
+function createQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: (count, error) => !(error instanceof ApiClientError && error.status >= 400 && error.status < 500) && count < 1,
+        refetchOnWindowFocus: false,
+      },
+    },
+    queryCache: new QueryCache({
+      onError: (error) => {
+        if (error instanceof ApiClientError && (error.status === 0 || error.status >= 500)) {
+          const { title, message } = describeError(error);
+          toast.error(title, message);
+        }
+      },
+    }),
+    mutationCache: new MutationCache({
+      onSuccess: (_data, _vars, _ctx, mutation) => {
+        if (mutation.meta?.silent) return;
+        toast.success(mutation.meta?.success ?? 'Saved successfully');
+      },
+      onError: (error, _vars, _ctx, mutation) => {
+        if (mutation.meta?.silentError) return;
+        if (error instanceof ApiClientError && error.status === 401) return;
+        const { title, message } = describeError(error);
+        toast.error(title, message);
+      },
+    }),
+  });
+}
+
 export function Providers({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
-      }),
-  );
+  const [queryClient] = useState(createQueryClient);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [tenant, setTenantState] = useState<{ organizationId: string; branchId: string | null } | null>(null);
 
-  const loadSession = () => {
+  const loadSession = useCallback(() => {
     setIsLoading(true);
     api<SessionUser>('/auth/me')
       .then((u) => {
@@ -62,19 +102,36 @@ export function Providers({ children }: { children: ReactNode }) {
           };
           setTenantState(next);
           storeTenant(next);
+          if (stored?.organizationId !== next.organizationId || stored?.branchId !== next.branchId) void queryClient.resetQueries();
         } else {
           setTenantState(null);
+          storeTenant(null);
+          if (stored) void queryClient.resetQueries();
         }
       })
       .catch(() => setUser(null))
       .finally(() => setIsLoading(false));
-  };
+  }, [queryClient]);
 
-  useEffect(loadSession, []);
+  useEffect(loadSession, [loadSession]);
+
+  useEffect(() => {
+    const onUnauthorized = () => {
+      setUser((current) => {
+        if (current) toast.warning('Your session has ended', 'Please sign in again to continue.');
+        return null;
+      });
+      queryClient.clear();
+    };
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, [queryClient]);
 
   const setTenant = (t: { organizationId: string; branchId: string | null }) => {
+    const changed = tenant?.organizationId !== t.organizationId || tenant?.branchId !== t.branchId;
     setTenantState(t);
     storeTenant(t);
+    if (changed) void queryClient.resetQueries();
   };
 
   return (
@@ -83,6 +140,7 @@ export function Providers({ children }: { children: ReactNode }) {
         value={{ user, isLoading, refetch: loadSession, tenant, setTenant }}
       >
         {children}
+        <Toaster />
       </SessionContext.Provider>
     </QueryClientProvider>
   );

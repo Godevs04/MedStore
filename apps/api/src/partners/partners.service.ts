@@ -175,7 +175,7 @@ export class PartnersService {
     for (const [key, value] of Object.entries(data)) {
       if (value === undefined) continue;
       (out as Record<string, unknown>)[key] =
-        key === 'status' ? (value as Prisma.VendorUncheckedUpdateInput['status']) : value;
+        key === 'status' ? (value) : value;
     }
     return out;
   }
@@ -262,7 +262,7 @@ export class PartnersService {
     for (const [key, value] of Object.entries(data)) {
       if (value === undefined) continue;
       (update as Record<string, unknown>)[key] =
-        key === 'status' ? (value as Prisma.CustomerUncheckedUpdateInput['status']) : value;
+        key === 'status' ? (value) : value;
     }
     const customer = await this.prisma.customer.update({ where: { id: customerId }, data: update });
     await this.audit.record({

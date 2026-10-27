@@ -1,11 +1,11 @@
 {
-  "runAt": "2026-10-26T22:11:53.907Z",
+  "runAt": "2026-10-27T09:37:53.230Z",
   "results": [
     {
       "id": "E2E-01",
       "scenario": "Register organization with founder auto-login",
       "expected": "201 with userId + organizationId + slug",
-      "actual": "201 {\"userId\":\"3b3a4698-103c-4da7-ba0e-36eb93cac66e\",\"organizationId\":\"70a509f9-03fc",
+      "actual": "201 {\"userId\":\"32dbcfb0-27b2-4971-9288-228f951275ad\",\"organizationId\":\"4f343f8c-d830",
       "status": "PASS",
       "evidence": "slug=e2e-pharma-pvt-ltd"
     },
@@ -13,7 +13,7 @@
       "id": "E2E-02",
       "scenario": "Login returns session for the founder",
       "expected": "200 with userId",
-      "actual": "200 userId=3b3a4698-103c-4da7-ba0e-36eb93cac66e",
+      "actual": "200 userId=32dbcfb0-27b2-4971-9288-228f951275ad",
       "status": "PASS"
     },
     {
@@ -206,24 +206,115 @@
       "status": "PASS"
     },
     {
+      "id": "E2E-34",
+      "scenario": "Purchase order raised, sent and confirmed with FY document number",
+      "expected": "201 PO/<FY>/NNNNNN, status CONFIRMED",
+      "actual": "201 PO/2627/000001 CONFIRMED",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-35",
+      "scenario": "Partial goods receipt creates a batch and leaves the PO partially received",
+      "expected": "201 GRN, PO PARTIALLY_RECEIVED",
+      "actual": "201 GRN/2627/000001 po=PARTIALLY_RECEIVED",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-36",
+      "scenario": "Supplier invoice three-way matched to the GRN; 5% input GST; payable booked",
+      "expected": "201 subtotal 1800, tax 90, total 1890",
+      "actual": "201 1800/90/1890",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-37",
+      "scenario": "Supplier payment allocated; vendor ledger shows remaining payable",
+      "expected": "201 payment, outstanding 890.00",
+      "actual": "201 outstanding=890.00",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-38",
+      "scenario": "POS sale: tax-inclusive GST, split tender, FY invoice number",
+      "expected": "201 SI/<FY>/NNNNNN total 232.00",
+      "actual": "201 SI/2627/000001 total=232 cgst=5.53",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-39",
+      "scenario": "Retried sale with the same idempotency key does not double-post",
+      "expected": "201 idempotentReplay=true, same invoice id",
+      "actual": "201 replay=true",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-40",
+      "scenario": "Sale above MRP rejected",
+      "expected": "422",
+      "actual": "422 VALIDATION_ERROR",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-41",
+      "scenario": "Partial sales return restocks and issues a credit note",
+      "expected": "201 refund 58.00",
+      "actual": "201 SRET/2627/000001 refund=58",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-42",
+      "scenario": "Credit sale and customer receipt reflected in the statement",
+      "expected": "201/201, closing outstanding 90.00",
+      "actual": "201/201 outstanding=90.00",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-43",
+      "scenario": "Trial balance and balance sheet balance after the full journey",
+      "expected": "balanced=true for both",
+      "actual": "tb=true (24609.24) bs=true",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-44",
+      "scenario": "P&L shows net sales and gross profit after COGS",
+      "expected": "netSales > 0, grossProfit < netSales",
+      "actual": "netSales=441.90 grossProfit=81.90",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-45",
+      "scenario": "GST outward summary aggregates by HSN net of credit notes",
+      "expected": "row for HSN 3004",
+      "actual": "200 rows=1",
+      "status": "PASS"
+    },
+    {
+      "id": "E2E-46",
+      "scenario": "Dashboard KPIs computed from live documents",
+      "expected": "today.invoices ≥ 2, payables 890.00",
+      "actual": "invoices=2 payables=890.00",
+      "status": "PASS"
+    },
+    {
       "id": "E2E-25",
       "scenario": "Ledger↔balance reconciliation across all operations",
       "expected": "200 consistent=true, 0 mismatches",
-      "actual": "200 checked=3 mismatches=0",
+      "actual": "200 checked=4 mismatches=0",
       "status": "PASS"
     },
     {
       "id": "E2E-26",
       "scenario": "Append-only ledger traceable with reasons and documents",
       "expected": "200 with ≥ 5 movement rows",
-      "actual": "200 rows=5",
+      "actual": "200 rows=9",
       "status": "PASS"
     },
     {
       "id": "E2E-27",
       "scenario": "Audit trail records the journey (org, profile, product, vendor, customer, tax, count, recall)",
       "expected": "200 with ≥ 8 audit events",
-      "actual": "200 events=10",
+      "actual": "200 events=20",
       "status": "PASS"
     },
     {

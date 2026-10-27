@@ -12,8 +12,11 @@ import {
   Field,
   Input,
   Spinner,
+  SuccessBanner,
   Table,
   Tr,
+  fmtDate,
+  todayIso,
 } from '@/components/ui';
 
 interface Category {
@@ -81,6 +84,7 @@ export default function TaxonomyPage() {
   });
 
   const createCategory = useMutation({
+    meta: { success: 'Category added' },
     mutationFn: () =>
       api('/catalog/categories', {
         method: 'POST',
@@ -95,6 +99,7 @@ export default function TaxonomyPage() {
   });
 
   const createManufacturer = useMutation({
+    meta: { success: 'Manufacturer added' },
     mutationFn: () =>
       api('/catalog/manufacturers', {
         method: 'POST',
@@ -113,6 +118,7 @@ export default function TaxonomyPage() {
   });
 
   const createTaxRate = useMutation({
+    meta: { success: 'GST rate version added' },
     mutationFn: () =>
       api('/catalog/tax-rates', {
         method: 'POST',
@@ -134,6 +140,33 @@ export default function TaxonomyPage() {
     onError: (e) => setError(e instanceof ApiClientError ? e.message : 'Failed to create tax rate version'),
   });
 
+  const [notice, setNotice] = useState<string | null>(null);
+  const loadStandard = useMutation({
+    meta: { success: 'Standard GST rates loaded' },
+    mutationFn: () => api<{ created: number; skipped: number; effectiveFrom: string }>('/catalog/tax-rates/load-standard', { method: 'POST' }),
+    onSuccess: (r) => {
+      setError(null);
+      setNotice(
+        r.created > 0
+          ? `Loaded ${r.created} standard GST rate versions effective ${r.effectiveFrom}${r.skipped ? ` (${r.skipped} HSN codes already configured were left untouched)` : ''}.`
+          : 'All standard HSN codes are already configured — nothing changed.',
+      );
+      invalidate();
+    },
+    onError: (e) => setError(e instanceof ApiClientError ? e.message : 'Failed to load standard rates'),
+  });
+  const endVersion = useMutation({
+    meta: { success: 'Rate version ended' },
+    mutationFn: (v: { id: string; effectiveTo: string }) => api(`/catalog/tax-rates/${v.id}/end`, { method: 'PATCH', body: { effectiveTo: v.effectiveTo } }),
+    onSuccess: () => {
+      setError(null);
+      setNotice('Version closed. Add a new version for the HSN to apply the revised rate.');
+      invalidate();
+    },
+    onError: (e) => setError(e instanceof ApiClientError ? e.message : 'Failed to close version'),
+  });
+  const now = Date.now();
+
   const TABS = [
     { key: 'tax', label: 'Tax rate versions' },
     { key: 'categories', label: 'Categories' },
@@ -142,8 +175,11 @@ export default function TaxonomyPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Catalog configuration</h1>
+      <div className="mc-anim-fade-up flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-neutral-900">Catalog configuration</h1>
+          <p className="mt-0.5 text-sm text-neutral-500">Categories, manufacturers and effective-dated GST rate versions.</p>
+        </div>
         <div className="flex gap-1 rounded-lg border border-neutral-200 bg-white p-1 shadow-sm">
           {TABS.map((t) => (
             <button
@@ -160,9 +196,22 @@ export default function TaxonomyPage() {
       </div>
 
       {error ? <ErrorBanner>{error}</ErrorBanner> : null}
+      {notice ? <SuccessBanner>{notice}</SuccessBanner> : null}
 
       {tab === 'tax' ? (
         <>
+          <section className="mc-anim-fade-up flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200/70 bg-gradient-to-r from-brand-50 to-white px-4 py-3 shadow-sm">
+            <div>
+              <p className="text-sm font-semibold text-neutral-800">Standard pharmacy GST rates</p>
+              <p className="text-xs text-neutral-500">
+                Chapter 30 medicines, dressings, diagnostics and devices at 5% (effective 22 Sep 2025, per the compliance notes). Existing HSN
+                codes are never overwritten. Sales are blocked for products without a resolvable rate.
+              </p>
+            </div>
+            <Button disabled={loadStandard.isPending} onClick={() => loadStandard.mutate()}>
+              {loadStandard.isPending ? 'Loading…' : 'Load standard GST rates'}
+            </Button>
+          </section>
           <Card title="New tax rate version (effective-dated — never hardcode)">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
               <Field label="HSN code">
@@ -212,23 +261,50 @@ export default function TaxonomyPage() {
                     <th className="px-3 py-2">CGST</th>
                     <th className="px-3 py-2">SGST</th>
                     <th className="px-3 py-2">IGST</th>
+                    <th className="px-3 py-2">Cess</th>
                     <th className="px-3 py-2">Effective</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2" />
                   </tr>
                 }
               >
-                {taxRates.data?.map((t) => (
+                {taxRates.data?.map((t) => {
+                  const ended = t.effectiveTo !== null && new Date(t.effectiveTo).getTime() < now;
+                  const future = new Date(t.effectiveFrom).getTime() > now;
+                  return (
                   <Tr key={t.id}>
                     <td className="px-3 py-2 font-mono text-xs">{t.hsnCode}</td>
                     <td className="px-3 py-2 text-sm">{t.description}</td>
                     <td className="px-3 py-2 text-sm">{t.cgstPercent ? `${t.cgstPercent}%` : '—'}</td>
                     <td className="px-3 py-2 text-sm">{t.sgstPercent ? `${t.sgstPercent}%` : '—'}</td>
                     <td className="px-3 py-2 text-sm">{t.igstPercent ? `${t.igstPercent}%` : '—'}</td>
+                    <td className="px-3 py-2 text-sm">{t.cessPercent ? `${t.cessPercent}%` : '—'}</td>
                     <td className="px-3 py-2 text-xs text-neutral-500">
-                      from {new Date(t.effectiveFrom).toLocaleDateString()}
-                      {t.effectiveTo ? ` to ${new Date(t.effectiveTo).toLocaleDateString()}` : ''}
+                      from {fmtDate(t.effectiveFrom)}
+                      {t.effectiveTo ? ` to ${fmtDate(t.effectiveTo)}` : ''}
+                    </td>
+                    <td className="px-3 py-2">
+                      <Badge tone={ended ? 'neutral' : future ? 'blue' : 'green'} dot={!ended}>
+                        {ended ? 'Ended' : future ? 'Scheduled' : 'Active'}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {!t.effectiveTo ? (
+                        <Button
+                          variant="ghost"
+                          disabled={endVersion.isPending}
+                          onClick={() => {
+                            const effectiveTo = window.prompt(`Close HSN ${t.hsnCode} version on (YYYY-MM-DD):`, todayIso());
+                            if (effectiveTo) endVersion.mutate({ id: t.id, effectiveTo });
+                          }}
+                        >
+                          End
+                        </Button>
+                      ) : null}
                     </td>
                   </Tr>
-                ))}
+                  );
+                })}
               </Table>
             )}
           </Card>

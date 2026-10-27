@@ -1,9 +1,23 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.module.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { TenantRequest } from '../rbac/tenant-context.guard.js';
 import { Conflict, NotFound } from '../common/app-exception.js';
+
+export const STANDARD_GST_EFFECTIVE_FROM = '2025-09-22';
+
+/** Verify against the official CBIC schedule before go-live; nil-rated life-saving drugs need per-product review. */
+export const STANDARD_GST_RATES: Array<{ hsnCode: string; description: string; rate: number }> = [
+  { hsnCode: '3002', description: 'Vaccines, blood fractions, immunological products', rate: 5 },
+  { hsnCode: '3003', description: 'Medicaments, not in measured doses', rate: 5 },
+  { hsnCode: '3004', description: 'Medicaments in measured doses (tablets, capsules, syrups)', rate: 5 },
+  { hsnCode: '3005', description: 'Wadding, gauze, bandages and dressings', rate: 5 },
+  { hsnCode: '3006', description: 'Pharmaceutical goods (sutures, first-aid kits, ostomy)', rate: 5 },
+  { hsnCode: '3822', description: 'Diagnostic and laboratory reagents / test kits', rate: 5 },
+  { hsnCode: '4015', description: 'Surgical and examination gloves', rate: 5 },
+  { hsnCode: '9018', description: 'Medical, surgical and diagnostic instruments', rate: 5 },
+];
 
 export interface PaginatedParams {
   page: number;
@@ -111,6 +125,60 @@ export class CatalogService {
     return taxRate;
   }
 
+  /**
+   * Seeds the pharmacy-relevant GST slabs documented in docs/compliance/gst-requirements.md
+   * (GST Council 56th meeting, effective 22 Sep 2025). Rows are ordinary effective-dated
+   * versions — editable/superseded later; HSNs that already have a version are skipped.
+   */
+  async loadStandardTaxRates(request: TenantRequest) {
+    const organizationId = request.tenantContext.organizationId;
+    const existing = new Set(
+      (await this.prisma.taxRateVersion.findMany({ where: { organizationId }, select: { hsnCode: true } })).map((r) => r.hsnCode),
+    );
+    const toCreate = STANDARD_GST_RATES.filter((r) => !existing.has(r.hsnCode));
+    if (toCreate.length > 0) {
+      await this.prisma.taxRateVersion.createMany({
+        data: toCreate.map((r) => ({
+          organizationId,
+          hsnCode: r.hsnCode,
+          description: r.description,
+          cgstPercent: (r.rate / 2).toFixed(2),
+          sgstPercent: (r.rate / 2).toFixed(2),
+          igstPercent: r.rate.toFixed(2),
+          cessPercent: null,
+          effectiveFrom: new Date(`${STANDARD_GST_EFFECTIVE_FROM}T00:00:00Z`),
+        })),
+      });
+      await this.audit.record({
+        event: 'TAX_CONFIG_UPDATED',
+        organizationId,
+        actorUserId: request.principal.userId,
+        entityType: 'TaxRateVersion',
+        details: { action: 'LOAD_STANDARD_RATES', hsnCodes: toCreate.map((r) => r.hsnCode), effectiveFrom: STANDARD_GST_EFFECTIVE_FROM },
+      });
+    }
+    return { created: toCreate.length, skipped: STANDARD_GST_RATES.length - toCreate.length, effectiveFrom: STANDARD_GST_EFFECTIVE_FROM };
+  }
+
+  /** Closes a version (rates are superseded, never overwritten — history stays intact). */
+  async endTaxRate(request: TenantRequest, id: string, effectiveTo: string) {
+    const organizationId = request.tenantContext.organizationId;
+    const v = await this.prisma.taxRateVersion.findFirst({ where: { id, organizationId } });
+    if (!v) throw NotFound('Tax rate version not found');
+    const end = new Date(`${effectiveTo}T23:59:59Z`);
+    if (end < v.effectiveFrom) throw Conflict('INVALID_INPUT', 'End date cannot be before the effective-from date');
+    const updated = await this.prisma.taxRateVersion.update({ where: { id }, data: { effectiveTo: end } });
+    await this.audit.record({
+      event: 'TAX_CONFIG_UPDATED',
+      organizationId,
+      actorUserId: request.principal.userId,
+      entityType: 'TaxRateVersion',
+      entityId: id,
+      details: { action: 'END_VERSION', hsnCode: v.hsnCode, effectiveTo },
+    });
+    return updated;
+  }
+
   /** Resolves the tax version effective for an HSN at a point in time. */
   async resolveTaxRate(organizationId: string, hsnCode: string, at: Date) {
     return this.prisma.taxRateVersion.findFirst({
@@ -161,7 +229,24 @@ export class CatalogService {
         take: params.pageSize,
       }),
     ]);
-    return { total, items };
+    const now = new Date();
+    const hsnCodes = [...new Set(items.map((p) => p.hsnCode).filter((h): h is string => Boolean(h)))];
+    const activeRates = hsnCodes.length
+      ? await this.prisma.taxRateVersion.findMany({
+          where: { organizationId: orgId, hsnCode: { in: hsnCodes }, effectiveFrom: { lte: now }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }] },
+          orderBy: { effectiveFrom: 'desc' },
+        })
+      : [];
+    const rateByHsn = new Map<string, (typeof activeRates)[number]>();
+    for (const r of activeRates) if (!rateByHsn.has(r.hsnCode)) rateByHsn.set(r.hsnCode, r);
+    return {
+      total,
+      items: items.map((p) => {
+        const pinned = p.taxRateVersionId ? activeRates.find((r) => r.id === p.taxRateVersionId) : undefined;
+        const rate = pinned ?? (p.hsnCode ? rateByHsn.get(p.hsnCode) : undefined);
+        return { ...p, taxResolved: Boolean(rate), gstPercent: rate?.igstPercent?.toString() ?? null };
+      }),
+    };
   }
 
   async getProduct(request: TenantRequest, productId: string) {
@@ -231,7 +316,7 @@ export class CatalogService {
     });
     if (!existing) throw NotFound('Product not found');
 
-    const product = await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       const updated = await tx.product.update({
         where: { id: productId },
         data: productData,

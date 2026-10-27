@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, ApiClientError } from '@/lib/api';
-import { Badge, Button, Card, ErrorState, Field, Input, Spinner, Table, SuccessBanner, ErrorBanner } from '@/components/ui';
+import { Badge, Button, Card, ErrorState, Field, Input, Spinner, Table, ErrorBanner, PageHeader } from '@/components/ui';
 
 interface RoleRow {
   id: string;
@@ -40,6 +40,7 @@ export default function RolesPage() {
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ['roles-detail'] });
 
   const createRole = useMutation({
+    meta: { success: 'Role created' },
     mutationFn: () =>
       api<RoleRow>('/organizations/roles', {
         method: 'POST',
@@ -54,6 +55,7 @@ export default function RolesPage() {
   });
 
   const deleteRole = useMutation({
+    meta: { success: 'Role deleted' },
     mutationFn: (roleId: string) => api(`/organizations/roles/${roleId}`, { method: 'DELETE' }),
     onSuccess: invalidate,
     onError: (e) => setError(e instanceof ApiClientError ? e.message : 'Failed to delete role'),
@@ -80,7 +82,7 @@ export default function RolesPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <h1 className="text-lg font-semibold">Roles & permissions</h1>
+      <PageHeader title="Roles & permissions" subtitle="System and custom roles; every permission is enforced on the server." />
       {error ? <ErrorBanner>{error}</ErrorBanner> : null}
 
       <Card title="Roles">

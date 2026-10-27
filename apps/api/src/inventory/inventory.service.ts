@@ -5,18 +5,8 @@ import { AuditService } from '../audit/audit.service.js';
 import type { TenantRequest } from '../rbac/tenant-context.guard.js';
 import { AppException, Conflict, NotFound } from '../common/app-exception.js';
 import type { TenantPrisma } from './tenant-prisma.js';
-
-const OUT_TYPES = new Set<string>([
-  'SALE',
-  'PURCHASE_RETURN_OUT',
-  'EXPIRY_RETURN_OUT',
-  'DAMAGE_OUT',
-  'ADJUSTMENT_OUT',
-  'TRANSFER_OUT',
-  'COUNT_VARIANCE_OUT',
-  'RECALL_OUT',
-  'QUARANTINE_IN',
-]);
+import { AccountingService } from '../accounting/accounting.service.js';
+import { amountPaise, major } from '../common/money.js';
 
 export interface AllocationLine {
   batchId: string;
@@ -39,7 +29,38 @@ export class InventoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly accounting: AccountingService,
   ) {}
+
+  /**
+   * Books a stock value change at batch carrying cost (spec §17 inventory ↔ GL):
+   * positive = Dr Inventory / Cr counter account; negative = Dr counter / Cr Inventory.
+   */
+  private async postStockValue(
+    tx: TenantPrisma,
+    request: { principal: { userId: string } },
+    organizationId: string,
+    valuePaise: bigint,
+    params: { inKey: string; outKey: string; memo: string; sourceType: string; sourceId?: string },
+  ): Promise<void> {
+    if (valuePaise === 0n) return;
+    const abs = valuePaise > 0n ? valuePaise : -valuePaise;
+    await this.accounting.postJournalEntry(
+      request,
+      organizationId,
+      {
+        date: new Date(),
+        memo: params.memo,
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+        lines:
+          valuePaise > 0n
+            ? [{ systemKey: 'INVENTORY', debit: major(abs) }, { systemKey: params.inKey, credit: major(abs) }]
+            : [{ systemKey: params.outKey, debit: major(abs) }, { systemKey: 'INVENTORY', credit: major(abs) }],
+      },
+      tx,
+    );
+  }
 
   /**
    * Locks and updates a (batch, warehouse) balance inside the caller's
@@ -104,6 +125,77 @@ export class InventoryService {
         sourceDocument: params.sourceDocument,
         sourceDocumentId: params.sourceDocumentId,
         actorUserId,
+      },
+    });
+  }
+
+  /**
+   * Public stock-delta primitive for other modules (purchasing receipts,
+   * sales postings, returns) to use INSIDE their own transactions.
+   */
+  async applyStockDelta(
+    tx: TenantPrisma,
+    params: {
+      organizationId: string;
+      batchId: string;
+      warehouseId: string;
+      delta: number;
+      actorUserId: string;
+      movementType: MovementType;
+      reason?: string;
+      sourceDocument?: string;
+      sourceDocumentId?: string;
+    },
+  ): Promise<void> {
+    return this.applyBalanceDelta(tx, params);
+  }
+
+  /** Upserts a batch inside a caller-owned transaction (GRN path). */
+  async upsertBatchInTx(
+    tx: TenantPrisma,
+    params: {
+      organizationId: string;
+      productId: string;
+      warehouseId: string;
+      batchNumber: string;
+      expiryDate: Date;
+      purchaseRate: string;
+      mrp: string;
+      supplierId?: string | null;
+      sourceDocument?: string;
+      actorUserId: string;
+    },
+  ) {
+    const existing = await tx.inventoryBatch.findUnique({
+      where: {
+        organizationId_productId_warehouseId_batchNumber_expiryDate: {
+          organizationId: params.organizationId,
+          productId: params.productId,
+          warehouseId: params.warehouseId,
+          batchNumber: params.batchNumber,
+          expiryDate: params.expiryDate,
+        },
+      },
+    });
+    if (existing) {
+      await tx.inventoryBatch.update({
+        where: { id: existing.id },
+        data: { purchaseRate: params.purchaseRate, mrp: params.mrp },
+      });
+      return existing;
+    }
+    return tx.inventoryBatch.create({
+      data: {
+        organizationId: params.organizationId,
+        productId: params.productId,
+        warehouseId: params.warehouseId,
+        batchNumber: params.batchNumber,
+        expiryDate: params.expiryDate,
+        purchaseRate: params.purchaseRate,
+        mrp: params.mrp,
+        supplierId: params.supplierId ?? null,
+        sourceDocument: params.sourceDocument ?? 'GOODS_RECEIPT',
+        createdByUserId: params.actorUserId,
       },
     });
   }
@@ -187,6 +279,13 @@ export class InventoryService {
         movementType: 'OPENING_STOCK',
         reason: data.sourceDocument ?? 'Opening stock entry',
         sourceDocument: data.sourceDocument,
+      });
+      await this.postStockValue(tx, request, orgId, amountPaise(data.purchaseRate, totalQty.toFixed(3)), {
+        inKey: 'OPENING_BALANCE',
+        outKey: 'OPENING_BALANCE',
+        memo: `Opening stock ${product.name} batch ${data.batchNumber}`,
+        sourceType: 'OPENING_STOCK',
+        sourceId: batchId,
       });
 
       const batch = await tx.inventoryBatch.findUniqueOrThrow({
@@ -520,6 +619,14 @@ export class InventoryService {
         reason: data.reason,
         sourceDocument: 'STOCK_ADJUSTMENT',
       });
+      const value = amountPaise(batch.purchaseRate, qty.toFixed(3));
+      await this.postStockValue(tx, request, orgId, data.direction === 'IN' ? value : -value, {
+        inKey: 'INVENTORY_GAIN',
+        outKey: 'INVENTORY_LOSS',
+        memo: `Stock adjustment ${data.direction} ${qty} of batch ${batch.batchNumber} (${data.reason})`,
+        sourceType: 'STOCK_ADJUSTMENT',
+        sourceId: batch.id,
+      });
       return tx.stockAdjustment.create({
         data: {
           organizationId: orgId,
@@ -795,9 +902,13 @@ export class InventoryService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      let valuePaise = 0n;
       for (const line of count.lines) {
         const variance = Number(line.variance);
         if (variance === 0) continue;
+        const batch = await tx.inventoryBatch.findUniqueOrThrow({ where: { id: line.batchId }, select: { purchaseRate: true } });
+        const v = amountPaise(batch.purchaseRate, Math.abs(variance).toFixed(3));
+        valuePaise += variance > 0 ? v : -v;
         await this.applyBalanceDelta(tx, {
           organizationId: orgId,
           batchId: line.batchId,
@@ -810,6 +921,13 @@ export class InventoryService {
           sourceDocumentId: count.id,
         });
       }
+      await this.postStockValue(tx, request, orgId, valuePaise, {
+        inKey: 'INVENTORY_GAIN',
+        outKey: 'INVENTORY_LOSS',
+        memo: `Stock count variance ${count.id.slice(0, 8)}`,
+        sourceType: 'STOCK_COUNT',
+        sourceId: count.id,
+      });
       await tx.stockCount.update({
         where: { id: count.id },
         data: { status: 'POSTED', postedAt: new Date() },

@@ -11,7 +11,8 @@ import type { ZodTypeAny } from 'zod';
  */
 @Injectable()
 export class ZodValidationPipe implements PipeTransform {
-  constructor(private readonly schema: ZodTypeAny) {}
+  /** Public so the OpenAPI builder can document the exact validated shape. */
+  constructor(readonly schema: ZodTypeAny) {}
 
   transform(value: unknown): unknown {
     const result = this.schema.safeParse(value);

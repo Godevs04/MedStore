@@ -52,6 +52,35 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   P('inventory.recall', 'Create and resolve recalls; change batch status'),
   P('inventory.override.batch', 'Override FEFO batch selection (audited)'),
 
+  // purchasing (Phase 4)
+  P('purchases.read', 'View purchase orders, receipts, invoices, and vendor ledgers'),
+  P('purchases.create', 'Create purchase orders and goods receipts'),
+  P('purchases.approve', 'Approve, send, and cancel purchase orders'),
+  P('purchases.receive', 'Record goods receipts and supplier invoices'),
+  P('purchases.pay', 'Record supplier payments and purchase returns'),
+
+  // sales & POS (Phase 5)
+  P('sales.read', 'View sales invoices and history'),
+  P('sales.create', 'Create POS sales invoices'),
+  P('sales.void', 'Cancel sales invoices'),
+  P('sales.discount.approve', 'Approve discounts beyond limits'),
+  P('sales.receipts', 'Record customer receipts against credit'),
+
+  // returns (Phase 6)
+  P('returns.read', 'View sales and purchase returns'),
+  P('returns.create', 'Create sales returns and refunds'),
+
+  // accounting (Phase 7)
+  P('accounting.read', 'View journals, ledgers, and financial statements'),
+  P('accounting.post', 'Post journals, expenses, and period locks'),
+
+  // compliance (Phase 8)
+  P('compliance.read', 'View compliance registers and GST summaries'),
+  P('compliance.manage', 'Maintain pharmacy licences and compliance records'),
+
+  // platform (Phase 11)
+  P('platform.admin', 'Platform administration (superadmin scope)'),
+
   // reporting
   P('reports.read', 'Run reports'),
   P('reports.export', 'Export reports and data'),
@@ -62,11 +91,18 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   // Organization administrator: every organization-scope permission.
   ORGANIZATION_ADMIN: PERMISSIONS.map((p) => p.key),
   PHARMACIST: [
+    'sales.read', 'sales.create', 'sales.void', 'sales.receipts', 'returns.read', 'returns.create',
+    'compliance.read', 'compliance.manage', 'purchases.read',
     'products.read', 'products.create', 'products.update', 'products.deactivate',
     'inventory.read', 'inventory.opening', 'inventory.adjust', 'inventory.count',
     'inventory.transfer', 'inventory.recall', 'inventory.override.batch',
     'customers.read', 'customers.manage', 'vendors.read', 'tax.read', 'reports.read',
     'branches.read', 'users.read', 'roles.read', 'organization.read',
+  ],
+  PURCHASE_MANAGER: [
+    ...PERMISSIONS.map((p) => p.key).filter((k) => k.startsWith('purchases.')),
+    'products.read', 'vendors.read', 'vendors.manage', 'inventory.read', 'returns.read', 'tax.read',
+    'branches.read', 'organization.read', 'reports.read',
   ],
   STORE_MANAGER: [
     'products.read', 'products.update', 'inventory.read', 'inventory.opening',
@@ -76,7 +112,7 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   ],
   CASHIER: [
     'products.read', 'inventory.read', 'customers.read', 'customers.manage',
-    'branches.read', 'organization.read',
+    'sales.read', 'sales.create', 'sales.receipts', 'branches.read', 'organization.read',
   ],
   INVENTORY_MANAGER: [
     'products.read', 'products.create', 'products.update', 'products.deactivate',
@@ -85,17 +121,15 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'reports.read', 'reports.export', 'branches.read', 'users.read', 'roles.read',
     'organization.read', 'categories.manage', 'products.import',
   ],
-  PURCHASE_MANAGER: [
-    'products.read', 'inventory.read', 'vendors.read', 'vendors.manage', 'vendors.import',
-    'reports.read', 'reports.export', 'branches.read', 'users.read', 'roles.read', 'organization.read',
-  ],
   ACCOUNTANT: [
+    'accounting.read', 'accounting.post', 'purchases.read', 'purchases.pay', 'returns.read',
+    'sales.read', 'sales.receipts', 'compliance.read',
     'products.read', 'inventory.read', 'customers.read', 'vendors.read', 'tax.read', 'tax.manage',
     'reports.read', 'reports.export', 'branches.read', 'users.read', 'roles.read', 'organization.read',
     'subscription.read',
   ],
   AUDITOR: [
-    'audit.read', 'products.read', 'inventory.read', 'customers.read', 'vendors.read',
+    'audit.read', 'accounting.read', 'compliance.read', 'sales.read', 'purchases.read', 'returns.read', 'products.read', 'inventory.read', 'customers.read', 'vendors.read',
     'tax.read', 'reports.read', 'reports.export', 'branches.read', 'users.read', 'roles.read',
     'organization.read', 'subscription.read',
   ],

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PERMISSIONS, SYSTEM_ROLE_PERMISSIONS } from '../rbac/permission-catalog.js';
 import type { TenantRequest } from '../rbac/tenant-context.guard.js';
@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.module.js';
 import { AuditService } from '../audit/audit.service.js';
 import { Conflict, Forbidden, NotFound } from '../common/app-exception.js';
 import { AuthService } from '../auth/auth.service.js';
+import { limitOf, subscriptionAccess } from '../common/subscription-policy.js';
 
 export interface PaginationParams {
   page: number;
@@ -51,6 +52,48 @@ export class OrganizationsService {
     };
   }
 
+  /** Subscription, entitlements and metered usage against plan limits. */
+  async getSubscription(request: TenantRequest) {
+    const orgId = request.tenantContext.organizationId;
+    const monthStart = new Date(`${new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 7)}-01T00:00:00+05:30`);
+    const [subscription, settings, branches, users, warehouses, invoices, plans] = await Promise.all([
+      this.prisma.subscription.findUnique({ where: { organizationId: orgId }, include: { plan: true } }),
+      this.prisma.organizationSettings.findUnique({ where: { organizationId: orgId }, select: { settings: true } }),
+      this.prisma.branch.count({ where: { organizationId: orgId, isActive: true } }),
+      this.prisma.organizationMembership.count({ where: { organizationId: orgId, status: { not: 'SUSPENDED' } } }),
+      this.prisma.warehouse.count({ where: { organizationId: orgId } }),
+      this.prisma.salesInvoice.count({ where: { organizationId: orgId, invoiceDate: { gte: monthStart } } }),
+      this.prisma.subscriptionPlan.findMany({ where: { isActive: true }, orderBy: { createdAt: 'asc' } }),
+    ]);
+    const limits = (subscription?.plan.limits ?? {}) as Record<string, unknown>;
+    const meter = (used: number, key: string) => ({ used, limit: limitOf(limits, key) });
+    const access = subscription ? subscriptionAccess(subscription) : null;
+    return {
+      suspended: (settings?.settings as Record<string, unknown> | null)?.suspended === true,
+      subscription: subscription
+        ? {
+            status: subscription.status,
+            planKey: subscription.plan.key,
+            planName: subscription.plan.name,
+            planDescription: subscription.plan.description,
+            trialEndsAt: subscription.trialEndsAt,
+            currentPeriodEnd: subscription.currentPeriodEnd,
+            endsAt: access!.endsAt,
+            daysLeft: access!.daysLeft,
+            lapsed: access!.lapsed,
+            modules: Array.isArray(limits.modules) ? limits.modules : [],
+          }
+        : null,
+      usage: {
+        branches: meter(branches, 'maxBranches'),
+        users: meter(users, 'maxUsers'),
+        warehouses: meter(warehouses, 'maxWarehouses'),
+        invoicesThisMonth: meter(invoices, 'monthlyInvoiceLimit'),
+      },
+      plans: plans.map((p) => ({ key: p.key, name: p.name, description: p.description, limits: p.limits })),
+    };
+  }
+
   async updateOrganization(
     request: TenantRequest,
     data: Partial<{
@@ -83,8 +126,13 @@ export class OrganizationsService {
     return updated;
   }
 
-  async updateSettings(request: TenantRequest, settings: Prisma.InputJsonValue) {
+  async updateSettings(request: TenantRequest, patch: Record<string, unknown>) {
     const orgId = request.tenantContext.organizationId;
+    const existing = await this.prisma.organizationSettings.findUnique({ where: { organizationId: orgId } });
+    const current = (existing?.settings as Record<string, unknown> | null) ?? {};
+    const { suspended: _ignored, ...tenantPatch } = patch;
+    // `suspended` is platform-controlled and can never be set by the tenant.
+    const settings = { ...current, ...tenantPatch, suspended: current.suspended === true } as Prisma.InputJsonValue;
     await this.prisma.organizationSettings.upsert({
       where: { organizationId: orgId },
       create: { organizationId: orgId, settings },
@@ -133,10 +181,17 @@ export class OrganizationsService {
         complete:
           (await this.prisma.organizationMembership.count({ where: { organizationId: orgId, status: 'ACTIVE' } })) > 0,
       },
+      {
+        key: 'tax_rates',
+        label: 'GST tax rates configured',
+        // Recommended: sales for an HSN without an effective rate are rejected at posting time.
+        required: false,
+        complete: (await this.prisma.taxRateVersion.count({ where: { organizationId: orgId, OR: [{ effectiveTo: null }, { effectiveTo: { gt: new Date() } }] } })) > 0,
+      },
     ];
     return {
       steps,
-      allComplete: steps.every((s) => s.complete),
+      allComplete: steps.every((s) => s.complete || ('required' in s && s.required === false)),
       setupCompletedAt: org.setupCompletedAt,
     };
   }
@@ -248,14 +303,21 @@ export class OrganizationsService {
     data: { name: string; code?: string | null; isDefault?: boolean },
   ) {
     await this.assertBranch(request, branchId);
-    return this.prisma.warehouse.create({
-      data: {
-        organizationId: request.tenantContext.organizationId,
-        branchId,
-        name: data.name,
-        code: data.code ?? null,
-        isDefault: data.isDefault ?? false,
-      },
+    const orgId = request.tenantContext.organizationId;
+    await this.assertWithinPlanLimit(orgId, 'maxWarehouses', async () => this.prisma.warehouse.count({ where: { organizationId: orgId } }), 'Warehouse limit for your plan has been reached');
+    return this.prisma.$transaction(async (tx) => {
+      if (data.isDefault) {
+        await tx.warehouse.updateMany({ where: { organizationId: orgId, branchId, isDefault: true }, data: { isDefault: false } });
+      }
+      return tx.warehouse.create({
+        data: {
+          organizationId: orgId,
+          branchId,
+          name: data.name,
+          code: data.code || null,
+          isDefault: data.isDefault ?? false,
+        },
+      });
     });
   }
 
@@ -317,7 +379,7 @@ export class OrganizationsService {
 
   async createRole(request: TenantRequest, data: { name: string; description?: string | null; permissionKeys: string[] }) {
     const orgId = request.tenantContext.organizationId;
-    await this.validatePermissionKeys(data.permissionKeys);
+    this.validatePermissionKeys(data.permissionKeys);
 
     const role = await this.prisma.role.create({
       data: {
@@ -347,7 +409,7 @@ export class OrganizationsService {
     const role = await this.prisma.role.findFirst({ where: { id: roleId, organizationId: orgId } });
     if (!role) throw NotFound('Role not found');
     if (role.isSystem) throw Forbidden('System roles cannot be modified');
-    await this.validatePermissionKeys(permissionKeys);
+    this.validatePermissionKeys(permissionKeys);
 
     await this.prisma.$transaction(async (tx) => {
       const permissionRows = await tx.permission.findMany({
@@ -392,7 +454,7 @@ export class OrganizationsService {
     });
   }
 
-  private async validatePermissionKeys(keys: string[]): Promise<void> {
+  private validatePermissionKeys(keys: string[]): void {
     const validKeys = new Set(PERMISSIONS.map((p) => p.key));
     const invalid = keys.filter((k) => !validKeys.has(k));
     if (invalid.length > 0) throw Forbidden(`Unknown permissions: ${invalid.join(', ')}`);

@@ -6,7 +6,6 @@ let warehouseId: string;
 let destinationWarehouseId: string;
 let productId: string;
 let other: TestUser;
-let otherWarehouseId: string;
 
 const futureDate = (days: number): string => {
   const d = new Date();
@@ -65,13 +64,12 @@ beforeAll(async () => {
 
   const otherBranches = await api({ path: '/api/v1/organizations/branches', user: other });
   const otherBranchId = (otherBranches.body as Array<{ id: string }>)[0]!.id;
-  const otherWh = await api({
+  await api({
     path: `/api/v1/organizations/branches/${otherBranchId}/warehouses`,
     method: 'POST',
     user: other,
     body: { name: 'Other Warehouse', isDefault: true },
   });
-  otherWarehouseId = (otherWh.body as { id: string }).id;
 });
 
 describe('batch creation and FEFO', () => {

@@ -5,7 +5,7 @@
   "description": "MediCore API — NestJS REST backend",
   "scripts": {
     "build": "nest build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.eslint.json",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "db:generate": "prisma generate",
@@ -16,7 +16,7 @@
     "test": "vitest run",
     "test:unit": "vitest run test/unit",
     "test:integration": "vitest run test/integration",
-    "openapi:export": "tsx scripts/export-openapi.ts"
+    "openapi:export": "nest build && node dist/openapi/export.js"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -29,12 +29,14 @@
     "@nestjs/platform-express": "^10.4.15",
     "@nestjs/swagger": "^8.1.0",
     "@prisma/client": "^6.3.0",
+    "@scalar/nestjs-api-reference": "^1.2.31",
     "argon2": "^0.41.1",
     "cookie-parser": "^1.4.7",
     "helmet": "^8.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",

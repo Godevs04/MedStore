@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api, ApiClientError } from '@/lib/api';
-import { Badge, Button, Card, ErrorState, Field, Input, Select, Spinner, Table, SuccessBanner, ErrorBanner } from '@/components/ui';
+import { Badge, Button, Card, ErrorState, Field, Input, Select, Spinner, Table, ErrorBanner } from '@/components/ui';
 
 interface Member {
   id: string;
@@ -53,6 +53,7 @@ export default function UsersPage() {
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ['members'] });
 
   const invite = useMutation({
+    meta: { success: 'Invitation sent' },
     mutationFn: (data: InviteForm) =>
       api<{ invitationEmailQueued: boolean; invitationToken?: string }>('/organizations/members/invite', {
         method: 'POST',
@@ -75,6 +76,7 @@ export default function UsersPage() {
   });
 
   const setRole = useMutation({
+    meta: { success: 'Role updated' },
     mutationFn: (vars: { membershipId: string; roleId: string | null }) =>
       api(`/organizations/members/${vars.membershipId}/role`, { method: 'PATCH', body: { roleId: vars.roleId } }),
     onSuccess: invalidate,
@@ -82,6 +84,7 @@ export default function UsersPage() {
   });
 
   const setStatus = useMutation({
+    meta: { success: 'User status updated' },
     mutationFn: (vars: { membershipId: string; status: 'ACTIVE' | 'SUSPENDED' }) =>
       api(`/organizations/members/${vars.membershipId}/status`, { method: 'PATCH', body: { status: vars.status } }),
     onSuccess: invalidate,
@@ -100,8 +103,11 @@ export default function UsersPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Users</h1>
+      <div className="mc-anim-fade-up flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-neutral-900">Users</h1>
+          <p className="mt-0.5 text-sm text-neutral-500">Invite staff, assign roles and suspend access.</p>
+        </div>
         <Button onClick={() => setShowInvite((s) => !s)}>Invite user</Button>
       </div>
 

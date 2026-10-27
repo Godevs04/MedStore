@@ -18,8 +18,8 @@ import {
   paginationQuerySchema,
   warehouseCreateSchema,
 } from '@medicore/validation';
-import type { Prisma } from '@prisma/client';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { ValidationFailed } from '../common/app-exception.js';
 import { RequirePermissions, TenantContextGuard, type TenantRequest } from '../rbac/tenant-context.guard.js';
 import { UseGuards } from '@nestjs/common';
 import { OrganizationsService } from './organizations.service.js';
@@ -73,7 +73,7 @@ export class OrganizationsController {
 
   @Get('permissions')
   @RequirePermissions('roles.read')
-  permissionCatalog(@Req() req: TenantRequest) {
+  permissionCatalog() {
     return this.orgs.listPermissionCatalog();
   }
 
@@ -88,6 +88,12 @@ export class OrganizationsController {
   @HttpCode(HttpStatus.OK)
   async completeSetup(@Req() req: TenantRequest) {
     return this.orgs.completeSetup(req);
+  }
+
+  @Get('subscription')
+  @RequirePermissions('organization.read')
+  getSubscription(@Req() req: TenantRequest) {
+    return this.orgs.getSubscription(req);
   }
 
   @Get()
@@ -111,9 +117,9 @@ export class OrganizationsController {
     // Settings is schema-flexible JSON validated at the service boundary;
     // enforce object shape here.
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-      throw new Error('Settings must be a JSON object');
+      throw ValidationFailed([{ message: 'Settings must be a JSON object' }]);
     }
-    return this.orgs.updateSettings(req, body as Prisma.InputJsonValue);
+    return this.orgs.updateSettings(req, body as Record<string, unknown>);
   }
 
   // ── Branches & warehouses ──────────────────────────────────────────────────

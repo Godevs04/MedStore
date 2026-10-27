@@ -1,6 +1,27 @@
 'use client';
 
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react';
+import { useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type Ref, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+
+const inr = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Formats a decimal string/number as Indian-grouped rupees (display only; never used for math). */
+export function money(v: string | number | null | undefined, symbol = true): string {
+  const n = typeof v === 'number' ? v : Number(v ?? 0);
+  const safe = Number.isFinite(n) ? n : 0;
+  const s = inr.format(Math.abs(safe));
+  const sign = safe < 0 && s !== '0.00' ? '−' : '';
+  return symbol ? `${sign}₹${s}` : `${sign}${s}`;
+}
+
+export function fmtDate(v: string | Date | null | undefined): string {
+  if (!v) return '—';
+  const d = typeof v === 'string' ? new Date(v) : v;
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+}
+
+export function todayIso(): string {
+  return new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+}
 
 export function cn(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(' ');
@@ -37,9 +58,10 @@ export function Button({
   );
 }
 
-export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ className, ref, ...props }: InputHTMLAttributes<HTMLInputElement> & { ref?: Ref<HTMLInputElement> }) {
   return (
     <input
+      ref={ref}
       className={cn(
         'w-full rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm shadow-inner shadow-neutral-100',
         'outline-none transition-all duration-200',
@@ -139,7 +161,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        'mc-anim-scale-in inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset',
+        'mc-anim-scale-in inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset',
         tones[tone],
       )}
     >
@@ -236,8 +258,164 @@ export function Table({ head, children }: { head: ReactNode; children: ReactNode
   );
 }
 
-export function Tr({ children, className }: { children: ReactNode; className?: string }) {
+export function Tr({ children, className, onClick }: { children: ReactNode; className?: string; onClick?: () => void }) {
   return (
-    <tr className={cn('transition-colors duration-150 hover:bg-brand-50/40', className)}>{children}</tr>
+    <tr
+      onClick={onClick}
+      className={cn('transition-colors duration-150 hover:bg-brand-50/40', onClick && 'cursor-pointer', className)}
+    >
+      {children}
+    </tr>
   );
+}
+
+export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      className={cn(
+        'w-full rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm shadow-inner shadow-neutral-100',
+        'outline-none transition-all duration-200 hover:border-neutral-400 focus:border-brand-500 focus:ring-3 focus:ring-brand-500/15',
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
+  return (
+    <div className="mc-anim-fade-up flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight text-neutral-900">{title}</h1>
+        {subtitle ? <p className="mt-0.5 text-sm text-neutral-500">{subtitle}</p> : null}
+      </div>
+      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+    </div>
+  );
+}
+
+export function Stat({
+  label,
+  value,
+  hint,
+  tone = 'neutral',
+  delay,
+  href,
+}: {
+  label: string;
+  value: ReactNode;
+  hint?: ReactNode;
+  tone?: 'neutral' | 'green' | 'amber' | 'red' | 'blue';
+  delay?: number;
+  href?: string;
+}) {
+  const accent = {
+    neutral: 'from-neutral-300 to-neutral-200',
+    green: 'from-emerald-400 to-emerald-300',
+    amber: 'from-amber-400 to-amber-300',
+    red: 'from-red-400 to-red-300',
+    blue: 'from-brand-500 to-brand-300',
+  }[tone];
+  const body = (
+    <div
+      className={cn(
+        'mc-anim-fade-up group relative overflow-hidden rounded-xl border border-neutral-200/80 bg-white px-4 py-3 shadow-sm shadow-neutral-200/60',
+        'transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md',
+      )}
+      style={delay !== undefined ? { animationDelay: `${delay}ms` } : undefined}
+    >
+      <span className={cn('absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r', accent)} />
+      <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">{label}</p>
+      <p className="mt-1 text-xl font-semibold tabular-nums tracking-tight text-neutral-900">{value}</p>
+      {hint ? <p className="mt-0.5 text-xs text-neutral-500">{hint}</p> : null}
+    </div>
+  );
+  return href ? (
+    <a href={href} className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60 rounded-xl">
+      {body}
+    </a>
+  ) : (
+    body
+  );
+}
+
+export function Tabs<T extends string>({
+  tabs,
+  value,
+  onChange,
+}: {
+  tabs: Array<{ id: T; label: string; count?: number }>;
+  value: T;
+  onChange: (id: T) => void;
+}) {
+  return (
+    <div className="mc-anim-fade-in inline-flex flex-wrap gap-1 rounded-xl border border-neutral-200 bg-neutral-50 p-1" role="tablist">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          role="tab"
+          aria-selected={value === t.id}
+          onClick={() => onChange(t.id)}
+          className={cn(
+            'rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200',
+            value === t.id ? 'bg-white text-brand-700 shadow-sm ring-1 ring-neutral-200' : 'text-neutral-600 hover:text-neutral-900',
+          )}
+        >
+          {t.label}
+          {t.count !== undefined ? (
+            <span className="ml-1.5 rounded-full bg-neutral-200/80 px-1.5 text-[10px] font-semibold text-neutral-600">{t.count}</span>
+          ) : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function Drawer({
+  open,
+  onClose,
+  title,
+  subtitle,
+  children,
+  width = 'max-w-2xl',
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  subtitle?: ReactNode;
+  children: ReactNode;
+  width?: string;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={title}>
+      <button aria-label="Close" className="mc-anim-fade-in absolute inset-0 bg-neutral-900/30 backdrop-blur-[2px]" onClick={onClose} />
+      <aside className={cn('mc-anim-drawer relative flex h-full w-full flex-col bg-white shadow-2xl', width)}>
+        <header className="flex items-start justify-between gap-3 border-b border-neutral-100 px-5 py-4">
+          <div>
+            <h2 className="text-base font-semibold tracking-tight text-neutral-900">{title}</h2>
+            {subtitle ? <div className="mt-0.5 text-xs text-neutral-500">{subtitle}</div> : null}
+          </div>
+          <Button variant="ghost" onClick={onClose} aria-label="Close drawer">
+            ✕
+          </Button>
+        </header>
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">{children}</div>
+      </aside>
+    </div>
+  );
+}
+
+export function Th({ children, right }: { children?: ReactNode; right?: boolean }) {
+  return <th className={cn('px-2 py-2 font-medium', right && 'text-right')}>{children}</th>;
+}
+
+export function Td({ children, right, className }: { children?: ReactNode; right?: boolean; className?: string }) {
+  return <td className={cn('px-2 py-2', right && 'text-right tabular-nums', className)}>{children}</td>;
 }

@@ -97,7 +97,34 @@ body {
     linear-gradient(160deg, #fafaf9 0%, #f0fdfa 100%);
 }
 
+@keyframes mc-slide-in-right {
+  from { opacity: 0.4; transform: translateX(32px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.mc-anim-drawer { animation: mc-slide-in-right 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes mc-toast-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.mc-anim-toast { animation: mc-toast-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* ── Print: tax invoice (A4 and 80mm thermal) ─────────────────────────────── */
+.print-only { display: none; }
+@media print {
+  @page { margin: 10mm; }
+  body { background: #fff !important; }
+  .no-print, nav, aside, header[data-shell] { display: none !important; }
+  .print-only { display: block; }
+  .print-area { box-shadow: none !important; border: none !important; margin: 0 !important; padding: 0 !important; max-width: none !important; }
+  .print-area * { animation: none !important; }
+  main { padding: 0 !important; margin: 0 !important; background: none !important; }
+  .h-screen, main, .overflow-hidden { height: auto !important; overflow: visible !important; }
+  body.print-thermal .print-area { width: 72mm; font-size: 10px; }
+  body.print-thermal .thermal-hide { display: none !important; }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .mc-anim-drawer, .mc-anim-toast,
   .mc-anim-fade-up, .mc-anim-fade-in, .mc-anim-scale-in, .mc-anim-slide-in,
   .mc-anim-float, .mc-anim-pulse-dot, .mc-stagger > * {
     animation: none;

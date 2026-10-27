@@ -3,6 +3,9 @@ import type { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import type { ApiErrorEnvelope, ErrorCode } from '@medicore/shared-types';
 
+/** Account lockout; NestJS 10's HttpStatus enum has no 423 member. */
+const HTTP_LOCKED = 423 as HttpStatus;
+
 /**
  * Global error envelope (spec §27): every error leaves as
  * { error: { code, message, details?, correlationId? } } with a correlation ID.
@@ -45,7 +48,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
                 ? 'UNAUTHENTICATED'
                 : status === HttpStatus.CONFLICT
                   ? 'CONFLICT'
-                  : (status as number) === 423
+                  : status === HTTP_LOCKED
                     ? 'ACCOUNT_LOCKED'
                     : 'VALIDATION_ERROR';
         message = Array.isArray(b.message) ? 'Request validation failed' : b.message;

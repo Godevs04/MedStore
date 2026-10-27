@@ -50,8 +50,11 @@ export default function ExpiryPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Expiry dashboard</h1>
+      <div className="mc-anim-fade-up flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-neutral-900">Expiry dashboard</h1>
+          <p className="mt-0.5 text-sm text-neutral-500">Batches on hand bucketed by days to expiry — act before they block sales.</p>
+        </div>
         <Select className="w-56" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} aria-label="Warehouse">
           <option value="">All warehouses</option>
           {warehouses.data?.map((w) => (

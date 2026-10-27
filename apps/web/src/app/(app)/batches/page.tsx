@@ -3,8 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, ApiClientError } from '@/lib/api';
-import { useCurrentMembership, useSession } from '@/lib/session';
-import { Badge, Button, Card, EmptyState, ErrorState, Field, Input, Select, Spinner, Table, cn, SuccessBanner, ErrorBanner } from '@/components/ui';
+import { useSession } from '@/lib/session';
+import { Badge, Button, Card, EmptyState, ErrorState, Field, Input, Select, Spinner, Table, cn, ErrorBanner } from '@/components/ui';
 
 interface BatchRow {
   id: string;
@@ -61,6 +61,7 @@ export default function BatchesPage() {
   });
 
   const createBatch = useMutation({
+    meta: { success: 'Opening stock recorded' },
     mutationFn: () =>
       api('/inventory/batches', {
         method: 'POST',
@@ -83,6 +84,7 @@ export default function BatchesPage() {
   });
 
   const recall = useMutation({
+    meta: { success: 'Batch recalled' },
     mutationFn: () =>
       api('/inventory/recalls', {
         method: 'POST',
@@ -115,8 +117,11 @@ export default function BatchesPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Batch inventory</h1>
+      <div className="mc-anim-fade-up flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-neutral-900">Batch inventory</h1>
+          <p className="mt-0.5 text-sm text-neutral-500">Opening stock and live batch balances by warehouse, with expiry status.</p>
+        </div>
         <Select className="w-56" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} aria-label="Warehouse">
           <option value="">All warehouses</option>
           {warehouses.data?.map((w) => (

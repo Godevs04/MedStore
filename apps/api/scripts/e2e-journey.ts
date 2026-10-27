@@ -1,5 +1,6 @@
 /**
- * End-to-end valid business journey (spec §38 subset for Phases 1–3).
+ * End-to-end valid business journey (spec §38): onboarding, catalog, batch
+ * inventory, procure-to-pay, order-to-cash, books, compliance and reports.
  * Boots the real API against the test database and executes the golden-path
  * scenario, asserting each step and emitting JSON results consumed by the
  * test-case workbook generator (infrastructure/testing/build-test-workbook.mjs).
@@ -66,7 +67,6 @@ async function main(): Promise<void> {
     reg.status === 201 && Boolean(reg.body?.organizationId),
     `slug=${reg.body?.slug}`,
   );
-  const cookie = reg.body?.cookie ?? '';
   // Extract session cookie from the register response headers via re-login.
   const login = await call('/api/v1/auth/login', { body: { email, password: 'E2ePass123' } });
   record(
@@ -496,6 +496,160 @@ async function main(): Promise<void> {
     '201 RESOLVED with resolution notes',
     `${resolveRecall.status} status=${resolveRecall.body?.status}`,
     resolveRecall.status === 201 && resolveRecall.body?.status === 'RESOLVED',
+  );
+
+  // ── SCENARIO 6: Procure-to-pay ────────────────────────────────────────────
+  const s = { cookie: sessionCookie, org: orgId };
+  const vendorId = vendor.body?.id;
+  const customerId = customer.body?.id;
+  const today = new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10);
+  const po = await call('/api/v1/purchasing/purchase-orders', {
+    ...s,
+    body: { vendorId, lines: [{ productId, quantity: '100', unitPrice: '30.00' }] },
+  });
+  await call(`/api/v1/purchasing/purchase-orders/${po.body?.id}/action`, { ...s, body: { action: 'send' } });
+  const confirmed = await call(`/api/v1/purchasing/purchase-orders/${po.body?.id}/action`, { ...s, body: { action: 'confirm' } });
+  record(
+    'E2E-34',
+    'Purchase order raised, sent and confirmed with FY document number',
+    '201 PO/<FY>/NNNNNN, status CONFIRMED',
+    `${po.status} ${po.body?.poNumber} ${confirmed.body?.status}`,
+    po.status === 201 && /^PO\/\d{4}\/\d{6}$/.test(po.body?.poNumber ?? '') && confirmed.body?.status === 'CONFIRMED',
+  );
+  const grn1 = await call('/api/v1/purchasing/goods-receipts', {
+    ...s,
+    body: {
+      vendorId,
+      poId: po.body?.id,
+      warehouseId,
+      lines: [{ productId, poLineId: po.body?.lines?.[0]?.id, batchNumber: 'AZI-P1', expiryDate: futureDate(500), quantity: '60', purchaseRate: '30.00', mrp: '62.50' }],
+    },
+  });
+  const poAfterPartial = await call('/api/v1/purchasing/purchase-orders', s);
+  const partialStatus = poAfterPartial.body?.items?.find((p: { id: string }) => p.id === po.body?.id)?.status;
+  record(
+    'E2E-35',
+    'Partial goods receipt creates a batch and leaves the PO partially received',
+    '201 GRN, PO PARTIALLY_RECEIVED',
+    `${grn1.status} ${grn1.body?.grnNumber} po=${partialStatus}`,
+    grn1.status === 201 && partialStatus === 'PARTIALLY_RECEIVED',
+  );
+  const supInv = await call('/api/v1/purchasing/invoices', {
+    ...s,
+    body: { vendorId, invoiceNumber: 'MAHA/7781', invoiceDate: today, grnId: grn1.body?.id, lines: [{ productId, quantity: '60', unitCost: '30.00' }] },
+  });
+  record(
+    'E2E-36',
+    'Supplier invoice three-way matched to the GRN; 5% input GST; payable booked',
+    '201 subtotal 1800, tax 90, total 1890',
+    `${supInv.status} ${supInv.body?.subtotal}/${supInv.body?.taxAmount}/${supInv.body?.total}`,
+    supInv.status === 201 && Number(supInv.body?.total) === 1890 && Number(supInv.body?.taxAmount) === 90,
+  );
+  const payment = await call('/api/v1/purchasing/payments', {
+    ...s,
+    body: { vendorId, amount: '1000.00', method: 'BANK', reference: 'NEFT-0091', allocations: [{ invoiceId: supInv.body?.id, amount: '1000.00' }] },
+  });
+  const vLedger = await call(`/api/v1/purchasing/vendors/${vendorId}/ledger`, s);
+  record(
+    'E2E-37',
+    'Supplier payment allocated; vendor ledger shows remaining payable',
+    '201 payment, outstanding 890.00',
+    `${payment.status} outstanding=${vLedger.body?.outstanding}`,
+    payment.status === 201 && Number(vLedger.body?.outstanding) === 890,
+  );
+
+  // ── SCENARIO 7: Order-to-cash ─────────────────────────────────────────────
+  const saleKey = `e2e-sale-${Date.now()}`;
+  const saleBody = {
+    customerId,
+    warehouseId,
+    lines: [{ productId, quantity: '4', unitPrice: '58.00' }],
+    payments: [
+      { method: 'CASH', amount: '132.00' },
+      { method: 'UPI', amount: '100.00', reference: 'UPI-77812' },
+    ],
+    idempotencyKey: saleKey,
+  };
+  const sale = await call('/api/v1/sales/invoices', { ...s, body: saleBody });
+  record(
+    'E2E-38',
+    'POS sale: tax-inclusive GST, split tender, FY invoice number',
+    '201 SI/<FY>/NNNNNN total 232.00',
+    `${sale.status} ${sale.body?.invoice?.invoiceNumber} total=${sale.body?.invoice?.total} cgst=${sale.body?.invoice?.cgstAmount}`,
+    sale.status === 201 && /^SI\/\d{4}\/\d{6}$/.test(sale.body?.invoice?.invoiceNumber ?? '') && Number(sale.body?.invoice?.total) === 232,
+  );
+  const replay = await call('/api/v1/sales/invoices', { ...s, body: saleBody });
+  record(
+    'E2E-39',
+    'Retried sale with the same idempotency key does not double-post',
+    '201 idempotentReplay=true, same invoice id',
+    `${replay.status} replay=${replay.body?.idempotentReplay}`,
+    replay.body?.idempotentReplay === true && replay.body?.invoice?.id === sale.body?.invoice?.id,
+  );
+  const aboveMrp = await call('/api/v1/sales/invoices', {
+    ...s,
+    body: { warehouseId, lines: [{ productId, quantity: '1', unitPrice: '70.00' }], payments: [{ method: 'CASH', amount: '70.00' }] },
+  });
+  record('E2E-40', 'Sale above MRP rejected', '422', `${aboveMrp.status} ${aboveMrp.body?.error?.code}`, aboveMrp.status === 422);
+  const saleLine = sale.body?.invoice?.lines?.[0];
+  const ret = await call('/api/v1/sales/returns', {
+    ...s,
+    body: { invoiceId: sale.body?.invoice?.id, reason: 'Patient allergy — unopened strip', refundMethod: 'CASH', lines: [{ invoiceLineId: saleLine?.id, quantity: '1', restock: true }] },
+  });
+  record(
+    'E2E-41',
+    'Partial sales return restocks and issues a credit note',
+    '201 refund 58.00',
+    `${ret.status} ${ret.body?.returnNumber} refund=${ret.body?.refundTotal}`,
+    ret.status === 201 && Number(ret.body?.refundTotal) === 58,
+  );
+  const creditSale = await call('/api/v1/sales/invoices', {
+    ...s,
+    body: { customerId, warehouseId, lines: [{ productId, quantity: '5', unitPrice: '58.00' }], payments: [{ method: 'CREDIT', amount: '290.00' }], idempotencyKey: `e2e-credit-${Date.now()}` },
+  });
+  const receipt = await call('/api/v1/sales/receipts', { ...s, body: { customerId, amount: '200.00', method: 'UPI', reference: 'UPI-88001' } });
+  const statement = await call(`/api/v1/sales/customers/${customerId}/statement`, s);
+  record(
+    'E2E-42',
+    'Credit sale and customer receipt reflected in the statement',
+    '201/201, closing outstanding 90.00',
+    `${creditSale.status}/${receipt.status} outstanding=${statement.body?.outstanding}`,
+    creditSale.status === 201 && receipt.status === 201 && Number(statement.body?.outstanding) === 90,
+  );
+
+  // ── SCENARIO 8: Books, compliance and reports ─────────────────────────────
+  const tb = await call('/api/v1/accounting/trial-balance', s);
+  const bs = await call('/api/v1/accounting/balance-sheet', s);
+  record(
+    'E2E-43',
+    'Trial balance and balance sheet balance after the full journey',
+    'balanced=true for both',
+    `tb=${tb.body?.balanced} (${tb.body?.totalDebits}) bs=${bs.body?.balanced}`,
+    tb.body?.balanced === true && bs.body?.balanced === true,
+  );
+  const pnl = await call(`/api/v1/accounting/profit-and-loss?from=${today}&to=${today}`, s);
+  record(
+    'E2E-44',
+    'P&L shows net sales and gross profit after COGS',
+    'netSales > 0, grossProfit < netSales',
+    `netSales=${pnl.body?.netSales} grossProfit=${pnl.body?.grossProfit}`,
+    Number(pnl.body?.netSales) > 0 && Number(pnl.body?.grossProfit) < Number(pnl.body?.netSales),
+  );
+  const gst = await call(`/api/v1/compliance/gst/sales-summary?from=${today}&to=${today}`, s);
+  record(
+    'E2E-45',
+    'GST outward summary aggregates by HSN net of credit notes',
+    'row for HSN 3004',
+    `${gst.status} rows=${gst.body?.rows?.length}`,
+    gst.status === 200 && (gst.body?.rows ?? []).some((r: { hsnCode: string }) => r.hsnCode === '3004'),
+  );
+  const dash = await call('/api/v1/reports/dashboard', s);
+  record(
+    'E2E-46',
+    'Dashboard KPIs computed from live documents',
+    'today.invoices ≥ 2, payables 890.00',
+    `invoices=${dash.body?.today?.invoices} payables=${dash.body?.payables}`,
+    (dash.body?.today?.invoices ?? 0) >= 2 && Number(dash.body?.payables) === 890,
   );
 
   // ── SCENARIO 5: Verification ──────────────────────────────────────────────

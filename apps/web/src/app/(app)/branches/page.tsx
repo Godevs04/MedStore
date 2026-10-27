@@ -3,11 +3,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { branchCreateSchema, warehouseCreateSchema } from '@medicore/validation';
+import { INDIAN_STATE_CODES, branchCreateSchema, indianPhoneSchema, pinCodeSchema, stateCodeSchema, warehouseCreateSchema } from '@medicore/validation';
 import { zodResolver } from '@hookform/resolvers/zod';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { api, ApiClientError } from '@/lib/api';
-import { Badge, Button, Card, ErrorState, Field, Input, Spinner, Table, SuccessBanner, ErrorBanner } from '@/components/ui';
+import { Badge, Button, Card, ErrorState, Field, Input, Select, Spinner, Table, ErrorBanner, PageHeader } from '@/components/ui';
 
 interface BranchRow {
   id: string;
@@ -21,7 +21,18 @@ interface BranchRow {
   warehouses: Array<{ id: string; name: string; code: string | null; isDefault: boolean }>;
 }
 
-type BranchForm = z.infer<typeof branchCreateSchema>;
+// Optional inputs submit '' when left blank; treat that as "not provided".
+const blank = z.literal('');
+const branchFormSchema = branchCreateSchema.extend({
+  code: z.string().trim().max(20).or(blank).nullish(),
+  addressLine1: z.string().trim().max(200).or(blank).nullish(),
+  city: z.string().trim().max(100).or(blank).nullish(),
+  stateCode: stateCodeSchema.or(blank).nullish(),
+  pinCode: pinCodeSchema.or(blank).nullish(),
+  phone: indianPhoneSchema.or(blank).nullish(),
+});
+type BranchForm = z.input<typeof branchFormSchema>;
+const orNull = (v: string | null | undefined) => (v ? v : null);
 type WarehouseForm = z.infer<typeof warehouseCreateSchema>;
 
 export default function BranchesPage() {
@@ -40,14 +51,28 @@ export default function BranchesPage() {
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<BranchForm>({ resolver: zodResolver(branchCreateSchema), defaultValues: { name: '', isBillingEnabled: true } });
+  } = useForm<BranchForm>({ resolver: zodResolver(branchFormSchema), defaultValues: { name: '', isBillingEnabled: true } });
 
   const whForm = useForm<WarehouseForm>({ resolver: zodResolver(warehouseCreateSchema), defaultValues: { name: '', isDefault: false } });
 
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ['branches'] });
 
   const createBranch = useMutation({
-    mutationFn: (data: BranchForm) => api<BranchRow>('/organizations/branches', { method: 'POST', body: data }),
+    meta: { success: 'Branch created' },
+    mutationFn: (data: BranchForm) =>
+      api<BranchRow>('/organizations/branches', {
+        method: 'POST',
+        body: {
+          name: data.name,
+          code: orNull(data.code),
+          addressLine1: orNull(data.addressLine1),
+          city: orNull(data.city),
+          stateCode: orNull(data.stateCode),
+          pinCode: orNull(data.pinCode),
+          phone: orNull(data.phone),
+          isBillingEnabled: data.isBillingEnabled ?? true,
+        },
+      }),
     onSuccess: () => {
       reset();
       invalidate();
@@ -56,6 +81,7 @@ export default function BranchesPage() {
   });
 
   const createWarehouse = useMutation({
+    meta: { success: 'Warehouse added' },
     mutationFn: (vars: { branchId: string; data: WarehouseForm }) =>
       api(`/organizations/branches/${vars.branchId}/warehouses`, { method: 'POST', body: vars.data }),
     onSuccess: () => {
@@ -77,7 +103,7 @@ export default function BranchesPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <h1 className="text-lg font-semibold">Branches & warehouses</h1>
+      <PageHeader title="Branches & warehouses" subtitle="Locations and the warehouses that hold stock at each branch." />
       {error ? <ErrorBanner>{error}</ErrorBanner> : null}
 
       <Card title={`Branches (${branches.data?.length ?? 0})`}>
@@ -139,6 +165,10 @@ export default function BranchesPage() {
             <Field label="Code (optional)">
               <Input {...whForm.register('code')} />
             </Field>
+            <label className="flex items-center gap-2 self-end pb-2 text-sm text-neutral-700">
+              <input type="checkbox" {...whForm.register('isDefault')} />
+              Default warehouse for this branch
+            </label>
             <div className="flex items-end gap-2">
               <Button
                 type="button"
@@ -166,8 +196,15 @@ export default function BranchesPage() {
           <Field label="City" error={errors.city?.message}>
             <Input {...register('city')} />
           </Field>
-          <Field label="State code (GST)" error={errors.stateCode?.message}>
-            <Input placeholder="e.g. 27" {...register('stateCode')} />
+          <Field label="State (GST)" error={errors.stateCode?.message}>
+            <Select {...register('stateCode')}>
+              <option value="">Same as organization</option>
+              {INDIAN_STATE_CODES.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.code} · {s.name}
+                </option>
+              ))}
+            </Select>
           </Field>
           <Field label="PIN code" error={errors.pinCode?.message}>
             <Input {...register('pinCode')} />

@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { api, ApiClientError } from '@/lib/api';
-import { Badge, Card, ErrorState, Spinner, Table } from '@/components/ui';
+import { Badge, Card, ErrorState, Spinner, Table, PageHeader } from '@/components/ui';
 
 interface AuditRow {
   id: string;
@@ -31,7 +31,7 @@ export default function AuditPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <h1 className="text-lg font-semibold">Audit log</h1>
+      <PageHeader title="Audit log" subtitle="Append-only record of every sensitive action in this organization." />
       <Card title={`Recent events (${audit.data?.items.length ?? 0})`}>
         {audit.data?.items.length === 0 ? (
           <p className="py-8 text-center text-sm text-neutral-500">No audit events yet.</p>

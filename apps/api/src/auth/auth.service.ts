@@ -1,7 +1,7 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import * as argon2 from 'argon2';
-import type { ApiResult, SessionUser } from '@medicore/shared-types';
+import type { SessionUser } from '@medicore/shared-types';
 import { MAX_FAILED_LOGINS, LOCKOUT_MINUTES, SESSION_TTL_SECONDS } from '@medicore/shared-types';
 import type { LoginRequestDto, RegisterOrganizationRequestDto } from '@medicore/validation';
 import { PrismaService } from '../prisma/prisma.module.js';
@@ -249,7 +249,7 @@ export class AuthService {
           where: { status: 'ACTIVE' },
           include: {
             organization: { select: { id: true, name: true } },
-            role: { select: { name: true, key: true } },
+            role: { select: { name: true, key: true, permissions: { select: { permission: { select: { key: true } } } } } },
             branchAssignments: {
               include: { branch: { select: { id: true, name: true, code: true } } },
             },
@@ -258,6 +258,9 @@ export class AuthService {
       },
     });
     if (!user) throw Unauthenticated('User no longer exists');
+    const allPermissionKeys = user.memberships.some((m) => m.isOwner)
+      ? (await this.prisma.permission.findMany({ select: { key: true } })).map((p) => p.key)
+      : [];
 
     return {
       id: user.id,
@@ -270,6 +273,7 @@ export class AuthService {
         status: m.status,
         roleName: m.role?.name ?? 'Member',
         isOwner: m.isOwner,
+        permissions: m.isOwner ? allPermissionKeys : (m.role?.permissions.map((rp) => rp.permission.key) ?? []),
         branches: m.branchAssignments.map((a) => ({
           id: a.branch.id,
           name: a.branch.name,

@@ -29,12 +29,16 @@ export class AuditService {
 
   async record(entry: AuditEntry): Promise<void> {
     try {
+      let actorEmail = entry.actorEmail ?? null;
+      if (!actorEmail && entry.actorUserId) {
+        actorEmail = (await this.prisma.user.findUnique({ where: { id: entry.actorUserId }, select: { email: true } }))?.email ?? null;
+      }
       await this.prisma.auditLog.create({
         data: {
           event: entry.event,
           organizationId: entry.organizationId ?? null,
           actorUserId: entry.actorUserId ?? null,
-          actorEmail: entry.actorEmail ?? null,
+          actorEmail,
           entityType: entry.entityType,
           entityId: entry.entityId,
           details: entry.details,
@@ -50,9 +54,9 @@ export class AuditService {
     }
   }
 
-  listForOrganization(organizationId: string, params: { page: number; pageSize: number }) {
+  async listForOrganization(organizationId: string, params: { page: number; pageSize: number }) {
     const { page, pageSize } = params;
-    return this.prisma.$transaction([
+    const [total, rows] = await this.prisma.$transaction([
       this.prisma.auditLog.count({ where: { organizationId } }),
       this.prisma.auditLog.findMany({
         where: { organizationId },
@@ -61,5 +65,11 @@ export class AuditService {
         take: pageSize,
       }),
     ]);
+    // Rows are immutable; resolve actor emails missing from older entries at read time.
+    const missing = [...new Set(rows.filter((r) => !r.actorEmail && r.actorUserId).map((r) => r.actorUserId as string))];
+    if (missing.length === 0) return [total, rows] as const;
+    const users = await this.prisma.user.findMany({ where: { id: { in: missing } }, select: { id: true, email: true } });
+    const emailOf = new Map(users.map((u) => [u.id, u.email]));
+    return [total, rows.map((r) => (r.actorEmail || !r.actorUserId ? r : { ...r, actorEmail: emailOf.get(r.actorUserId) ?? null }))] as const;
   }
 }

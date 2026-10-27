@@ -4,20 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, ApiClientError } from '@/lib/api';
 import { useInventoryPicker } from '@/lib/inventory-picker';
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorBanner,
-  ErrorState,
-  Field,
-  Input,
-  Select,
-  Spinner,
-  Table,
-  Tr,
-} from '@/components/ui';
+import { Badge, Button, Card, EmptyState, ErrorBanner, ErrorState, Field, Input, Select, Spinner, PageHeader } from '@/components/ui';
 
 interface TransferLine {
   id: string;
@@ -62,6 +49,7 @@ export default function TransfersPage() {
   const warehouseName = (id: string) => picker.warehouses.data?.find((w) => w.id === id)?.name ?? id.slice(0, 8);
 
   const create = useMutation({
+    meta: { success: 'Transfer dispatched' },
     mutationFn: () =>
       api('/inventory/transfers', {
         method: 'POST',
@@ -82,6 +70,7 @@ export default function TransfersPage() {
   });
 
   const receive = useMutation({
+    meta: { success: 'Transfer received' },
     mutationFn: (vars: { transferId: string; lines: Array<{ transferLineId: string; receivedQty: string }> }) =>
       api(`/inventory/transfers/${vars.transferId}/receive`, { method: 'POST', body: { lines: vars.lines } }),
     onSuccess: () => {
@@ -93,6 +82,7 @@ export default function TransfersPage() {
   });
 
   const cancel = useMutation({
+    meta: { success: 'Transfer cancelled' },
     mutationFn: (vars: { transferId: string; reason: string }) =>
       api(`/inventory/transfers/${vars.transferId}/cancel`, { method: 'POST', body: { reason: vars.reason } }),
     onSuccess: () => {
@@ -119,7 +109,7 @@ export default function TransfersPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <h1 className="text-lg font-semibold tracking-tight">Stock transfers</h1>
+      <PageHeader title="Stock transfers" subtitle="Move stock between warehouses; in-transit quantity lives on the transfer." />
 
       <Card title="Dispatch transfer">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

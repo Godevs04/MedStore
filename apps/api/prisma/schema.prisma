@@ -553,6 +553,10 @@ model Product {
   batches       InventoryBatch[]
   supplierLinks ProductSupplierMapping[]
   changeHistory ProductChangeHistory[]
+  poLines       PurchaseOrderLine[]
+  grnLines      GoodsReceiptLine[]
+  purchaseInvoiceLines PurchaseInvoiceLine[]
+  salesInvoiceLines SalesInvoiceLine[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, name])
@@ -623,6 +627,11 @@ model Vendor {
   updatedAt           DateTime @updatedAt @db.Timestamptz(6)
 
   productLinks ProductSupplierMapping[]
+  purchaseOrders PurchaseOrder[]
+  goodsReceipts  GoodsReceipt[]
+  purchaseInvoices PurchaseInvoice[]
+  supplierPayments SupplierPayment[]
+  purchaseReturns  PurchaseReturn[]
 
   @@index([organizationId, legalName])
   @@index([organizationId, status])
@@ -650,6 +659,8 @@ model Customer {
   createdByUserId String?
   createdAt       DateTime @default(now()) @db.Timestamptz(6)
   updatedAt       DateTime @updatedAt @db.Timestamptz(6)
+
+  salesInvoices SalesInvoice[]
 
   @@index([organizationId, name])
   @@index([organizationId, status])
@@ -730,6 +741,9 @@ model InventoryBatch {
   countLines StockCountLine[]
   adjustments StockAdjustment[]
   recalls   RecallRecord[]
+  salesAllocations SalesBatchAllocation[]
+  purchaseReturnLines PurchaseReturnLine[]
+  salesReturnLines SalesReturnLine[]
 
   @@unique([organizationId, productId, warehouseId, batchNumber, expiryDate])
   @@index([organizationId, productId, expiryDate])
@@ -880,4 +894,494 @@ model RecallRecord {
   resolvedAt     DateTime? @db.Timestamptz(6)
 
   @@index([organizationId, status])
+}
+
+// ── Purchasing (Phase 4) ─────────────────────────────────────────────────────
+
+enum POStatus {
+  DRAFT
+  SENT
+  CONFIRMED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+enum PurchaseInvoiceStatus {
+  PENDING
+  POSTED
+  PAID
+  PARTIALLY_PAID
+  CANCELLED
+}
+
+enum PurchaseReturnStatus {
+  DRAFT
+  DISPATCHED
+  ACKNOWLEDGED
+  CANCELLED
+}
+
+model PurchaseOrder {
+  id             String   @id @default(uuid())
+  organizationId String
+  poNumber       String
+  vendorId       String
+  vendor         Vendor   @relation(fields: [vendorId], references: [id])
+  status         POStatus @default(DRAFT)
+  orderDate      DateTime @db.Timestamptz(6)
+  expectedDate   DateTime? @db.Timestamptz(6)
+  notes          String?
+  createdById    String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  lines        PurchaseOrderLine[]
+  receipts     GoodsReceipt[]
+
+  @@unique([organizationId, poNumber])
+  @@index([organizationId, status])
+}
+
+model PurchaseOrderLine {
+  id          String  @id @default(uuid())
+  poId        String
+  po          PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product @relation(fields: [productId], references: [id])
+  quantity    Decimal @db.Decimal(14, 3)
+  receivedQty Decimal @default(0) @db.Decimal(14, 3)
+  unitPrice   Decimal @db.Decimal(18, 4)
+
+  @@unique([poId, productId])
+}
+
+model GoodsReceipt {
+  id             String   @id @default(uuid())
+  organizationId String
+  grnNumber      String
+  poId           String?
+  po             PurchaseOrder? @relation(fields: [poId], references: [id])
+  vendorId       String
+  vendor         Vendor   @relation(fields: [vendorId], references: [id])
+  warehouseId    String
+  receivedDate   DateTime @db.Timestamptz(6)
+  notes          String?
+  createdById    String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  lines  GoodsReceiptLine[]
+  invoices PurchaseInvoice[]
+
+  @@unique([organizationId, grnNumber])
+  @@index([organizationId, vendorId])
+}
+
+model GoodsReceiptLine {
+  id           String  @id @default(uuid())
+  grnId        String
+  grn          GoodsReceipt @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  poLineId     String?
+  productId    String
+  product      Product @relation(fields: [productId], references: [id])
+  batchNumber  String
+  expiryDate   DateTime @db.Timestamptz(6)
+  quantity     Decimal @db.Decimal(14, 3)
+  freeQuantity Decimal @default(0) @db.Decimal(14, 3)
+  purchaseRate Decimal @db.Decimal(18, 4)
+  mrp          Decimal @db.Decimal(18, 4)
+}
+
+model PurchaseInvoice {
+  id             String   @id @default(uuid())
+  organizationId String
+  invoiceNumber  String
+  vendorId       String
+  vendor         Vendor   @relation(fields: [vendorId], references: [id])
+  grnId          String?
+  grn            GoodsReceipt? @relation(fields: [grnId], references: [id])
+  invoiceDate    DateTime @db.Timestamptz(6)
+  dueDate        DateTime @db.Timestamptz(6)
+  subtotal       Decimal  @db.Decimal(18, 2)
+  taxAmount      Decimal  @db.Decimal(18, 2)
+  total          Decimal  @db.Decimal(18, 2)
+  paidAmount     Decimal  @default(0) @db.Decimal(18, 2)
+  status         PurchaseInvoiceStatus @default(PENDING)
+  journalEntryId String?
+  createdById    String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  lines      PurchaseInvoiceLine[]
+  allocations SupplierPaymentAllocation[]
+
+  /// Duplicate prevention: same vendor cannot post the same invoice number twice (spec §9).
+  @@unique([organizationId, vendorId, invoiceNumber])
+  @@index([organizationId, status])
+}
+
+model PurchaseInvoiceLine {
+  id         String  @id @default(uuid())
+  invoiceId  String
+  invoice    PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product @relation(fields: [productId], references: [id])
+  quantity   Decimal @db.Decimal(14, 3)
+  freeQty    Decimal @default(0) @db.Decimal(14, 3)
+  unitCost   Decimal @db.Decimal(18, 4)
+  taxableValue Decimal @db.Decimal(18, 2)
+  cgstAmount Decimal @default(0) @db.Decimal(18, 2)
+  sgstAmount Decimal @default(0) @db.Decimal(18, 2)
+  igstAmount Decimal @default(0) @db.Decimal(18, 2)
+  cessAmount Decimal @default(0) @db.Decimal(18, 2)
+  lineTotal  Decimal @db.Decimal(18, 2)
+}
+
+model SupplierPayment {
+  id            String   @id @default(uuid())
+  organizationId String
+  paymentNumber String
+  vendorId      String
+  vendor        Vendor   @relation(fields: [vendorId], references: [id])
+  paymentDate   DateTime @db.Timestamptz(6)
+  amount        Decimal  @db.Decimal(18, 2)
+  method        String
+  reference     String?
+  journalEntryId String?
+  createdById   String
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+
+  allocations SupplierPaymentAllocation[]
+
+  @@unique([organizationId, paymentNumber])
+}
+
+model SupplierPaymentAllocation {
+  id        String  @id @default(uuid())
+  paymentId String
+  payment   SupplierPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoiceId String
+  invoice   PurchaseInvoice @relation(fields: [invoiceId], references: [id])
+  amount    Decimal @db.Decimal(18, 2)
+
+  @@unique([paymentId, invoiceId])
+}
+
+model PurchaseReturn {
+  id             String   @id @default(uuid())
+  organizationId String
+  returnNumber   String
+  vendorId       String
+  vendor         Vendor   @relation(fields: [vendorId], references: [id])
+  invoiceId      String?
+  reason         String
+  status         PurchaseReturnStatus @default(DRAFT)
+  total          Decimal  @default(0) @db.Decimal(18, 2)
+  taxAmount      Decimal  @default(0) @db.Decimal(18, 2)
+  journalEntryId String?
+  createdById    String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  lines PurchaseReturnLine[]
+
+  @@unique([organizationId, returnNumber])
+}
+
+model PurchaseReturnLine {
+  id        String  @id @default(uuid())
+  returnId  String
+  return    PurchaseReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  batchId   String
+  batch     InventoryBatch @relation(fields: [batchId], references: [id])
+  quantity  Decimal @db.Decimal(14, 3)
+  rate      Decimal @db.Decimal(18, 4)
+  taxAmount Decimal @default(0) @db.Decimal(18, 2)
+  lineTotal Decimal @db.Decimal(18, 2)
+}
+
+// ── Sales & POS (Phase 5) + Returns (Phase 6) ────────────────────────────────
+
+enum SalesInvoiceStatus {
+  POSTED
+  PARTIALLY_RETURNED
+  RETURNED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+  CREDIT
+  BANK
+}
+
+model SalesInvoice {
+  id             String   @id @default(uuid())
+  organizationId String
+  invoiceNumber  String
+  customerId     String?
+  customer       Customer? @relation(fields: [customerId], references: [id])
+  walkInName     String?
+  status         SalesInvoiceStatus @default(POSTED)
+  invoiceDate    DateTime @db.Timestamptz(6)
+  subtotal       Decimal  @db.Decimal(18, 2)
+  discountAmount Decimal  @default(0) @db.Decimal(18, 2)
+  taxableValue   Decimal  @db.Decimal(18, 2)
+  cgstAmount     Decimal  @default(0) @db.Decimal(18, 2)
+  sgstAmount     Decimal  @default(0) @db.Decimal(18, 2)
+  igstAmount     Decimal  @default(0) @db.Decimal(18, 2)
+  cessAmount     Decimal  @default(0) @db.Decimal(18, 2)
+  roundOff       Decimal  @default(0) @db.Decimal(18, 2)
+  total          Decimal  @db.Decimal(18, 2)
+  paidAmount     Decimal  @default(0) @db.Decimal(18, 2)
+  creditAmount   Decimal  @default(0) @db.Decimal(18, 2)
+  returnedAmount Decimal  @default(0) @db.Decimal(18, 2)
+  isWholesale    Boolean  @default(false)
+  /// Idempotency for POS retries (spec §11): same key never double-posts.
+  idempotencyKey String?
+  warehouseId    String
+  journalEntryId String?
+  createdById    String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  lines     SalesInvoiceLine[]
+  payments  SalesPayment[]
+  returns   SalesReturn[]
+  prescriptions PrescriptionRecord[]
+
+  @@unique([organizationId, invoiceNumber])
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, invoiceDate])
+  @@index([organizationId, customerId])
+}
+
+model SalesInvoiceLine {
+  id           String  @id @default(uuid())
+  invoiceId    String
+  invoice      SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product @relation(fields: [productId], references: [id])
+  productName  String
+  quantity     Decimal @db.Decimal(14, 3)
+  unitPrice    Decimal @db.Decimal(18, 4)
+  discountAmount Decimal @default(0) @db.Decimal(18, 2)
+  taxableValue Decimal @db.Decimal(18, 2)
+  cgstAmount   Decimal @default(0) @db.Decimal(18, 2)
+  sgstAmount   Decimal @default(0) @db.Decimal(18, 2)
+  igstAmount   Decimal @default(0) @db.Decimal(18, 2)
+  cessAmount   Decimal @default(0) @db.Decimal(18, 2)
+  taxRatePercent Decimal @default(0) @db.Decimal(5, 2)
+  hsnCode      String?
+  lineTotal    Decimal @db.Decimal(18, 2)
+  costOfGoods  Decimal @default(0) @db.Decimal(18, 2)
+  returnedQty  Decimal @default(0) @db.Decimal(14, 3)
+
+  batchAllocations SalesBatchAllocation[]
+  returnLines SalesReturnLine[]
+}
+
+model SalesBatchAllocation {
+  id       String @id @default(uuid())
+  lineId   String
+  line     SalesInvoiceLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  batchId  String
+  batch    InventoryBatch @relation(fields: [batchId], references: [id])
+  quantity Decimal @db.Decimal(14, 3)
+
+  @@index([batchId])
+}
+
+model SalesPayment {
+  id         String  @id @default(uuid())
+  invoiceId  String
+  invoice    SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  method     PaymentMethod
+  amount     Decimal @db.Decimal(18, 2)
+  reference  String?
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model SalesReturn {
+  id             String   @id @default(uuid())
+  organizationId String
+  returnNumber   String
+  invoiceId      String
+  invoice        SalesInvoice @relation(fields: [invoiceId], references: [id])
+  customerId     String?
+  reason         String
+  refundTotal    Decimal  @db.Decimal(18, 2)
+  taxAmount      Decimal  @default(0) @db.Decimal(18, 2)
+  /// Portion settled against the customer's credit balance; remainder refunded via refundMethod.
+  creditAdjusted Decimal  @default(0) @db.Decimal(18, 2)
+  refundMethod   PaymentMethod?
+  journalEntryId String?
+  createdById    String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  lines SalesReturnLine[]
+
+  @@unique([organizationId, returnNumber])
+}
+
+model SalesReturnLine {
+  id           String  @id @default(uuid())
+  returnId     String
+  return       SalesReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  invoiceLineId String
+  invoiceLine  SalesInvoiceLine @relation(fields: [invoiceLineId], references: [id])
+  batchId      String
+  batch        InventoryBatch @relation(fields: [batchId], references: [id])
+  quantity     Decimal @db.Decimal(14, 3)
+  unitPrice    Decimal @db.Decimal(18, 4)
+  taxableValue Decimal @db.Decimal(18, 2)
+  taxAmount    Decimal @default(0) @db.Decimal(18, 2)
+  lineTotal    Decimal @db.Decimal(18, 2)
+  /// Return accepted back into saleable stock (condition-checked, spec §15).
+  restock      Boolean @default(false)
+}
+
+// ── Accounting (Phase 7) ─────────────────────────────────────────────────────
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  EXPENSE
+}
+
+model Account {
+  id             String   @id @default(uuid())
+  organizationId String
+  code           String
+  name           String
+  type           AccountType
+  isSystem       Boolean  @default(false)
+  /// System accounts referenced by auto-posting mapping (CASH, AR, INVENTORY...).
+  systemKey      String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  journalLines JournalLine[]
+
+  @@unique([organizationId, code])
+  @@unique([organizationId, systemKey])
+}
+
+model JournalEntry {
+  id             String   @id @default(uuid())
+  organizationId String
+  entryNumber    String
+  entryDate      DateTime @db.Timestamptz(6)
+  memo           String
+  sourceType     String?
+  sourceId       String?
+  /// Posted entries are immutable; corrections are reversing entries (spec §17).
+  reversedById   String?
+  createdById    String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  lines JournalLine[]
+
+  @@unique([organizationId, entryNumber])
+  @@index([organizationId, entryDate])
+  @@index([sourceType, sourceId])
+}
+
+model JournalLine {
+  id        String  @id @default(uuid())
+  entryId   String
+  entry     JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id])
+  debit     Decimal @db.Decimal(18, 2)
+  credit    Decimal @db.Decimal(18, 2)
+
+  @@index([accountId])
+}
+
+model Expense {
+  id             String   @id @default(uuid())
+  organizationId String
+  expenseNumber  String
+  category       String
+  payee          String
+  amount         Decimal  @db.Decimal(18, 2)
+  method         PaymentMethod
+  expenseDate    DateTime @db.Timestamptz(6)
+  notes          String?
+  journalEntryId String?
+  createdById    String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([organizationId, expenseNumber])
+}
+
+model AccountingPeriod {
+  id             String   @id @default(uuid())
+  organizationId String
+  periodLabel    String
+  /// Periods control backdated posting (spec §17 period locking).
+  status         String   @default("OPEN")
+  lockedAt       DateTime? @db.Timestamptz(6)
+  lockedById     String?
+
+  @@unique([organizationId, periodLabel])
+}
+
+// ── Compliance (Phase 8) ─────────────────────────────────────────────────────
+
+/// Schedule H1 register entries (rule 65(3)(h)): prescriber name+address,
+/// patient, drug, quantity; 3-year retention (see docs/compliance).
+model PrescriptionRecord {
+  id             String   @id @default(uuid())
+  organizationId String
+  invoiceId      String
+  invoice        SalesInvoice @relation(fields: [invoiceId], references: [id])
+  patientName    String
+  prescriberName String
+  prescriberAddress String
+  drugName       String
+  quantity       Decimal  @db.Decimal(14, 3)
+  dispensedAt    DateTime @db.Timestamptz(6)
+
+  @@index([organizationId, dispensedAt])
+}
+
+enum IntegrationStatus {
+  NOT_CONNECTED
+  CONNECTED
+  ERROR
+}
+
+/// Integration registry (spec §30): nothing is CONNECTED until actually
+/// tested — the status is honest by construction.
+model IntegrationConnection {
+  id             String   @id @default(uuid())
+  organizationId String
+  provider       String
+  status         IntegrationStatus @default(NOT_CONNECTED)
+  /// Non-secret config snapshot; credentials live in env/secrets manager.
+  config         Json?
+  lastTestedAt   DateTime? @db.Timestamptz(6)
+  lastError      String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+
+  @@unique([organizationId, provider])
+}
+
+// ── Notifications (Phase 10) ─────────────────────────────────────────────────
+
+model AppNotification {
+  id             String   @id @default(uuid())
+  organizationId String
+  type           String
+  title          String
+  body           String
+  entityType     String?
+  entityId       String?
+  readAt         DateTime? @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, readAt])
 }

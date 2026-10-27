@@ -4,21 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, ApiClientError } from '@/lib/api';
 import { useInventoryPicker } from '@/lib/inventory-picker';
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorBanner,
-  ErrorState,
-  Field,
-  Input,
-  Select,
-  SkeletonRows,
-  Spinner,
-  Table,
-  Tr,
-} from '@/components/ui';
+import { Badge, Button, Card, EmptyState, ErrorBanner, ErrorState, Field, Input, Select, Spinner, Table, Tr, PageHeader } from '@/components/ui';
 
 interface AdjustmentRow {
   id: string;
@@ -60,6 +46,7 @@ export default function AdjustmentsPage() {
   const selectedBatch = picker.batches.options.find((b) => b.id === batchId) ?? null;
 
   const adjust = useMutation({
+    meta: { success: 'Stock adjusted' },
     mutationFn: () =>
       api('/inventory/adjustments', {
         method: 'POST',
@@ -79,7 +66,7 @@ export default function AdjustmentsPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <h1 className="text-lg font-semibold tracking-tight">Stock adjustments</h1>
+      <PageHeader title="Stock adjustments" subtitle="Reason-coded write-offs and corrections, posted to the books at batch cost." />
 
       <Card title="New adjustment">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

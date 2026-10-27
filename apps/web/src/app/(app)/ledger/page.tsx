@@ -1,9 +1,8 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
 import { api, ApiClientError } from '@/lib/api';
-import { Badge, Card, ErrorState, Spinner, Table } from '@/components/ui';
+import { Badge, Card, ErrorState, Spinner, Table, PageHeader } from '@/components/ui';
 
 interface LedgerRow {
   id: string;
@@ -27,7 +26,7 @@ export default function LedgerPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
-      <h1 className="text-lg font-semibold">Stock ledger</h1>
+      <PageHeader title="Stock ledger" subtitle="Every stock movement, append-only and traceable to its source document." />
       <Card title={`Movements (${ledger.data?.pageInfo.totalItems ?? 0}) — append-only`}>
         {ledger.isLoading ? (
           <Spinner />

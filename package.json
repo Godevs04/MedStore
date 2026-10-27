@@ -10,6 +10,7 @@
   "scripts": {
     "build": "pnpm -r --if-present run build",
     "typecheck": "pnpm -r --if-present run typecheck",
+    "lint": "eslint . --max-warnings 0 && pnpm --filter @medicore/web lint",
     "test": "pnpm -r --if-present run test",
     "test:unit": "pnpm -r --if-present run test:unit",
     "test:integration": "pnpm -r --if-present run test:integration",
@@ -20,6 +21,10 @@
     "db:studio": "pnpm --filter @medicore/api db:studio"
   },
   "devDependencies": {
-    "typescript": "^5.7.3"
+    "@eslint/js": "^9",
+    "eslint": "^9",
+    "globals": "^17.13.0",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8"
   }
 }

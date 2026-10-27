@@ -3,10 +3,10 @@
  * optional bootstrap superadmin (env SUPERADMIN_EMAILS, password via env or
  * printed once). Development rate-master seeds arrive with the tax module.
  */
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'node:crypto';
-import { PERMISSIONS, SYSTEM_ROLE_PERMISSIONS } from '../src/rbac/permission-catalog.js';
+import { PERMISSIONS } from '../src/rbac/permission-catalog.js';
 
 const prisma = new PrismaClient();
 
@@ -32,7 +32,7 @@ interface PlanDef {
   key: string;
   name: string;
   description: string;
-  limits: Record<string, unknown>;
+  limits: Prisma.InputJsonObject;
 }
 
 const PLANS: PlanDef[] = [
@@ -40,7 +40,7 @@ const PLANS: PlanDef[] = [
     key: 'TRIAL',
     name: 'Free Trial',
     description: '14-day full-feature trial',
-    limits: { maxBranches: 1, maxUsers: 3, maxWarehouses: 1, monthlyInvoiceLimit: 100, storageMb: 512, apiAccess: false, modules: ['catalog', 'inventory', 'pos'], reportRetentionDays: 30 },
+    limits: { maxBranches: 1, maxUsers: 3, maxWarehouses: 3, monthlyInvoiceLimit: 300, storageMb: 512, apiAccess: false, modules: ['*'], reportRetentionDays: 30 },
   },
   {
     key: 'STARTER',

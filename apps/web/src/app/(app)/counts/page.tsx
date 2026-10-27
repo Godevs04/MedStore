@@ -4,20 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, ApiClientError } from '@/lib/api';
 import { useInventoryPicker, type BatchOption } from '@/lib/inventory-picker';
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorBanner,
-  ErrorState,
-  Field,
-  Input,
-  Select,
-  Spinner,
-  Tr,
-  Table,
-} from '@/components/ui';
+import { Badge, Button, Card, EmptyState, ErrorBanner, ErrorState, Field, Input, Select, Spinner, Tr, Table, PageHeader } from '@/components/ui';
 
 interface CountLine {
   id: string;
@@ -57,6 +44,7 @@ export default function CountsPage() {
   };
 
   const create = useMutation({
+    meta: { success: 'Count saved' },
     mutationFn: () =>
       api('/inventory/counts', {
         method: 'POST',
@@ -76,6 +64,7 @@ export default function CountsPage() {
   });
 
   const post = useMutation({
+    meta: { success: 'Count posted to stock' },
     mutationFn: (countId: string) => api(`/inventory/counts/${countId}/post`, { method: 'POST' }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['counts'] });
@@ -93,7 +82,7 @@ export default function CountsPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <h1 className="text-lg font-semibold tracking-tight">Stock counts</h1>
+      <PageHeader title="Stock counts" subtitle="Cycle counts with variance posting as compensating movements." />
 
       <Card title="New cycle count">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

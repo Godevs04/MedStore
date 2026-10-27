@@ -12,6 +12,9 @@ import { AuditService } from '../audit/audit.service.js';
 import type { TenantRequest } from '../rbac/tenant-context.guard.js';
 import { Conflict } from '../common/app-exception.js';
 
+const text = (value: unknown): string =>
+  typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+
 export type ImportType = 'products' | 'vendors' | 'customers';
 
 export interface ImportRowResult {
@@ -115,9 +118,9 @@ export class ImportService {
       let duplicate: { id: string; key: string } | undefined;
       if (type === 'products' && existingSku.has(String(data.sku).toLowerCase())) {
         duplicate = { id: '', key: String(data.sku) };
-      } else if (type === 'vendors' && existingVendors.has(`${String(data.legalName).toLowerCase()}|${data.gstin ?? ''}`)) {
+      } else if (type === 'vendors' && existingVendors.has(`${text(data.legalName).toLowerCase()}|${text(data.gstin)}`)) {
         duplicate = { id: '', key: String(data.legalName) };
-      } else if (type === 'customers' && existingCustomers.has(`${String(data.name).toLowerCase()}|${data.phone ?? ''}`)) {
+      } else if (type === 'customers' && existingCustomers.has(`${text(data.name).toLowerCase()}|${text(data.phone)}`)) {
         duplicate = { id: '', key: String(data.name) };
       }
 
@@ -153,7 +156,7 @@ export class ImportService {
         rejected += 1; // re-validated defensively; preview/commit mismatch
         continue;
       }
-      const data = parsed.data;
+      const data: unknown = parsed.data;
       try {
         if (type === 'products') {
           const d = data as z.infer<typeof productCreateSchema>;
@@ -248,11 +251,11 @@ export class ImportService {
   private batchKeyFor(type: ImportType, data: Record<string, unknown>): string | null {
     switch (type) {
       case 'products':
-        return String(data.sku ?? '').toLowerCase() || null;
+        return text(data.sku).toLowerCase() || null;
       case 'vendors':
-        return `${String(data.legalName ?? '').toLowerCase()}|${data.gstin ?? ''}`;
+        return `${text(data.legalName).toLowerCase()}|${text(data.gstin)}`;
       case 'customers':
-        return `${String(data.name ?? '').toLowerCase()}|${data.phone ?? ''}`;
+        return `${text(data.name).toLowerCase()}|${text(data.phone)}`;
     }
   }
 
