@@ -8,7 +8,7 @@ import { prescriptionSchema } from '@medicore/validation';
 import { api, ApiClientError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Combobox, ConfirmDialog, Kbd, MoneyInput, QtyInput, useDebouncedValue, useFieldErrors, type ComboItem } from '@/components/kit';
-import { Alert, Badge, Button, Card, Field, IconButton, Input, PageHeader, Select, cn, fmtDate, money } from '@/components/ui';
+import { AnchoredPanel, Alert, Badge, Button, Card, Field, IconButton, Input, PageHeader, Select, cn, fmtDate, money } from '@/components/ui';
 import { HeldBillsDrawer, QuickAddCustomer, SubstitutesPanel, type CustomerOption, type HeldBill, type Substitute } from './parts';
 
 interface ProductOption {
@@ -94,6 +94,7 @@ export default function PosPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const searchRef = useRef<HTMLInputElement>(null);
+  const searchWrap = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search.trim(), 200);
   const [highlight, setHighlight] = useState(0);
@@ -417,8 +418,8 @@ export default function PosPage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         <div className="space-y-4 lg:col-span-8">
-          <div className="relative z-30">
-            <div className="relative">
+          <div className="relative">
+            <div ref={searchWrap} className="relative">
               <Input
                 ref={searchRef}
                 autoFocus
@@ -453,7 +454,7 @@ export default function PosPage() {
               />
               <Icon name="search" size={17} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
               {search.trim() ? (
-                <div className="mc-anim-drop absolute inset-x-0 top-full z-dropdown mt-1 max-h-96 overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-pop">
+                <AnchoredPanel anchor={searchWrap} maxHeight={384} className="overflow-y-auto overscroll-contain p-1.5" onMouseDown={(e) => e.preventDefault()}>
                   {products.isLoading || search.trim() !== debouncedSearch ? (
                     <div className="space-y-1 p-1">
                       {[0, 1, 2].map((i) => <div key={i} className="mc-skeleton h-11 rounded-md" />)}
@@ -467,8 +468,8 @@ export default function PosPage() {
                         onMouseEnter={() => setHighlight(i)}
                         onClick={() => addToCart(p)}
                         className={cn(
-                          'flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-[13px] transition-colors',
-                          i === highlight ? 'bg-mint' : 'hover:bg-subtle',
+                          'flex w-full shrink-0 items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-[13px] transition-colors duration-100',
+                          i === highlight ? 'bg-brand-50' : 'hover:bg-subtle',
                         )}
                       >
                         <span className="min-w-0">
@@ -497,7 +498,7 @@ export default function PosPage() {
                       </button>
                     ))
                   )}
-                </div>
+                </AnchoredPanel>
               ) : null}
             </div>
           </div>
@@ -520,12 +521,12 @@ export default function PosPage() {
               </div>
             ) : (
               <div className="divide-y divide-line">
-                <div className="hidden grid-cols-12 gap-2 px-2 pb-2 text-2xs font-medium uppercase tracking-wide text-muted md:grid">
-                  <span className="col-span-4">Item · batch</span>
-                  <span className="col-span-2 text-right">Qty</span>
-                  <span className="col-span-2 text-right">Rate</span>
-                  <span className="col-span-2 text-right">Disc ₹</span>
-                  <span className="col-span-2 text-right">Amount</span>
+                <div className="hidden gap-2 px-2 pb-2 text-2xs font-medium uppercase tracking-wide text-muted 2xl:grid 2xl:grid-cols-[minmax(0,1fr)_7rem_6.5rem_5.5rem_6.5rem]">
+                  <span>Item · batch</span>
+                  <span className="text-right">Qty</span>
+                  <span className="text-right">Rate</span>
+                  <span className="text-right">Disc ₹</span>
+                  <span className="text-right">Amount</span>
                 </div>
                 {cart.map((l) => {
                   const rows = batchesByProduct.get(l.productId) ?? [];
@@ -534,8 +535,8 @@ export default function PosPage() {
                   const stockIssue = issue === 'No saleable stock' || issue?.startsWith('Only ');
                   return (
                     <div key={l.key} className={cn('mc-anim-fade-in px-2 py-2.5 transition-colors', issue && 'bg-danger/[0.04]')}>
-                      <div className="grid grid-cols-12 items-start gap-2">
-                        <div className="col-span-12 min-w-0 md:col-span-4">
+                      <div className="grid grid-cols-12 items-start gap-2 2xl:grid-cols-[minmax(0,1fr)_7rem_6.5rem_5.5rem_6.5rem]">
+                        <div className="col-span-12 min-w-0 2xl:col-auto">
                           <div className="flex items-center gap-1.5">
                             <span className="truncate text-[13px] font-medium text-ink">{l.name}</span>
                             {l.prescriptionClass && l.prescriptionClass !== 'OTC' ? <Badge tone="amber">{l.prescriptionClass.replace('_', ' ')}</Badge> : null}
@@ -551,21 +552,21 @@ export default function PosPage() {
                             ))}
                           </Select>
                         </div>
-                        <div className="col-span-3 md:col-span-2">
+                        <div className="col-span-3 2xl:col-auto">
                           <div className="flex items-center justify-end gap-1">
-                            <button className="h-8 w-8 shrink-0 rounded-md border border-line bg-surface text-neutral-600 transition-colors hover:border-neutral-300 hover:text-ink" onClick={() => updateLine(l.key, { quantity: String(Math.max(1, (Number(l.quantity) || 1) - 1)) })} aria-label="Decrease">−</button>
-                            <QtyInput className="w-14 px-1.5 text-center" value={l.quantity} onChange={(v) => updateLine(l.key, { quantity: v })} aria-label="Quantity" invalid={!(Number(l.quantity) > 0)} />
-                            <button className="h-8 w-8 shrink-0 rounded-md border border-line bg-surface text-neutral-600 transition-colors hover:border-neutral-300 hover:text-ink" onClick={() => updateLine(l.key, { quantity: String((Number(l.quantity) || 0) + 1) })} aria-label="Increase">+</button>
+                            <button className="h-8 w-7 shrink-0 rounded-md border border-line bg-surface text-neutral-600 transition-colors hover:border-neutral-300 hover:text-ink" onClick={() => updateLine(l.key, { quantity: String(Math.max(1, (Number(l.quantity) || 1) - 1)) })} aria-label="Decrease">−</button>
+                            <QtyInput className="!w-12 shrink-0 !px-1 text-center" value={l.quantity} onChange={(v) => updateLine(l.key, { quantity: v })} aria-label="Quantity" invalid={!(Number(l.quantity) > 0)} />
+                            <button className="h-8 w-7 shrink-0 rounded-md border border-line bg-surface text-neutral-600 transition-colors hover:border-neutral-300 hover:text-ink" onClick={() => updateLine(l.key, { quantity: String((Number(l.quantity) || 0) + 1) })} aria-label="Increase">+</button>
                           </div>
                         </div>
-                        <div className="col-span-3 md:col-span-2">
+                        <div className="col-span-3 2xl:col-auto">
                           <MoneyInput value={l.unitPrice} onChange={(v) => updateLine(l.key, { unitPrice: v })} aria-label="Unit price" className="[&_input]:text-right" invalid={Boolean(l.mrp && toPaise(l.unitPrice) > toPaise(l.mrp))} />
                           {l.mrp ? <p className="num mt-0.5 text-right text-2xs text-muted">MRP {money(l.mrp)}</p> : null}
                         </div>
-                        <div className="col-span-3 md:col-span-2">
+                        <div className="col-span-3 2xl:col-auto">
                           <MoneyInput value={l.discount} onChange={(v) => updateLine(l.key, { discount: v })} aria-label="Line discount" className="[&_input]:text-right" />
                         </div>
-                        <div className="col-span-3 flex items-center justify-end gap-1 md:col-span-2">
+                        <div className="col-span-3 flex items-center justify-end gap-1 2xl:col-auto">
                           <span className="num text-[13px] font-semibold text-ink">{money(rupees(linePaise(l)))}</span>
                           <IconButton icon="close" label="Remove line" size="sm" onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))} />
                         </div>

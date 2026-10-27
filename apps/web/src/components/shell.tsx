@@ -407,7 +407,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="hidden items-center divide-x divide-line sm:flex">
               <Select
                 aria-label="Organization"
-                className="h-control-sm w-auto min-w-[8rem] max-w-[15rem] rounded-none border-0 bg-transparent pr-7 text-xs font-medium hover:text-teal-ink focus:ring-0"
+                className="h-control-sm w-auto min-w-[8rem] max-w-[15rem] rounded-none border-0 bg-transparent px-2 text-xs font-medium hover:text-teal-ink focus:ring-0"
                 value={tenant?.organizationId ?? ''}
                 onChange={(e) => switchOrg(e.target.value)}
               >
@@ -419,7 +419,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Select>
               <Select
                 aria-label="Branch"
-                className="h-control-sm w-auto min-w-[7.5rem] max-w-[12rem] rounded-none border-0 bg-transparent pr-7 text-xs font-medium text-muted hover:text-teal-ink focus:ring-0"
+                className="h-control-sm w-auto min-w-[7.5rem] max-w-[12rem] rounded-none border-0 bg-transparent px-2 text-xs font-medium text-muted hover:text-teal-ink focus:ring-0"
                 value={tenant?.branchId ?? ''}
                 onChange={(e) => tenant && setTenant({ organizationId: tenant.organizationId, branchId: e.target.value || null })}
               >

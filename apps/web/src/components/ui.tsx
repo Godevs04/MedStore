@@ -10,9 +10,14 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ButtonHTMLAttributes,
   type CSSProperties,
+  type HTMLAttributes,
+  type RefObject,
   type InputHTMLAttributes,
   type ReactNode,
   type Ref,
@@ -115,8 +120,323 @@ export function Input({ className, ref, ...props }: InputHTMLAttributes<HTMLInpu
   return <input ref={ref} className={cn(CONTROL, 'h-control px-3', className)} {...props} />;
 }
 
-export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select className={cn(CONTROL, 'h-control cursor-pointer px-2.5', className)} {...props} />;
+type SelectItem = { kind: 'group'; label: string } | { kind: 'option'; value: string; label: string; disabled: boolean };
+
+const useIsoLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+const SEARCH_THRESHOLD = 10;
+
+/**
+ * Floating menu surface portalled to `<body>` and pinned to `anchor`, so clipping cards and
+ * later siblings can never cover it. Opens upward when there is not enough room below.
+ */
+export function AnchoredPanel({
+  anchor,
+  panelRef,
+  minWidth = 200,
+  maxHeight = 340,
+  className,
+  style,
+  children,
+  ...rest
+}: HTMLAttributes<HTMLDivElement> & { anchor: RefObject<HTMLElement | null>; panelRef?: Ref<HTMLDivElement>; minWidth?: number; maxHeight?: number }) {
+  const [pos, setPos] = useState<CSSProperties | null>(null);
+  useIsoLayoutEffect(() => {
+    const place = () => {
+      const r = anchor.current?.getBoundingClientRect();
+      if (!r) return;
+      const width = Math.min(Math.max(r.width, minWidth), window.innerWidth - 16);
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+      const below = window.innerHeight - r.bottom - 12;
+      const above = r.top - 12;
+      const up = below < Math.min(240, maxHeight) && above > below;
+      const height = Math.min(maxHeight, up ? above : below);
+      setPos(up ? { left, width, bottom: window.innerHeight - r.top + 6, maxHeight: height } : { left, width, top: r.bottom + 6, maxHeight: height });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [anchor, minWidth, maxHeight]);
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div
+      ref={panelRef}
+      style={{ ...pos, ...style, visibility: pos ? undefined : 'hidden' }}
+      className={cn('mc-anim-drop fixed z-[70] flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-overlay', className)}
+      {...rest}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+function readItems(select: HTMLSelectElement): SelectItem[] {
+  const items: SelectItem[] = [];
+  const push = (o: HTMLOptionElement, groupDisabled = false) =>
+    items.push({ kind: 'option', value: o.value, label: o.textContent ?? '', disabled: o.disabled || groupDisabled });
+  for (const el of Array.from(select.children)) {
+    if (el instanceof HTMLOptGroupElement) {
+      items.push({ kind: 'group', label: el.label });
+      for (const o of Array.from(el.children)) if (o instanceof HTMLOptionElement) push(o, el.disabled);
+    } else if (el instanceof HTMLOptionElement) push(el);
+  }
+  return items;
+}
+
+/**
+ * Styled listbox with the native `<select>` API: options come from `<option>`/`<optgroup>`
+ * children and `onChange` receives a real change event from a hidden native select, which also
+ * carries `name`, `required` and form submission.
+ */
+export function Select({
+  className,
+  children,
+  disabled,
+  id,
+  title,
+  ref,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledBy,
+  'aria-describedby': ariaDescribedBy,
+  'aria-invalid': ariaInvalid,
+  ...props
+}: SelectHTMLAttributes<HTMLSelectElement> & { ref?: Ref<HTMLSelectElement> }) {
+  const native = useRef<HTMLSelectElement | null>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const search = useRef<HTMLInputElement>(null);
+  const listId = useId();
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<SelectItem[]>([]);
+  const [active, setActive] = useState(-1);
+  const [query, setQuery] = useState('');
+  const [current, setCurrent] = useState<{ value: string; label: string }>({ value: '', label: '' });
+  const typed = useRef({ text: '', at: 0 });
+
+  const setNative = (el: HTMLSelectElement | null) => {
+    native.current = el;
+    if (typeof ref === 'function') ref(el);
+    else if (ref) (ref as { current: HTMLSelectElement | null }).current = el;
+  };
+
+  useIsoLayoutEffect(() => {
+    const el = native.current;
+    if (!el) return;
+    const o = el.selectedOptions[0];
+    const next = { value: el.value, label: o?.textContent ?? '' };
+    setCurrent((c) => (c.value === next.value && c.label === next.label ? c : next));
+  });
+
+  const searchable = items.filter((i) => i.kind === 'option').length > SEARCH_THRESHOLD;
+  const q = query.trim().toLowerCase();
+  const visible = q ? items.filter((i) => i.kind === 'option' && i.label.toLowerCase().includes(q)) : items;
+  const enabledIndexes = visible.flatMap((i, n) => (i.kind === 'option' && !i.disabled ? [n] : []));
+
+  const openMenu = () => {
+    const el = native.current;
+    if (!el || disabled) return;
+    const next = readItems(el);
+    setItems(next);
+    setQuery('');
+    const sel = next.findIndex((i) => i.kind === 'option' && i.value === el.value && !i.disabled);
+    setActive(sel >= 0 ? sel : next.findIndex((i) => i.kind === 'option' && !i.disabled));
+    setOpen(true);
+  };
+
+  const close = (refocus = true) => {
+    setOpen(false);
+    if (refocus) trigger.current?.focus({ preventScroll: true });
+  };
+
+  const choose = (value: string) => {
+    const el = native.current;
+    close();
+    if (!el || el.value === value) return;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(el, value);
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    setCurrent({ value: el.value, label: el.selectedOptions[0]?.textContent ?? '' });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    if (searchable) setTimeout(() => search.current?.focus({ preventScroll: true }), 0);
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (!panel.current?.contains(t) && !trigger.current?.contains(t)) close(false);
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    return () => document.removeEventListener('pointerdown', onDown, true);
+  }, [open, searchable]);
+
+  useEffect(() => {
+    if (open && active >= 0) panel.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [open, active]);
+
+  const move = (to: number) => {
+    if (!enabledIndexes.length) return;
+    setActive(enabledIndexes[Math.max(0, Math.min(enabledIndexes.length - 1, to))]!);
+  };
+
+  const onKey = (e: ReactKeyboardEvent) => {
+    if (!open) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) {
+        e.preventDefault();
+        openMenu();
+      }
+      return;
+    }
+    const at = enabledIndexes.indexOf(active);
+    if (e.key === 'ArrowDown') move(at + 1);
+    else if (e.key === 'ArrowUp') move(at < 0 ? enabledIndexes.length - 1 : at - 1);
+    else if (e.key === 'Home') move(0);
+    else if (e.key === 'End') move(enabledIndexes.length - 1);
+    else if (e.key === 'Enter' || (e.key === ' ' && !searchable)) {
+      const item = visible[active];
+      if (item?.kind === 'option' && !item.disabled) choose(item.value);
+    } else if (e.key === 'Escape') {
+      e.stopPropagation();
+      close();
+    } else if (e.key === 'Tab') {
+      close(false);
+      return;
+    } else if (!searchable && e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
+      const now = Date.now();
+      typed.current = { text: (now - typed.current.at < 600 ? typed.current.text : '') + e.key.toLowerCase(), at: now };
+      const hit = enabledIndexes.find((n) => {
+        const i = visible[n];
+        return i?.kind === 'option' && i.label.toLowerCase().startsWith(typed.current.text);
+      });
+      if (hit !== undefined) setActive(hit);
+      return;
+    } else return;
+    e.preventDefault();
+  };
+
+  return (
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        id={id}
+        title={title}
+        disabled={disabled}
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        aria-activedescendant={open && !searchable && active >= 0 ? `${listId}-${active}` : undefined}
+        aria-label={ariaLabel}
+        aria-labelledby={ariaLabelledBy}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={ariaInvalid}
+        onClick={() => (open ? close() : openMenu())}
+        onKeyDown={onKey}
+        className={cn(
+          CONTROL,
+          'mc-select group/select flex h-control min-w-0 cursor-pointer items-center gap-2 px-3 text-left',
+          open && 'border-accent ring-3 ring-accent/15',
+          className,
+        )}
+      >
+        <span className="min-w-0 flex-1 truncate">{current.label || '\u00a0'}</span>
+        <Icon
+          name="chevronDown"
+          size={14}
+          strokeWidth={2.25}
+          className={cn('shrink-0 text-quiet transition-transform duration-200 group-hover/select:text-muted', open && 'rotate-180 text-teal-ink')}
+        />
+      </button>
+      <select
+        ref={setNative}
+        tabIndex={-1}
+        aria-hidden
+        disabled={disabled}
+        className="sr-only"
+        onFocus={() => trigger.current?.focus()}
+        {...props}
+      >
+        {children}
+      </select>
+      {open
+        ? (
+            <AnchoredPanel
+              anchor={trigger}
+              panelRef={panel}
+              onMouseDown={(e) => {
+                if (e.target !== search.current) e.preventDefault();
+              }}
+            >
+              {searchable ? (
+                <div className="border-b border-line p-1.5">
+                  <label className="flex h-8 items-center gap-2 rounded-lg bg-subtle px-2.5 text-muted focus-within:ring-2 focus-within:ring-accent/25">
+                    <Icon name="search" size={14} className="shrink-0 text-quiet" />
+                    <input
+                      ref={search}
+                      value={query}
+                      onChange={(e) => {
+                        setQuery(e.target.value);
+                        setActive(-1);
+                      }}
+                      onKeyDown={(e) => {
+                        if (active < 0 && (e.key === 'ArrowDown' || e.key === 'Enter')) {
+                          e.preventDefault();
+                          if (enabledIndexes.length) {
+                            const first = visible[enabledIndexes[0]!];
+                            if (e.key === 'Enter' && first?.kind === 'option') choose(first.value);
+                            else setActive(enabledIndexes[0]!);
+                          }
+                          return;
+                        }
+                        onKey(e);
+                      }}
+                      placeholder="Search…"
+                      aria-label="Search options"
+                      aria-controls={listId}
+                      aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
+                      className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-quiet"
+                    />
+                  </label>
+                </div>
+              ) : null}
+              <div id={listId} role="listbox" aria-label={ariaLabel} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
+                {visible.length === 0 ? <p className="px-2.5 py-6 text-center text-xs text-muted">No matches</p> : null}
+                {visible.map((item, n) =>
+                  item.kind === 'group' ? (
+                    <p key={`g${n}`} role="presentation" className="px-2.5 pb-1 pt-2.5 text-2xs font-semibold uppercase tracking-[0.08em] text-quiet first:pt-1">
+                      {item.label}
+                    </p>
+                  ) : (
+                    <div
+                      key={`o${n}${item.value}`}
+                      id={`${listId}-${n}`}
+                      data-index={n}
+                      role="option"
+                      aria-selected={item.value === current.value}
+                      aria-disabled={item.disabled || undefined}
+                      onMouseEnter={() => !item.disabled && setActive(n)}
+                      onClick={() => !item.disabled && choose(item.value)}
+                      className={cn(
+                        'flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] leading-snug text-ink transition-colors duration-100',
+                        n === active && 'bg-brand-50 text-brand-deep',
+                        item.value === current.value && 'font-medium text-teal-ink',
+                        item.disabled && 'cursor-not-allowed opacity-45',
+                      )}
+                    >
+                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      {item.value === current.value ? <Icon name="check" size={14} strokeWidth={2.5} className="shrink-0 text-accent" /> : null}
+                    </div>
+                  ),
+                )}
+              </div>
+            </AnchoredPanel>
+          )
+        : null}
+    </>
+  );
 }
 
 export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
@@ -151,7 +471,7 @@ export function Field({
       <span
         className={cn(
           'block rounded-lg',
-          error && '[&_input]:border-danger [&_select]:border-danger [&_textarea]:border-danger [&_input]:ring-3 [&_input]:ring-danger/10',
+          error && '[&_input]:border-danger [&_.mc-select]:border-danger [&_textarea]:border-danger [&_input]:ring-3 [&_input]:ring-danger/10',
         )}
       >
         {children}
@@ -716,7 +1036,7 @@ export function useOverlay(open: boolean, panel: React.RefObject<HTMLElement | n
     const t = setTimeout(() => {
       const el = panel.current;
       if (el && !el.contains(document.activeElement)) {
-        const first = el.querySelector<HTMLElement>('input:not([disabled]),select:not([disabled]),textarea:not([disabled])');
+        const first = el.querySelector<HTMLElement>('input:not([disabled]),.mc-select:not([disabled]),textarea:not([disabled])');
         (first ?? el).focus({ preventScroll: true });
       }
     }, 20);

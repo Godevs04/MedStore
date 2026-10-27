@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import type { ZodTypeAny } from 'zod';
 import { financialYearOf, INDIAN_STATE_CODES, isValidGstinChecksum, panFromGstin, stateName, zodFieldErrors } from '@medicore/validation';
 import { Icon, type IconName } from './icons';
-import { Button, cn, Input, MetricGroup, Select, Textarea, todayIso, useOverlay } from './ui';
+import { AnchoredPanel, Button, cn, Input, MetricGroup, Select, Textarea, todayIso, useOverlay } from './ui';
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
 
@@ -662,6 +662,7 @@ export function Combobox({
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const wrap = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
   const selected = items.find((i) => i.id === value) ?? null;
   const [selectedLabel, setSelectedLabel] = useState<string>(selected?.label ?? '');
   useEffect(() => {
@@ -679,7 +680,8 @@ export function Combobox({
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
-      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!wrap.current?.contains(t) && !panel.current?.contains(t)) setOpen(false);
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -725,7 +727,8 @@ export function Combobox({
               e.preventDefault();
               pick(item);
             }
-          } else if (e.key === 'Escape') {
+          } else if (e.key === 'Escape' && open) {
+            e.stopPropagation();
             setOpen(false);
           }
         }}
@@ -746,34 +749,36 @@ export function Combobox({
         <Icon name="chevronDown" size={14} className={cn('pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-faint transition-transform duration-200', open && 'rotate-180')} />
       )}
       {open ? (
-        <div className="mc-anim-drop absolute z-dropdown mt-1 max-h-72 w-full min-w-[16rem] overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-pop" role="listbox">
-          {loading ? <p className="px-3 py-2 text-xs text-muted">Searching…</p> : null}
-          {!loading && filtered.length === 0 ? <p className="px-3 py-2 text-xs text-muted">{emptyText}</p> : null}
-          {filtered.map((item, i) => (
-            <button
-              key={item.id}
-              type="button"
-              role="option"
-              aria-selected={item.id === value}
-              disabled={item.disabled}
-              onMouseEnter={() => setActive(i)}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => pick(item)}
-              className={cn(
-                'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors disabled:opacity-45',
-                i === active ? 'bg-mint text-brand-deep' : 'text-neutral-700',
-              )}
-            >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">{item.label}</span>
-                {item.sublabel ? <span className="block truncate text-2xs text-muted">{item.sublabel}</span> : null}
-              </span>
-              {item.badge}
-              {item.id === value ? <Icon name="check" size={14} strokeWidth={2.5} className="text-teal-ink" /> : null}
-            </button>
-          ))}
-          {footer ? <div className="border-t border-line px-2 pt-1">{footer}</div> : null}
-        </div>
+        <AnchoredPanel anchor={wrap} panelRef={panel} minWidth={256} maxHeight={320}>
+          <div role="listbox" className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
+            {loading ? <p className="px-2.5 py-2 text-xs text-muted">Searching…</p> : null}
+            {!loading && filtered.length === 0 ? <p className="px-2.5 py-4 text-center text-xs text-muted">{emptyText}</p> : null}
+            {filtered.map((item, i) => (
+              <button
+                key={item.id}
+                type="button"
+                role="option"
+                aria-selected={item.id === value}
+                disabled={item.disabled}
+                onMouseEnter={() => setActive(i)}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick(item)}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] leading-snug transition-colors duration-100 disabled:cursor-not-allowed disabled:opacity-45',
+                  i === active ? 'bg-brand-50 text-brand-deep' : 'text-ink',
+                )}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{item.label}</span>
+                  {item.sublabel ? <span className="block truncate text-2xs text-muted">{item.sublabel}</span> : null}
+                </span>
+                {item.badge}
+                {item.id === value ? <Icon name="check" size={14} strokeWidth={2.5} className="shrink-0 text-accent" /> : null}
+              </button>
+            ))}
+          </div>
+          {footer ? <div className="border-t border-line p-1.5">{footer}</div> : null}
+        </AnchoredPanel>
       ) : null}
     </div>
   );

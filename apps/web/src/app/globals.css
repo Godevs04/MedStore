@@ -50,7 +50,7 @@ h1 { font-weight: 600; }
 .num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
 
 :focus-visible { outline: 2px solid rgb(var(--mc-accent) / 0.75); outline-offset: 2px; }
-input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, .mc-select:focus-visible { outline: none; }
 
 /* ── Motion: short, quiet transitions only ───────────────────────────────── */
 
