@@ -2,28 +2,18 @@ import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, UseGuards }
 import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { paginationQuerySchema } from '@medicore/validation';
+import { dateRangeQuerySchema, h1RegisterQuerySchema, licenceUpsertSchema, paginationQuerySchema, returnPeriodQuerySchema } from '@medicore/validation';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { sendCsv } from '../common/csv.js';
 import { RequirePermissions, TenantContextGuard, type TenantRequest } from '../rbac/tenant-context.guard.js';
-import { ComplianceService, LICENCE_TYPES } from './compliance.service.js';
-
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const optionalDate = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
+import { ComplianceService } from './compliance.service.js';
 
 const integrationUpsertSchema = z.object({
   provider: z.enum(['GST_EINVOICE', 'EWAY_BILL', 'WHATSAPP', 'SMS', 'EMAIL_SMTP', 'PAYMENT_GATEWAY']),
   config: z.record(z.string().max(200)).optional(),
 });
 
-const licenceSchema = z.object({
-  licenceType: z.enum(LICENCE_TYPES),
-  licenceNumber: z.string().trim().min(2).max(80),
-  issuingAuthority: z.string().trim().max(160).nullish(),
-  issueDate: isoDate.nullish(),
-  expiryDate: isoDate,
-  branchId: z.string().uuid().nullish(),
-});
+type DateRange = z.infer<typeof dateRangeQuerySchema>;
 
 @ApiTags('compliance')
 @UseGuards(TenantContextGuard)
@@ -36,24 +26,16 @@ export class ComplianceController {
   h1Register(
     @Req() req: TenantRequest,
     @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-    @Query('search') search?: string,
+    @Query(new ZodValidationPipe(h1RegisterQuerySchema)) query: z.infer<typeof h1RegisterQuerySchema>,
   ) {
-    return this.compliance.h1Register(req, {
-      page: pagination.page,
-      pageSize: pagination.pageSize,
-      from: optionalDate(from),
-      to: optionalDate(to),
-      search: search?.trim() || undefined,
-    });
+    return this.compliance.h1Register(req, { page: pagination.page, pageSize: pagination.pageSize, from: query.from, to: query.to, search: query.search || undefined });
   }
 
   @Get('h1-register/export')
   @RequirePermissions('compliance.read', 'reports.export')
-  async h1RegisterExport(@Req() req: TenantRequest, @Res() res: Response, @Query('from') from?: string, @Query('to') to?: string) {
-    const { headers, rows } = await this.compliance.h1RegisterExport(req, { from: optionalDate(from), to: optionalDate(to) });
-    sendCsv(res, `h1-register-${optionalDate(from) ?? 'all'}-${optionalDate(to) ?? 'today'}.csv`, headers, rows);
+  async h1RegisterExport(@Req() req: TenantRequest, @Res() res: Response, @Query(new ZodValidationPipe(dateRangeQuerySchema)) q: DateRange) {
+    const { headers, rows } = await this.compliance.h1RegisterExport(req, q);
+    sendCsv(res, `h1-register-${q.from ?? 'all'}-${q.to ?? 'today'}.csv`, headers, rows);
   }
 
   @Get('licences')
@@ -62,15 +44,21 @@ export class ComplianceController {
     return this.compliance.listLicences(req);
   }
 
+  @Get('licences/overview')
+  @RequirePermissions('compliance.read')
+  licenceOverview(@Req() req: TenantRequest) {
+    return this.compliance.licenceOverview(req);
+  }
+
   @Post('licences')
   @RequirePermissions('compliance.manage')
-  createLicence(@Body(new ZodValidationPipe(licenceSchema)) dto: z.infer<typeof licenceSchema>, @Req() req: TenantRequest) {
+  createLicence(@Body(new ZodValidationPipe(licenceUpsertSchema)) dto: z.infer<typeof licenceUpsertSchema>, @Req() req: TenantRequest) {
     return this.compliance.upsertLicence(req, null, dto);
   }
 
   @Patch('licences/:licenceId')
   @RequirePermissions('compliance.manage')
-  updateLicence(@Param('licenceId') licenceId: string, @Body(new ZodValidationPipe(licenceSchema)) dto: z.infer<typeof licenceSchema>, @Req() req: TenantRequest) {
+  updateLicence(@Param('licenceId') licenceId: string, @Body(new ZodValidationPipe(licenceUpsertSchema)) dto: z.infer<typeof licenceUpsertSchema>, @Req() req: TenantRequest) {
     return this.compliance.upsertLicence(req, licenceId, dto);
   }
 
@@ -82,17 +70,17 @@ export class ComplianceController {
 
   @Get('gst/sales-summary')
   @RequirePermissions('compliance.read')
-  gstSalesSummary(@Req() req: TenantRequest, @Query('from') from?: string, @Query('to') to?: string) {
-    return this.compliance.gstSalesSummary(req, optionalDate(from), optionalDate(to));
+  gstSalesSummary(@Req() req: TenantRequest, @Query(new ZodValidationPipe(dateRangeQuerySchema)) q: DateRange) {
+    return this.compliance.gstSalesSummary(req, q.from, q.to);
   }
 
   @Get('gst/sales-summary/export')
   @RequirePermissions('compliance.read', 'reports.export')
-  async gstSalesExport(@Req() req: TenantRequest, @Res() res: Response, @Query('from') from?: string, @Query('to') to?: string) {
-    const s = await this.compliance.gstSalesSummary(req, optionalDate(from), optionalDate(to));
+  async gstSalesExport(@Req() req: TenantRequest, @Res() res: Response, @Query(new ZodValidationPipe(dateRangeQuerySchema)) q: DateRange) {
+    const s = await this.compliance.gstSalesSummary(req, q.from, q.to);
     sendCsv(
       res,
-      `gst-hsn-summary-${optionalDate(from) ?? 'all'}-${optionalDate(to) ?? 'today'}.csv`,
+      `gst-hsn-summary-${q.from ?? 'all'}-${q.to ?? 'today'}.csv`,
       ['HSN', 'Rate %', 'Lines', 'Taxable', 'CGST', 'SGST', 'IGST', 'Cess', 'Total tax'],
       s.rows.map((r) => [r.hsnCode, r.rate, r.count, r.taxable, r.cgst, r.sgst, r.igst, r.cess, r.totalTax]),
     );
@@ -100,8 +88,20 @@ export class ComplianceController {
 
   @Get('gst/purchase-summary')
   @RequirePermissions('compliance.read')
-  gstPurchaseSummary(@Req() req: TenantRequest, @Query('from') from?: string, @Query('to') to?: string) {
-    return this.compliance.gstPurchaseSummary(req, optionalDate(from), optionalDate(to));
+  gstPurchaseSummary(@Req() req: TenantRequest, @Query(new ZodValidationPipe(dateRangeQuerySchema)) q: DateRange) {
+    return this.compliance.gstPurchaseSummary(req, q.from, q.to);
+  }
+
+  @Get('gst/gstr1/export')
+  @RequirePermissions('compliance.read', 'reports.export')
+  gstr1Export(@Req() req: TenantRequest, @Query(new ZodValidationPipe(returnPeriodQuerySchema)) q: z.infer<typeof returnPeriodQuerySchema>) {
+    return this.compliance.gstr1(req, q.period);
+  }
+
+  @Get('gst/gstr3b')
+  @RequirePermissions('compliance.read')
+  gstr3b(@Req() req: TenantRequest, @Query(new ZodValidationPipe(returnPeriodQuerySchema)) q: z.infer<typeof returnPeriodQuerySchema>) {
+    return this.compliance.gstr3b(req, q.period);
   }
 
   @Get('integrations')

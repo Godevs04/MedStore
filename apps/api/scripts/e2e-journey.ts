@@ -131,8 +131,8 @@ async function main(): Promise<void> {
       contactPhone: '9822012345',
       contactEmail: 'owner@e2epharma.test',
       gstRegistrationStatus: 'REGULAR',
-      gstin: '27E2EPA1234F1Z5',
-      pan: 'E2EPA1234F',
+      gstin: '27AAPFU0939F1ZV',
+      pan: 'AAPFU0939F',
     },
   });
   record(
@@ -140,7 +140,7 @@ async function main(): Promise<void> {
     'Save business profile (address, GST registration with GSTIN)',
     '200 with updated organization',
     `${profile.status} city=${profile.body?.city} gstin=${profile.body?.gstin}`,
-    profile.status === 200 && profile.body?.city === 'Pune' && profile.body?.gstin === '27E2EPA1234F1Z5',
+    profile.status === 200 && profile.body?.city === 'Pune' && profile.body?.gstin === '27AAPFU0939F1ZV',
   );
 
   const checklist = await call('/api/v1/organizations/setup-checklist', { cookie: sessionCookie, org: orgId });

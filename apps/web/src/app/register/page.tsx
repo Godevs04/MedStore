@@ -1,15 +1,24 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
-import { registerOrganizationRequestSchema } from '@medicore/validation';
 import { zodResolver } from '@hookform/resolvers/zod';
-import type { z } from 'zod';
-import { API_URL } from '@/lib/api';
+import { z } from 'zod';
+import { registerOrganizationRequestSchema } from '@medicore/validation';
+import { api, ApiClientError } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { Button, Card, Field, Input } from '@/components/ui';
-import Link from 'next/link';
+import { toast } from '@/lib/toast';
+import { AuthShell, PasswordChecklist, PasswordInput, authLinkClass } from '@/components/auth';
+import { Button, Field, Input } from '@/components/ui';
+
+const schema = registerOrganizationRequestSchema.extend({
+  organizationName: z.string().trim().min(2, 'Enter your pharmacy’s name').max(160, 'Keep it under 160 characters'),
+  fullName: z.string().trim().min(2, 'Enter your full name').max(120, 'Keep it under 120 characters'),
+  acceptTerms: z.boolean().refine((v) => v, 'Please accept the terms to continue'),
+});
+type Form = z.input<typeof schema>;
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -18,88 +27,89 @@ export default function RegisterPage() {
   const {
     register,
     handleSubmit,
+    watch,
+    setError,
+    clearErrors,
     formState: { errors, isSubmitting },
-  } = useForm<z.infer<typeof registerOrganizationRequestSchema>>({
-    resolver: zodResolver(registerOrganizationRequestSchema),
-    defaultValues: { email: '', password: '', fullName: '', organizationName: '' },
+  } = useForm<Form>({
+    resolver: zodResolver(schema),
+    defaultValues: { email: '', password: '', fullName: '', organizationName: '', acceptTerms: false },
   });
+  const password = watch('password');
 
-  const onSubmit = handleSubmit(async (data) => {
+  const onSubmit = handleSubmit(async ({ acceptTerms: _accepted, ...data }) => {
     setFormError(null);
-    const res = await fetch(`${API_URL}/api/v1/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-      setFormError(body?.error?.message ?? 'Registration failed');
+    try {
+      await api('/auth/register', { method: 'POST', body: { ...data, email: data.email.trim().toLowerCase() } });
+    } catch (e) {
+      if (e instanceof ApiClientError) {
+        if (e.code === 'DUPLICATE_ENTITY' || e.status === 409) {
+          setError('email', { message: 'An account with this email already exists — sign in instead' });
+          toast.error('Email already registered', 'Sign in, or use “Forgot password” to recover access.');
+          return;
+        }
+        for (const d of e.details ?? []) {
+          if (d.field && d.field in schema.shape) setError(d.field as keyof Form, { message: d.message });
+        }
+      }
+      const message = e instanceof ApiClientError ? e.message : 'Registration failed. Please try again.';
+      setFormError(message);
+      toast.error('Couldn’t create your workspace', message);
       return;
     }
-    // Reload the session context before navigating so RequireAuth sees the user.
-    await refetchSession();
+    toast.success('Workspace created', 'Your 14-day trial has started — let’s set up your pharmacy.');
+    refetchSession();
     router.replace('/');
   });
 
   return (
-    <div className="mc-auth-backdrop flex min-h-screen items-center justify-center p-6">
-      <div className="w-full max-w-md space-y-5">
-        <div className="mc-anim-fade-up text-center">
-          <div className="mc-anim-float mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-xl font-bold text-white shadow-xl shadow-brand-600/30">
-            M
-          </div>
-          <h1 className="mt-3 text-xl font-bold tracking-tight">
-            <span className="mc-gradient-text">Create your pharmacy workspace</span>
-          </h1>
-          <p className="mt-1 text-sm text-neutral-500">
-            Free 14-day trial · full features · no card required
-          </p>
+    <AuthShell
+      wide
+      title="Create your pharmacy workspace"
+      subtitle="Free 14-day trial · all features · no card required"
+      footer={
+        <>
+          Already have an account?{' '}
+          <Link className={authLinkClass} href="/login">
+            Sign in
+          </Link>
+        </>
+      }
+    >
+      <form className="grid grid-cols-1 gap-4 sm:grid-cols-2" onSubmit={onSubmit} noValidate>
+        <Field label="Pharmacy / business name" required error={errors.organizationName?.message} className="sm:col-span-2">
+          <Input autoFocus autoComplete="organization" placeholder="e.g. City Care Pharmacy" {...register('organizationName')} />
+        </Field>
+        <Field label="Your name" required error={errors.fullName?.message} className="sm:col-span-2">
+          <Input autoComplete="name" placeholder="Full name" {...register('fullName')} />
+        </Field>
+        <Field label="Work email" required error={errors.email?.message} className="sm:col-span-2">
+          <Input type="email" inputMode="email" autoComplete="email" placeholder="you@pharmacy.in" {...register('email')} />
+        </Field>
+        <Field label="Password" required error={errors.password?.message} className="sm:col-span-2">
+          <PasswordInput autoComplete="new-password" placeholder="Create a strong password" {...register('password')} />
+          <PasswordChecklist value={password ?? ''} />
+        </Field>
+        <div className="sm:col-span-2">
+          <label className="flex items-start gap-2 text-xs text-neutral-600">
+            <input type="checkbox" className="mt-0.5 accent-brand-600" {...register('acceptTerms', { onChange: () => clearErrors('acceptTerms') })} />
+            <span>
+              I agree to the Terms of Service and consent to MediCore processing my business data as described in the Privacy Notice (Digital Personal Data Protection Act, 2023).
+            </span>
+          </label>
+          {errors.acceptTerms?.message ? <p className="mt-1 text-[11px] text-red-600">{errors.acceptTerms.message}</p> : null}
         </div>
-        <Card className="mc-stagger">
-          <form className="grid grid-cols-1 gap-4 p-1 sm:grid-cols-2" onSubmit={onSubmit}>
-            <div className="sm:col-span-2">
-              <Field label="Organization name" error={errors.organizationName?.message}>
-                <Input placeholder="e.g. City Care Pharmacy" {...register('organizationName')} />
-              </Field>
-            </div>
-            <Field label="Your name" error={errors.fullName?.message}>
-              <Input placeholder="Full name" {...register('fullName')} />
-            </Field>
-            <Field label="Email" error={errors.email?.message}>
-              <Input type="email" autoComplete="email" placeholder="you@pharmacy.in" {...register('email')} />
-            </Field>
-            <div className="sm:col-span-2">
-              <Field label="Password" error={errors.password?.message}>
-                <Input
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder="Min 10 chars, mixed case + digit"
-                  {...register('password')}
-                />
-              </Field>
-            </div>
-            {formError ? (
-              <div className="sm:col-span-2">
-                <p className="mc-anim-scale-in rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
-                  {formError}
-                </p>
-              </div>
-            ) : null}
-            <div className="sm:col-span-2">
-              <Button type="submit" className="w-full py-2" disabled={isSubmitting}>
-                {isSubmitting ? 'Creating organization…' : 'Create organization'}
-              </Button>
-              <p className="mt-3 text-center text-xs text-neutral-500">
-                Already have an account?{' '}
-                <Link className="font-medium text-brand-700 transition-colors hover:text-brand-500 hover:underline" href="/login">
-                  Sign in
-                </Link>
-              </p>
-            </div>
-          </form>
-        </Card>
-      </div>
-    </div>
+        {formError ? (
+          <p role="alert" className="mc-anim-shake rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700 sm:col-span-2">
+            {formError}
+          </p>
+        ) : null}
+        <div className="sm:col-span-2">
+          <Button type="submit" className="w-full py-2" disabled={isSubmitting}>
+            {isSubmitting ? 'Creating your workspace…' : 'Create workspace'}
+          </Button>
+        </div>
+      </form>
+    </AuthShell>
   );
 }

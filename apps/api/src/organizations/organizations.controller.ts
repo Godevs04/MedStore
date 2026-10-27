@@ -14,32 +14,25 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import {
+  billingCounterCreateSchema,
+  billingCounterUpdateSchema,
   branchCreateSchema,
+  branchUpdateSchema,
+  memberBranchesSchema,
+  memberInviteSchema,
+  memberListQuerySchema,
+  organizationSettingsSchema,
+  organizationUpdateSchema,
   paginationQuerySchema,
+  roleCreateSchema,
+  rolePermissionsSchema,
   warehouseCreateSchema,
 } from '@medicore/validation';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
-import { ValidationFailed } from '../common/app-exception.js';
+import { pageInfo } from '../common/query.js';
 import { RequirePermissions, TenantContextGuard, type TenantRequest } from '../rbac/tenant-context.guard.js';
 import { UseGuards } from '@nestjs/common';
 import { OrganizationsService } from './organizations.service.js';
-
-const inviteMemberSchema = z.object({
-  email: z.string().trim().toLowerCase().email(),
-  fullName: z.string().trim().min(2).max(120),
-  roleId: z.string().uuid().nullable(),
-  branchIds: z.array(z.string().uuid()).max(50).default([]),
-});
-
-const createRoleSchema = z.object({
-  name: z.string().trim().min(2).max(80),
-  description: z.string().trim().max(300).nullish(),
-  permissionKeys: z.array(z.string().max(64)).min(0).max(200),
-});
-
-const updateRolePermissionsSchema = z.object({
-  permissionKeys: z.array(z.string().max(64)).min(0).max(200),
-});
 
 const setMemberRoleSchema = z.object({
   roleId: z.string().uuid().nullable(),
@@ -47,22 +40,6 @@ const setMemberRoleSchema = z.object({
 
 const setMemberStatusSchema = z.object({
   status: z.enum(['ACTIVE', 'SUSPENDED']),
-});
-
-const updateOrgSchema = z.object({
-  name: z.string().trim().min(2).max(160).optional(),
-  legalEntityName: z.string().trim().max(160).nullish(),
-  gstRegistrationStatus: z.enum(['REGULAR', 'COMPOSITION', 'UNREGISTERED', 'CONSUMER']).optional(),
-  gstin: z.string().trim().toUpperCase().max(15).nullish(),
-  pan: z.string().trim().toUpperCase().max(10).nullish(),
-  addressLine1: z.string().trim().max(200).nullish(),
-  addressLine2: z.string().trim().max(200).nullish(),
-  city: z.string().trim().max(100).nullish(),
-  stateCode: z.string().trim().max(2).nullish(),
-  pinCode: z.string().trim().max(6).nullish(),
-  contactPhone: z.string().trim().max(20).nullish(),
-  contactEmail: z.string().trim().toLowerCase().email().nullish(),
-  financialYearStartMonth: z.number().int().min(1).max(12).optional(),
 });
 
 @ApiTags('organizations')
@@ -96,6 +73,12 @@ export class OrganizationsController {
     return this.orgs.getSubscription(req);
   }
 
+  @Get('subscription/events')
+  @RequirePermissions('organization.read')
+  subscriptionEvents(@Req() req: TenantRequest) {
+    return this.orgs.subscriptionEvents(req);
+  }
+
   @Get()
   @RequirePermissions('organization.read')
   getOrganization(@Req() req: TenantRequest) {
@@ -105,7 +88,7 @@ export class OrganizationsController {
   @Patch()
   @RequirePermissions('organization.settings.manage')
   async updateOrganization(
-    @Body(new ZodValidationPipe(updateOrgSchema)) dto: z.infer<typeof updateOrgSchema>,
+    @Body(new ZodValidationPipe(organizationUpdateSchema)) dto: z.infer<typeof organizationUpdateSchema>,
     @Req() req: TenantRequest,
   ) {
     return this.orgs.updateOrganization(req, dto);
@@ -113,16 +96,14 @@ export class OrganizationsController {
 
   @Patch('settings')
   @RequirePermissions('organization.settings.manage')
-  async updateSettings(@Body() body: unknown, @Req() req: TenantRequest) {
-    // Settings is schema-flexible JSON validated at the service boundary;
-    // enforce object shape here.
-    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-      throw ValidationFailed([{ message: 'Settings must be a JSON object' }]);
-    }
-    return this.orgs.updateSettings(req, body as Record<string, unknown>);
+  async updateSettings(
+    @Body(new ZodValidationPipe(organizationSettingsSchema)) dto: z.infer<typeof organizationSettingsSchema>,
+    @Req() req: TenantRequest,
+  ) {
+    return this.orgs.updateSettings(req, dto);
   }
 
-  // ── Branches & warehouses ──────────────────────────────────────────────────
+  // ── Branches, counters & warehouses ────────────────────────────────────────
 
   @Get('branches')
   @RequirePermissions('branches.read')
@@ -143,10 +124,30 @@ export class OrganizationsController {
   @RequirePermissions('branches.manage')
   async updateBranch(
     @Param('branchId') branchId: string,
-    @Body(new ZodValidationPipe(branchCreateSchema.partial())) dto: Partial<z.infer<typeof branchCreateSchema>>,
+    @Body(new ZodValidationPipe(branchUpdateSchema)) dto: z.infer<typeof branchUpdateSchema>,
     @Req() req: TenantRequest,
   ) {
     return this.orgs.updateBranch(req, branchId, dto);
+  }
+
+  @Post('branches/:branchId/counters')
+  @RequirePermissions('branches.manage')
+  async createCounter(
+    @Param('branchId') branchId: string,
+    @Body(new ZodValidationPipe(billingCounterCreateSchema)) dto: z.infer<typeof billingCounterCreateSchema>,
+    @Req() req: TenantRequest,
+  ) {
+    return this.orgs.createCounter(req, branchId, dto.name);
+  }
+
+  @Patch('counters/:counterId')
+  @RequirePermissions('branches.manage')
+  async updateCounter(
+    @Param('counterId') counterId: string,
+    @Body(new ZodValidationPipe(billingCounterUpdateSchema)) dto: z.infer<typeof billingCounterUpdateSchema>,
+    @Req() req: TenantRequest,
+  ) {
+    return this.orgs.updateCounter(req, counterId, dto);
   }
 
   @Post('branches/:branchId/warehouses')
@@ -163,28 +164,36 @@ export class OrganizationsController {
 
   @Get('members')
   @RequirePermissions('users.read')
-  async listMembers(@Req() req: TenantRequest, @Query(new ZodValidationPipe(paginationQuerySchema)) query: z.infer<typeof paginationQuerySchema>) {
-    const result = await this.orgs.listMembers(req, { page: query.page, pageSize: query.pageSize });
-    return {
-      items: result.items,
-      pageInfo: {
-        page: query.page,
-        pageSize: query.pageSize,
-        totalItems: result.total,
-        totalPages: Math.max(1, Math.ceil(result.total / query.pageSize)),
-        hasNextPage: query.page * query.pageSize < result.total,
-        hasPreviousPage: query.page > 1,
-      },
-    };
+  async listMembers(
+    @Req() req: TenantRequest,
+    @Query(new ZodValidationPipe(paginationQuerySchema)) query: z.infer<typeof paginationQuerySchema>,
+    @Query(new ZodValidationPipe(memberListQuerySchema)) filters: z.infer<typeof memberListQuerySchema>,
+  ) {
+    const result = await this.orgs.listMembers(req, { page: query.page, pageSize: query.pageSize, ...filters });
+    return { items: result.items, counts: result.counts, pageInfo: pageInfo(query, result.total) };
   }
 
   @Post('members/invite')
   @RequirePermissions('users.manage')
   async inviteMember(
-    @Body(new ZodValidationPipe(inviteMemberSchema)) dto: z.infer<typeof inviteMemberSchema>,
+    @Body(new ZodValidationPipe(memberInviteSchema)) dto: z.infer<typeof memberInviteSchema>,
     @Req() req: TenantRequest,
   ) {
     return this.orgs.inviteMember(req, dto);
+  }
+
+  @Post('members/:membershipId/invite/resend')
+  @RequirePermissions('users.manage')
+  @HttpCode(HttpStatus.OK)
+  async resendInvite(@Param('membershipId') membershipId: string, @Req() req: TenantRequest) {
+    return this.orgs.resendInvite(req, membershipId);
+  }
+
+  @Delete('members/:membershipId/invite')
+  @RequirePermissions('users.manage')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async revokeInvite(@Param('membershipId') membershipId: string, @Req() req: TenantRequest) {
+    await this.orgs.revokeInvite(req, membershipId);
   }
 
   @Patch('members/:membershipId/role')
@@ -195,6 +204,16 @@ export class OrganizationsController {
     @Req() req: TenantRequest,
   ) {
     return this.orgs.setMemberRole(req, membershipId, dto.roleId);
+  }
+
+  @Patch('members/:membershipId/branches')
+  @RequirePermissions('users.manage')
+  async setMemberBranches(
+    @Param('membershipId') membershipId: string,
+    @Body(new ZodValidationPipe(memberBranchesSchema)) dto: z.infer<typeof memberBranchesSchema>,
+    @Req() req: TenantRequest,
+  ) {
+    return this.orgs.setMemberBranches(req, membershipId, dto.branchIds);
   }
 
   @Patch('members/:membershipId/status')
@@ -224,7 +243,7 @@ export class OrganizationsController {
   @Post('roles')
   @RequirePermissions('roles.manage')
   async createRole(
-    @Body(new ZodValidationPipe(createRoleSchema)) dto: z.infer<typeof createRoleSchema>,
+    @Body(new ZodValidationPipe(roleCreateSchema)) dto: z.infer<typeof roleCreateSchema>,
     @Req() req: TenantRequest,
   ) {
     return this.orgs.createRole(req, dto);
@@ -234,7 +253,7 @@ export class OrganizationsController {
   @RequirePermissions('roles.manage')
   async updateRolePermissions(
     @Param('roleId') roleId: string,
-    @Body(new ZodValidationPipe(updateRolePermissionsSchema)) dto: z.infer<typeof updateRolePermissionsSchema>,
+    @Body(new ZodValidationPipe(rolePermissionsSchema)) dto: z.infer<typeof rolePermissionsSchema>,
     @Req() req: TenantRequest,
   ) {
     return this.orgs.updateRolePermissions(req, roleId, dto.permissionKeys);

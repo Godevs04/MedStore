@@ -16,6 +16,26 @@ import { limitOf } from '../common/subscription-policy.js';
 
 const H1_CLASSES = new Set(['SCHEDULE_H1']);
 
+type InvoiceSortField = 'invoiceDate' | 'total' | 'invoiceNumber' | 'creditAmount';
+interface InvoiceListParams {
+  search?: string;
+  customerId?: string;
+  from?: string;
+  to?: string;
+  status?: 'POSTED' | 'PARTIALLY_RETURNED' | 'RETURNED' | 'CANCELLED';
+  paymentMethod?: PaymentMethod;
+  hasCredit?: boolean;
+}
+
+/** Inclusive IST calendar-day range. */
+const istRange = (from?: string, to?: string): Prisma.DateTimeFilter | undefined =>
+  from || to
+    ? {
+        ...(from ? { gte: new Date(`${from}T00:00:00+05:30`) } : {}),
+        ...(to ? { lte: new Date(`${to}T23:59:59.999+05:30`) } : {}),
+      }
+    : undefined;
+
 export interface SaleLineInput {
   productId: string;
   quantity: string;
@@ -34,7 +54,13 @@ export interface SaleInput {
   payments: Array<{ method: PaymentMethod; amount: string; reference?: string | null }>;
   idempotencyKey?: string | null;
   /** Required when any line is Schedule H1 (rule 65(3)(h) register). */
-  prescription?: { patientName: string; prescriberName: string; prescriberAddress: string } | null;
+  prescription?: {
+    patientName: string;
+    patientPhone?: string | null;
+    prescriberName: string;
+    prescriberRegNo?: string | null;
+    prescriberAddress: string;
+  } | null;
 }
 
 const invoiceDetailInclude = {
@@ -308,6 +334,8 @@ export class SalesService {
                 patientName: data.prescription.patientName,
                 prescriberName: data.prescription.prescriberName,
                 prescriberAddress: data.prescription.prescriberAddress,
+                prescriberRegNo: data.prescription.prescriberRegNo ?? null,
+                patientPhone: data.prescription.patientPhone ?? null,
                 drugName: h1.name,
                 quantity: h1.qty,
                 dispensedAt: now,
@@ -400,37 +428,217 @@ export class SalesService {
     return toPaise(openingBalance) + toPaise(agg._sum.creditAmount ?? new Prisma.Decimal(0));
   }
 
-  listInvoices(
-    request: TenantRequest,
-    params: { page: number; pageSize: number; search?: string; customerId?: string; from?: string; to?: string; status?: string },
-  ) {
-    const orgId = request.tenantContext.organizationId;
+  private invoiceWhere(orgId: string, params: InvoiceListParams): Prisma.SalesInvoiceWhereInput {
     const where: Prisma.SalesInvoiceWhereInput = { organizationId: orgId };
     if (params.customerId) where.customerId = params.customerId;
-    if (params.status) where.status = params.status as never;
+    if (params.status) where.status = params.status;
+    if (params.paymentMethod) where.payments = { some: { method: params.paymentMethod } };
+    if (params.hasCredit !== undefined) where.creditAmount = params.hasCredit ? { gt: 0 } : { equals: 0 };
     if (params.search) {
       where.OR = [
         { invoiceNumber: { contains: params.search, mode: 'insensitive' } },
         { walkInName: { contains: params.search, mode: 'insensitive' } },
         { customer: { name: { contains: params.search, mode: 'insensitive' } } },
+        { customer: { phone: { contains: params.search } } },
       ];
     }
-    if (params.from || params.to) {
-      where.invoiceDate = {
-        ...(params.from ? { gte: new Date(`${params.from}T00:00:00+05:30`) } : {}),
-        ...(params.to ? { lte: new Date(`${params.to}T23:59:59.999+05:30`) } : {}),
-      };
-    }
+    const invoiceDate = istRange(params.from, params.to);
+    if (invoiceDate) where.invoiceDate = invoiceDate;
+    return where;
+  }
+
+  listInvoices(request: TenantRequest, params: InvoiceListParams & { page: number; pageSize: number; sortBy?: InvoiceSortField; sortDirection?: 'asc' | 'desc' }) {
+    const where = this.invoiceWhere(request.tenantContext.organizationId, params);
+    const direction = params.sortDirection ?? 'desc';
+    const orderBy: Prisma.SalesInvoiceOrderByWithRelationInput[] = params.sortBy
+      ? [{ [params.sortBy]: direction }, { createdAt: 'desc' }]
+      : [{ createdAt: 'desc' }];
     return this.prisma.$transaction([
       this.prisma.salesInvoice.count({ where }),
       this.prisma.salesInvoice.findMany({
         where,
-        include: { customer: { select: { name: true } }, lines: true, payments: true },
-        orderBy: { createdAt: 'desc' },
+        include: { customer: { select: { name: true, phone: true } }, lines: true, payments: true },
+        orderBy,
         skip: (params.page - 1) * params.pageSize,
         take: params.pageSize,
       }),
     ]);
+  }
+
+  /** CSV rows for the invoice list filters (max 10,000), audited as an export. */
+  async exportInvoices(request: TenantRequest, params: InvoiceListParams) {
+    const orgId = request.tenantContext.organizationId;
+    const rows = await this.prisma.salesInvoice.findMany({
+      where: this.invoiceWhere(orgId, params),
+      include: { customer: { select: { name: true, gstin: true } }, payments: true },
+      orderBy: { invoiceDate: 'desc' },
+      take: 10_000,
+    });
+    await this.audit.record({
+      event: 'EXPORT_GENERATED',
+      organizationId: orgId,
+      actorUserId: request.principal.userId,
+      entityType: 'SalesInvoice',
+      details: { report: 'sales-invoices', rows: rows.length, ...params },
+    });
+    return {
+      headers: ['Invoice', 'Date', 'Customer', 'GSTIN', 'Status', 'Taxable', 'CGST', 'SGST', 'IGST', 'Discount', 'Round off', 'Total', 'Paid', 'Credit open', 'Returned', 'Tenders'],
+      rows: rows.map((i) => [
+        i.invoiceNumber,
+        i.invoiceDate,
+        i.customer?.name ?? i.walkInName ?? 'Walk-in',
+        i.customer?.gstin ?? '',
+        i.status,
+        i.taxableValue,
+        i.cgstAmount,
+        i.sgstAmount,
+        i.igstAmount,
+        i.discountAmount,
+        i.roundOff,
+        i.total,
+        i.paidAmount,
+        i.creditAmount,
+        i.returnedAmount,
+        i.payments.map((p) => `${p.method} ${p.amount.toFixed(2)}`).join('; '),
+      ]),
+    };
+  }
+
+  /** KPI strip for the sales history filters: count, gross, credit outstanding, returns, average bill. */
+  async invoiceSummary(request: TenantRequest, params: InvoiceListParams) {
+    const orgId = request.tenantContext.organizationId;
+    const where = this.invoiceWhere(orgId, params);
+    const active: Prisma.SalesInvoiceWhereInput = { AND: [where, { status: { not: 'CANCELLED' } }] };
+    const [agg, cancelled] = await Promise.all([
+      this.prisma.salesInvoice.aggregate({ where: active, _count: true, _sum: { total: true, creditAmount: true, returnedAmount: true, discountAmount: true } }),
+      this.prisma.salesInvoice.count({ where: { AND: [where, { status: 'CANCELLED' }] } }),
+    ]);
+    const total = agg._sum.total ? toPaise(agg._sum.total) : 0n;
+    return {
+      invoices: agg._count,
+      cancelled,
+      gross: major(total),
+      creditOutstanding: major(agg._sum.creditAmount ? toPaise(agg._sum.creditAmount) : 0n),
+      returned: major(agg._sum.returnedAmount ? toPaise(agg._sum.returnedAmount) : 0n),
+      discount: major(agg._sum.discountAmount ? toPaise(agg._sum.discountAmount) : 0n),
+      averageBill: agg._count > 0 ? major(total / BigInt(agg._count)) : '0.00',
+    };
+  }
+
+  /**
+   * Cancels an invoice raised in error (wrong items or party) before it is
+   * reported in GSTR-1: only untouched invoices — no returns and no later
+   * receipts — from the current month. Stock goes back to the original
+   * batches and the sale's journal is reversed.
+   */
+  async cancelInvoice(request: TenantRequest, invoiceId: string, reason: string) {
+    const orgId = request.tenantContext.organizationId;
+    const exists = await this.prisma.salesInvoice.findFirst({ where: { id: invoiceId, organizationId: orgId }, select: { id: true } });
+    if (!exists) throw NotFound('Invoice not found');
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "SalesInvoice" WHERE id = ${invoiceId} FOR UPDATE`;
+      const invoice = await tx.salesInvoice.findUniqueOrThrow({
+        where: { id: invoiceId },
+        include: { lines: { include: { batchAllocations: true } }, payments: true, returns: { select: { id: true } } },
+      });
+      if (invoice.status !== 'POSTED' || invoice.returns.length > 0) {
+        throw Conflict('STATE_TRANSITION_INVALID', `Invoice ${invoice.invoiceNumber} has returns or is already cancelled; raise a sales return instead`);
+      }
+      const tendered = invoice.payments.filter((p) => p.method !== 'CREDIT').reduce((s, p) => s + toPaise(p.amount), 0n);
+      if (tendered !== toPaise(invoice.paidAmount)) {
+        throw Conflict('STATE_TRANSITION_INVALID', `Receipts were recorded against ${invoice.invoiceNumber} after billing; refund them through a sales return`);
+      }
+      const ym = (d: Date) => new Date(d.getTime() + 5.5 * 3_600_000).toISOString().slice(0, 7);
+      if (ym(invoice.invoiceDate) !== ym(new Date())) {
+        throw Conflict('STATE_TRANSITION_INVALID', 'Only invoices from the current month can be cancelled; earlier months may already be filed in GSTR-1 — use a sales return (credit note)');
+      }
+
+      for (const line of invoice.lines) {
+        for (const a of line.batchAllocations) {
+          await this.inventory.applyStockDelta(tx, {
+            organizationId: orgId,
+            batchId: a.batchId,
+            warehouseId: invoice.warehouseId,
+            delta: Number(a.quantity),
+            actorUserId: request.principal.userId,
+            movementType: 'SALE_CANCELLED_IN',
+            reason: `Cancelled ${invoice.invoiceNumber}: ${reason}`,
+            sourceDocument: 'SALES_INVOICE',
+            sourceDocumentId: invoice.id,
+          });
+        }
+      }
+
+      let reversalNumber: string | null = null;
+      if (invoice.journalEntryId) {
+        const entry = await tx.journalEntry.findUniqueOrThrow({ where: { id: invoice.journalEntryId }, include: { lines: true } });
+        const reversal = await this.accounting.postJournalEntry(
+          request,
+          orgId,
+          {
+            date: new Date(),
+            memo: `Cancellation of ${invoice.invoiceNumber}: ${reason}`,
+            sourceType: 'JOURNAL_REVERSAL',
+            sourceId: entry.id,
+            lines: entry.lines.map((l) => ({ accountId: l.accountId, debit: l.credit.toFixed(2), credit: l.debit.toFixed(2) })),
+          },
+          tx,
+        );
+        await tx.journalEntry.update({ where: { id: entry.id }, data: { reversedById: reversal.id } });
+        reversalNumber = reversal.entryNumber;
+      }
+
+      await tx.salesInvoice.update({
+        where: { id: invoice.id },
+        data: { status: 'CANCELLED', creditAmount: '0', cancelledAt: new Date(), cancelledById: request.principal.userId, cancelReason: reason },
+      });
+      return { invoiceNumber: invoice.invoiceNumber, total: invoice.total.toFixed(2), reversalNumber };
+    });
+
+    await this.audit.record({
+      event: 'SALES_INVOICE_CANCELLED',
+      organizationId: orgId,
+      actorUserId: request.principal.userId,
+      entityType: 'SalesInvoice',
+      entityId: invoiceId,
+      details: { ...result, reason },
+    });
+    return this.getInvoice(request, invoiceId);
+  }
+
+  // ── Held (parked) POS bills ────────────────────────────────────────────────
+
+  listHeldBills(request: TenantRequest) {
+    const { organizationId, branchId } = request.tenantContext;
+    return this.prisma.heldBill.findMany({
+      where: { organizationId, ...(branchId ? { branchId } : {}) },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
+  async holdBill(request: TenantRequest, data: { label: string; customerId?: string | null; itemCount: number; total: string; payload: Record<string, unknown> }) {
+    const { organizationId, branchId } = request.tenantContext;
+    const open = await this.prisma.heldBill.count({ where: { organizationId, ...(branchId ? { branchId } : {}) } });
+    if (open >= 20) throw Conflict('PLAN_LIMIT_REACHED', 'Up to 20 bills can be on hold per branch. Resume or discard one first.');
+    return this.prisma.heldBill.create({
+      data: {
+        organizationId,
+        branchId: branchId ?? null,
+        label: data.label,
+        customerId: data.customerId ?? null,
+        itemCount: data.itemCount,
+        total: data.total,
+        payload: data.payload as Prisma.InputJsonValue,
+        createdById: request.principal.userId,
+      },
+    });
+  }
+
+  async deleteHeldBill(request: TenantRequest, id: string) {
+    const deleted = await this.prisma.heldBill.deleteMany({ where: { id, organizationId: request.tenantContext.organizationId } });
+    if (deleted.count === 0) throw NotFound('Held bill not found');
   }
 
   async getInvoice(request: TenantRequest, invoiceId: string) {
@@ -645,18 +853,55 @@ export class SalesService {
     });
   }
 
-  listReturns(request: TenantRequest, params: { page: number; pageSize: number }) {
-    const orgId = request.tenantContext.organizationId;
+  listReturns(request: TenantRequest, params: { page: number; pageSize: number; search?: string; from?: string; to?: string }) {
+    const where: Prisma.SalesReturnWhereInput = { organizationId: request.tenantContext.organizationId };
+    const createdAt = istRange(params.from, params.to);
+    if (createdAt) where.createdAt = createdAt;
+    if (params.search) {
+      where.OR = [
+        { returnNumber: { contains: params.search, mode: 'insensitive' } },
+        { reason: { contains: params.search, mode: 'insensitive' } },
+        { invoice: { invoiceNumber: { contains: params.search, mode: 'insensitive' } } },
+        { invoice: { customer: { name: { contains: params.search, mode: 'insensitive' } } } },
+      ];
+    }
     return this.prisma.$transaction([
-      this.prisma.salesReturn.count({ where: { organizationId: orgId } }),
+      this.prisma.salesReturn.count({ where }),
       this.prisma.salesReturn.findMany({
-        where: { organizationId: orgId },
+        where,
         include: { invoice: { select: { invoiceNumber: true, customer: { select: { name: true } }, walkInName: true } }, lines: true },
         orderBy: { createdAt: 'desc' },
         skip: (params.page - 1) * params.pageSize,
         take: params.pageSize,
       }),
     ]);
+  }
+
+  async exportReturns(request: TenantRequest, params: { search?: string; from?: string; to?: string }) {
+    const orgId = request.tenantContext.organizationId;
+    const [, rows] = await this.listReturns(request, { ...params, page: 1, pageSize: 10_000 });
+    await this.audit.record({
+      event: 'EXPORT_GENERATED',
+      organizationId: orgId,
+      actorUserId: request.principal.userId,
+      entityType: 'SalesReturn',
+      details: { report: 'sales-returns', rows: rows.length, ...params },
+    });
+    return {
+      headers: ['Return', 'Date', 'Invoice', 'Customer', 'Reason', 'Value', 'Tax', 'Credit adjusted', 'Refund method', 'Restocked'],
+      rows: rows.map((r) => [
+        r.returnNumber,
+        r.createdAt,
+        r.invoice.invoiceNumber,
+        r.invoice.customer?.name ?? r.invoice.walkInName ?? 'Walk-in',
+        r.reason,
+        r.refundTotal,
+        r.taxAmount,
+        r.creditAdjusted,
+        r.refundMethod ?? '',
+        r.lines.some((l) => l.restock) ? 'Yes' : 'No',
+      ]),
+    };
   }
 
   /** Customer receipt against outstanding credit (spec §16), FIFO over oldest invoices. */

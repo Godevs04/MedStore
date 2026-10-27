@@ -94,7 +94,7 @@ export const TAGS: Record<string, { name: string; description: string }> = {
     name: 'Compliance',
     description: 'Schedule H1 register, drug licences and expiry alerts, GST sales/purchase summaries and integration settings.',
   },
-  reports: { name: 'Reports', description: 'Dashboard KPIs, sales summary, stock valuation, receivable/payable aging, CSV exports and notifications.' },
+  reports: { name: 'Reports', description: 'Dashboard KPIs, sales summary, stock valuation, receivable/payable aging, CSV exports, notifications and global search.' },
   platform: {
     name: 'Platform admin',
     description: 'SaaS operator console for platform superadmins: tenants, plans and limits, subscriptions and usage.',
@@ -212,10 +212,23 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     returns: 'No content.',
     errors: ['INVALID_CREDENTIALS'],
   },
+  'Auth.resendEmailVerification': {
+    summary: 'Resend email verification',
+    description: 'Burns any outstanding verification links for the signed-in user and emails a fresh one, valid for 24 hours.',
+    returns: 'Confirmation that the email was queued.',
+    errors: ['STATE_TRANSITION_INVALID'],
+  },
+  'Auth.describeInvitation': {
+    summary: 'Preview an invitation',
+    description: 'Public lookup used by the accept screen: shows the workspace, role and invited email for a live invitation token, and whether the invitee already has an account.',
+    returns: 'Invitation summary with its expiry.',
+    errors: ['VALIDATION_ERROR'],
+  },
   'Auth.acceptInvitation': {
     summary: 'Accept an invitation',
-    description: 'Joins a workspace using an invitation token. Creates the account when the invitee is new (a password is then required).',
+    description: 'Joins a workspace using an invitation token. New invitees set their name and password; existing accounts confirm with their current password, which is never overwritten.',
     returns: 'The joined organization and the user ID.',
+    errors: ['VALIDATION_ERROR', 'INVALID_CREDENTIALS'],
   },
   'Auth.listSessions': {
     summary: 'List my sessions',
@@ -233,6 +246,17 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     summary: 'List audit events',
     description: 'Newest-first audit trail of the workspace: sign-ins, member and role changes, settings, postings and other sensitive actions, with the actor’s email.',
     returns: 'Paginated audit events.',
+  },
+  'Audit.filterOptions': {
+    summary: 'Audit filter options',
+    description: 'Distinct event codes, entity types and actors recorded for this workspace, used to populate the audit log filters.',
+    returns: '`{ events, entityTypes, actors }`.',
+  },
+  'Audit.export': {
+    summary: 'Export audit log (CSV)',
+    description: 'Downloads up to 10,000 audit events matching the same filters as the list endpoint. The export itself is audited.',
+    returns: 'CSV file.',
+    csv: true,
   },
 
   // ── Organizations ─────────────────────────────────────────────────────────
@@ -287,8 +311,46 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
   },
   'Organizations.updateBranch': {
     summary: 'Update a branch',
-    description: 'Changes name, code, address, contact or active status of a branch.',
+    description:
+      'Changes name, code, address, contact, GSTIN or active status of a branch. `isDefault: true` makes it the default branch. The default branch and the last active branch cannot be deactivated; a branch GSTIN must match the branch state and the organisation PAN.',
     returns: 'The updated branch.',
+    errors: ['VALIDATION_ERROR', 'DUPLICATE_ENTITY', 'STATE_TRANSITION_INVALID'],
+  },
+  'Organizations.createCounter': {
+    summary: 'Add a billing counter',
+    description: 'Creates a named POS counter (till) under a branch. Names are unique per branch, case-insensitively.',
+    returns: 'The new counter.',
+    errors: ['DUPLICATE_ENTITY'],
+    example: { name: 'Counter 2' },
+  },
+  'Organizations.updateCounter': {
+    summary: 'Rename or deactivate a billing counter',
+    description: 'Renames a counter or switches it on/off.',
+    returns: 'The updated counter.',
+    errors: ['DUPLICATE_ENTITY'],
+  },
+  'Organizations.subscriptionEvents': {
+    summary: 'Subscription history',
+    description: 'Plan changes and period renewals recorded on this workspace’s subscription, newest first.',
+    returns: 'Array of events with from/to plan names.',
+  },
+  'Organizations.setMemberBranches': {
+    summary: 'Assign branches to a member',
+    description: 'Replaces the set of branches a member can work in. Send an empty list to remove every assignment.',
+    returns: 'The membership with its branch assignments.',
+    example: { branchIds: ['00000000-0000-0000-0000-000000000000'] },
+  },
+  'Organizations.resendInvite': {
+    summary: 'Resend an invitation',
+    description: 'Burns any outstanding invitation tokens for a pending member and emails a fresh one (valid 7 days).',
+    returns: '`{ invitationEmailQueued }`.',
+    errors: ['STATE_TRANSITION_INVALID'],
+  },
+  'Organizations.revokeInvite': {
+    summary: 'Revoke an invitation',
+    description: 'Cancels a pending invitation: its tokens stop working and the membership is removed. Active members must be suspended instead.',
+    returns: 'No content.',
+    errors: ['STATE_TRANSITION_INVALID'],
   },
   'Organizations.createWarehouse': {
     summary: 'Add a warehouse to a branch',
@@ -298,8 +360,8 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
   },
   'Organizations.listMembers': {
     summary: 'List members',
-    description: 'Users of the workspace with role, status and branch assignments, plus pending invitations.',
-    returns: 'Array of memberships.',
+    description: 'Users of the workspace with role, status and branch assignments, plus pending invitations. Filter by `search` (name or email), `status`, `roleId` or `branchId`.',
+    returns: 'Paginated memberships plus `counts` by status.',
   },
   'Organizations.inviteMember': {
     summary: 'Invite a member',
@@ -324,8 +386,9 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
   },
   'Organizations.createRole': {
     summary: 'Create a custom role',
-    description: 'Creates a role from a set of permission keys, for example “Counter staff” or “Accountant”.',
+    description: 'Creates a role from a set of permission keys, for example “Counter staff” or “Accountant”. At least one permission is required and names are unique (case-insensitive).',
     returns: 'The new role.',
+    errors: ['DUPLICATE_ENTITY', 'VALIDATION_ERROR'],
   },
   'Organizations.roleTemplates': {
     summary: 'Role templates',
@@ -349,6 +412,25 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
   'Catalog.createCategory': { summary: 'Create a category', description: 'Adds a product category.', returns: 'The new category.', errors: ['DUPLICATE_ENTITY'] },
   'Catalog.listManufacturers': { summary: 'List manufacturers', description: 'Drug manufacturers / marketers.', returns: 'Array of manufacturers.' },
   'Catalog.createManufacturer': { summary: 'Create a manufacturer', description: 'Adds a manufacturer.', returns: 'The new manufacturer.', errors: ['DUPLICATE_ENTITY'] },
+  'Catalog.updateCategory': {
+    summary: 'Update a category',
+    description: 'Renames a category, edits its description or moves it under another parent. Loops in the tree are rejected.',
+    returns: 'The updated category.',
+    errors: ['DUPLICATE_ENTITY', 'VALIDATION_ERROR'],
+  },
+  'Catalog.deleteCategory': {
+    summary: 'Delete a category',
+    description: 'Deletes a category that has no products and no sub-categories.',
+    returns: 'No content.',
+    errors: ['STATE_TRANSITION_INVALID'],
+  },
+  'Catalog.updateManufacturer': { summary: 'Update a manufacturer', description: 'Edits a manufacturer’s name and contact details.', returns: 'The updated manufacturer.', errors: ['DUPLICATE_ENTITY'] },
+  'Catalog.deleteManufacturer': {
+    summary: 'Delete a manufacturer',
+    description: 'Deletes a manufacturer that no product references.',
+    returns: 'No content.',
+    errors: ['STATE_TRANSITION_INVALID'],
+  },
   'Catalog.listTaxRates': {
     summary: 'List GST rates',
     description: 'HSN-wise GST rates with effective dates. Sales and purchase invoices use the rate in force on the document date.',
@@ -372,7 +454,7 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
   },
   'Catalog.listProducts': {
     summary: 'List products',
-    description: 'Searchable product master with barcodes, prices, HSN and stock status.',
+    description: 'Searchable product master with barcodes, prices, HSN, resolved GST rate (`taxResolved`, `gstPercent`) and status. Pass `stockWarehouseId` (one warehouse) or `withStock=true` (all warehouses) to add saleable `onHand`, or `ids` (comma-separated) to fetch specific products.',
     returns: 'Paginated products.',
   },
   'Catalog.createProduct': {
@@ -402,6 +484,11 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     description: 'Finds existing products with a similar name, the same SKU or a shared barcode, before creating a new one.',
     returns: 'Possible duplicates with the reason for each match.',
   },
+  'Catalog.substitutes': {
+    summary: 'Generic substitutes',
+    description: 'Other active products with the same generic name, same strength first, then in-stock, then cheapest. Pass `warehouseId` to count stock in one warehouse.',
+    returns: '`{ generic, strength, items }` with price, manufacturer, `onHand` and `sameStrength` per product.',
+  },
   'Catalog.getProduct': { summary: 'Get a product', description: 'Full product record with barcodes and change history.', returns: 'The product.' },
   'Catalog.updateProduct': {
     summary: 'Update a product',
@@ -413,6 +500,17 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     summary: 'Deactivate a product',
     description: 'Hides the product from POS and purchasing while keeping its history and existing stock records.',
     returns: 'The updated product.',
+  },
+  'Catalog.reactivateProduct': {
+    summary: 'Reactivate a product',
+    description: 'Makes an inactive product available again in POS and purchasing. Recorded in product history and the audit log.',
+    returns: '`{ reactivated: true }`.',
+    errors: ['STATE_TRANSITION_INVALID'],
+  },
+  'Catalog.productHistory': {
+    summary: 'Product change history',
+    description: 'Up to 100 most recent changes (created, updated with before/after values, deactivated, reactivated) with the acting user’s name.',
+    returns: '`{ items: [{ changeType, details, createdAt, actorName }] }`.',
   },
 
   // ── Bulk import ───────────────────────────────────────────────────────────
@@ -428,20 +526,42 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
   },
 
   // ── Partners ──────────────────────────────────────────────────────────────
-  'Partners.listVendors': { summary: 'List vendors', description: 'Suppliers with GST registration, credit terms and status.', returns: 'Paginated vendors.' },
+  'Partners.listVendors': {
+    summary: 'List vendors',
+    description: 'Suppliers with GST registration, drug licence, credit terms and status. Search matches name, GSTIN, phone or contact. Pass `withBalances=true` to add `payable` (opening balance plus unpaid invoices), `overdue` and `openInvoices`.',
+    returns: 'Paginated vendors.',
+  },
   'Partners.createVendor': {
     summary: 'Create a vendor',
-    description: 'Adds a supplier. Registered vendors need a GSTIN whose state prefix matches the state code; input tax credit is only claimable from registered vendors.',
+    description: 'Adds a supplier. The GSTIN state prefix must match the state code and characters 3–12 must match the PAN; a supplier with a GSTIN cannot be UNREGISTERED. Bank account and IFSC go together. Drug licence (Form 20B/21B) number and expiry are recorded for purchase checks.',
     returns: 'The new vendor.',
     errors: ['DUPLICATE_ENTITY'],
   },
-  'Partners.getVendor': { summary: 'Get a vendor', description: 'Vendor details.', returns: 'The vendor.' },
-  'Partners.updateVendor': { summary: 'Update a vendor', description: 'Updates vendor details, credit terms or status.', returns: 'The updated vendor.' },
-  'Partners.listCustomers': { summary: 'List customers', description: 'Retail and wholesale customers with credit terms.', returns: 'Paginated customers.' },
+  'Partners.vendorProducts': {
+    summary: 'Products supplied by a vendor',
+    description: 'Products bought from this vendor on posted purchase invoices, ranked by spend, with quantity, free quantity, number of invoices and the latest rate paid.',
+    returns: 'Array of `{ productId, name, sku, mrp, quantity, freeQty, spend, invoices, lastRate, lastPurchased }`.',
+  },
+  'Partners.getVendor': { summary: 'Get a vendor', description: 'Vendor details with mapped products.', returns: 'The vendor.' },
+  'Partners.updateVendor': {
+    summary: 'Update a vendor',
+    description: 'Updates vendor details, licence, bank details, credit terms or status. The GSTIN, state and PAN checks run against the merged record.',
+    returns: 'The updated vendor.',
+  },
+  'Partners.listCustomers': {
+    summary: 'List customers',
+    description: 'Retail and wholesale customers with credit terms. Search matches name, phone, GSTIN or category. Pass `withBalances=true` to add `outstanding`, `overdue` (past the credit days) and `oldestDueDays`.',
+    returns: 'Paginated customers.',
+  },
   'Partners.createCustomer': {
     summary: 'Create a customer',
-    description: 'Adds a customer. Wholesale customers with a GSTIN get B2B tax invoices; credit limits are enforced at billing.',
+    description: 'Adds a customer. Wholesale customers with a GSTIN get B2B tax invoices; the GSTIN state prefix must match the state code. Credit limits are enforced at billing.',
     returns: 'The new customer.',
+  },
+  'Partners.customerTopProducts': {
+    summary: 'Customer top products',
+    description: 'What this customer buys most, net of returns and excluding cancelled invoices, ranked by value.',
+    returns: 'Array of `{ productId, name, quantity, value, bills, lastBought }`.',
   },
   'Partners.getCustomer': { summary: 'Get a customer', description: 'Customer details.', returns: 'The customer.' },
   'Partners.updateCustomer': { summary: 'Update a customer', description: 'Updates customer details, credit terms or status.', returns: 'The updated customer.' },
@@ -449,7 +569,7 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
   // ── Inventory ─────────────────────────────────────────────────────────────
   'Inventory.listBatches': {
     summary: 'List batches',
-    description: 'Batches with expiry, MRP, cost, status and on-hand quantity per warehouse. Filter by product, warehouse, status or expiry.',
+    description: 'Batches with expiry, MRP, cost, status and on-hand quantity per warehouse. Filter by batch id, product, warehouse, status, search (batch, product or SKU) or expiry range.',
     returns: 'Paginated batches.',
   },
   'Inventory.createBatch': {
@@ -471,9 +591,19 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     errors: ['INSUFFICIENT_STOCK', 'OVERSELL_BLOCKED'],
   },
   'Inventory.listTransfers': { summary: 'List stock transfers', description: 'Inter-warehouse transfers with their status.', returns: 'Paginated transfers.' },
+  'Inventory.getTransfer': {
+    summary: 'Get a stock transfer',
+    description: 'Transfer with its lines (product, batch, dispatched and received quantity), warehouse names, creator and the stock movements it produced.',
+    returns: 'The transfer.',
+  },
+  'Inventory.stockSummary': {
+    summary: 'Stock summary',
+    description: 'Product counts (active, in stock, out of stock, below reorder level), stock value at cost and MRP, quantity and value per batch status, and expired / expiring-in-30-days value. Optionally for one warehouse.',
+    returns: 'Summary object.',
+  },
   'Inventory.createTransfer': {
     summary: 'Create a stock transfer',
-    description: 'Dispatches batches from one warehouse to another. Stock leaves the source immediately and is in transit until received.',
+    description: 'Dispatches batches from one warehouse to another. Stock leaves the source immediately and is in transit until received. Expired batches cannot be transferred and each batch may appear once.',
     returns: 'The new transfer.',
     errors: ['INSUFFICIENT_STOCK', 'TRANSFER_QUANTITY_INVALID'],
   },
@@ -490,6 +620,17 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     errors: ['STATE_TRANSITION_INVALID'],
   },
   'Inventory.listCounts': { summary: 'List stock counts', description: 'Physical stock counts (cycle counts and stock-takes).', returns: 'Paginated counts.' },
+  'Inventory.countSheet': {
+    summary: 'Count sheet',
+    description: 'Every batch in a warehouse with its system quantity, rack location and cost, ordered by rack then product, to run a full stock-take. Pass `includeZero=true` to include batches with no stock.',
+    returns: '`{ warehouseId, items, truncated }`.',
+  },
+  'Inventory.cancelCount': {
+    summary: 'Cancel a stock count',
+    description: 'Cancels an unposted count with a reason. Stock is not changed.',
+    returns: 'The cancelled count.',
+    errors: ['STATE_TRANSITION_INVALID'],
+  },
   'Inventory.createCount': {
     summary: 'Create a stock count',
     description: 'Records counted quantities per batch for a warehouse. Variances against system stock are calculated but not posted yet.',
@@ -501,7 +642,12 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     returns: 'The posted count.',
     errors: ['STATE_TRANSITION_INVALID'],
   },
-  'Inventory.listAdjustments': { summary: 'List stock adjustments', description: 'Manual stock corrections with reasons.', returns: 'Paginated adjustments.' },
+  'Inventory.listAdjustments': { summary: 'List stock adjustments', description: 'Manual stock corrections with reasons and the acting user’s name.', returns: 'Paginated adjustments.' },
+  'Inventory.adjustmentSummary': {
+    summary: 'Adjustment summary',
+    description: 'Adjustment count, quantity and value at batch cost per reason, split into IN and OUT, for the filters given.',
+    returns: '`{ count, inValue, outValue, netValue, byReason }`.',
+  },
   'Inventory.adjustStock': {
     summary: 'Adjust stock',
     description: 'Increases or decreases a batch’s quantity with a reason (damage, breakage, correction). Decreases cannot take stock below zero.',
@@ -522,13 +668,25 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
   },
   'Inventory.expiryDashboard': {
     summary: 'Expiry dashboard',
-    description: 'Stock grouped into expired, expiring within 30/60/90 days and later, with quantities and cost value.',
-    returns: 'Expiry buckets with batches.',
+    description: 'Stock grouped into expired, expiring within 30/60/90/custom days and later. Each row and bucket carries value at cost and at MRP; `valueAtRisk` totals expired and ≤90-day stock.',
+    returns: 'Expiry buckets, bucket values, value at risk and batch rows.',
+  },
+  'Inventory.bulkExpiryWriteoff': {
+    summary: 'Write off expired stock',
+    description: 'Writes off every positive balance of the selected batches as `EXPIRY_WRITEOFF` adjustments (valued at cost) and blocks the batches from sale, for destruction under Drugs Rules 65(17). Saleable batches more than 30 days from expiry are refused. A note is required.',
+    returns: '`{ batches, lines, quantity, value, skipped }`.',
+    errors: ['INSUFFICIENT_STOCK'],
   },
   'Inventory.stockLedger': {
     summary: 'Stock ledger',
-    description: 'Every stock movement (receipt, sale, return, transfer, adjustment, count) with running balance. Filter by product, batch or warehouse.',
+    description: 'Every stock movement (receipt, sale, return, transfer, adjustment, count) with the acting user’s name. Filter by product, batch, warehouse, movement type, direction, user, date or `search` (batch, product or SKU).',
     returns: 'Paginated movements.',
+  },
+  'Inventory.exportLedger': {
+    summary: 'Export stock ledger (CSV)',
+    description: 'Up to 10,000 movements matching the ledger filters, with warehouse and user names. Recorded in the audit log.',
+    returns: 'CSV file.',
+    csv: true,
   },
   'Inventory.reconcile': {
     summary: 'Reconcile stock',
@@ -537,7 +695,11 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
   },
 
   // ── Purchasing ────────────────────────────────────────────────────────────
-  'Purchasing.listPOs': { summary: 'List purchase orders', description: 'Purchase orders with vendor, totals and status.', returns: 'Paginated purchase orders.' },
+  'Purchasing.listPOs': {
+    summary: 'List purchase orders',
+    description: 'Purchase orders with vendor, lines and status. Filter by `status` (comma-separated), `vendorId` or `search` on the PO number.',
+    returns: 'Paginated purchase orders.',
+  },
   'Purchasing.createPO': {
     summary: 'Create a purchase order',
     description: 'Drafts an order to a vendor with products, quantities and expected rates.',
@@ -549,21 +711,48 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     returns: 'The updated purchase order.',
     errors: ['STATE_TRANSITION_INVALID'],
   },
-  'Purchasing.listGRNs': { summary: 'List goods receipts', description: 'Goods receipt notes (GRNs). Use `uninvoiced=true` to find receipts awaiting a vendor bill.', returns: 'Paginated goods receipts.' },
+  'Purchasing.listGRNs': {
+    summary: 'List goods receipts',
+    description: 'Goods receipt notes (GRNs). Use `uninvoiced=true` to find receipts awaiting a vendor bill; filter by `vendorId` or `search` on the GRN number.',
+    returns: 'Paginated goods receipts.',
+  },
   'Purchasing.createGRN': {
     summary: 'Receive goods (GRN)',
     description: 'Books received stock into a warehouse, creating batches with expiry, MRP and cost. Updates the linked PO to partially received or received.',
     returns: 'The goods receipt with created batches.',
     errors: ['RECEIPT_QUANTITY_MISMATCH', 'BATCH_INELIGIBLE', 'DUPLICATE_ENTITY'],
   },
-  'Purchasing.listInvoices': { summary: 'List purchase invoices', description: 'Vendor bills with tax breakup, paid and outstanding amounts.', returns: 'Paginated purchase invoices.' },
+  'Purchasing.listInvoices': {
+    summary: 'List purchase invoices',
+    description: 'Vendor bills with tax breakup, paid and outstanding amounts. Filter by `status` (comma-separated), `vendorId`, `search` on the invoice number, or `id` for a single invoice (deep links from the ledger and global search).',
+    returns: 'Paginated purchase invoices.',
+  },
+  'Purchasing.checkDuplicateInvoice': {
+    summary: 'Check for a duplicate supplier bill',
+    description: 'Looks for an invoice with the same number from the same vendor, ignoring case, so the bill can be flagged before it is posted twice.',
+    returns: '`{ duplicate, invoice }` where `invoice` is the existing bill or null.',
+  },
+  'Purchasing.summary': {
+    summary: 'Purchasing summary',
+    description: 'Draft and open purchase orders, receipts awaiting a bill, payables (total, overdue, due in 7 days) and this IST month’s purchases with input GST.',
+    returns: 'Summary counts and amounts.',
+  },
+  'Purchasing.reorderSuggestions': {
+    summary: 'Reorder suggestions',
+    description: 'Active products at or below their reorder level (saleable, unexpired stock), net of open PO quantities. The suggested quantity tops up to the max stock level (or twice the reorder level), rounded up to the minimum order quantity, with the last vendor and rate, 30-day sales velocity and days of cover.',
+    returns: '`{ items }` sorted by days of cover.',
+  },
   'Purchasing.createPurchaseInvoice': {
     summary: 'Record a purchase invoice',
     description: 'Records a vendor bill against goods receipts and posts it to the books (inventory, input GST, vendor payable). CGST+SGST or IGST is chosen from the vendor’s state.',
     returns: 'The purchase invoice.',
     errors: ['TAX_RATE_MISSING', 'DUPLICATE_ENTITY', 'PERIOD_LOCKED'],
   },
-  'Purchasing.listPayments': { summary: 'List vendor payments', description: 'Payments made to vendors with their invoice allocations.', returns: 'Paginated payments.' },
+  'Purchasing.listPayments': {
+    summary: 'List vendor payments',
+    description: 'Payments made to vendors with their invoice allocations. Filter by `vendorId` or `search` on the payment number or UTR/cheque reference.',
+    returns: 'Paginated payments.',
+  },
   'Purchasing.recordPayment': {
     summary: 'Pay a vendor',
     description: 'Records a cash, bank or UPI payment and allocates it to outstanding purchase invoices.',
@@ -575,7 +764,11 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     description: 'Opening balance, invoices, payments and returns for a vendor with running balance.',
     returns: 'Ledger entries and closing balance.',
   },
-  'Purchasing.listReturns': { summary: 'List purchase returns', description: 'Debit notes for stock returned to vendors.', returns: 'Paginated purchase returns.' },
+  'Purchasing.listReturns': {
+    summary: 'List purchase returns',
+    description: 'Debit notes for stock returned to vendors. Filter by `vendorId` or `search` on the number or reason.',
+    returns: 'Paginated purchase returns.',
+  },
   'Purchasing.createPurchaseReturn': {
     summary: 'Return goods to a vendor',
     description: 'Removes stock (e.g. expired or damaged batches) and raises a debit note that reduces the vendor payable and reverses input GST.',
@@ -584,7 +777,43 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
   },
 
   // ── Sales & POS ───────────────────────────────────────────────────────────
-  'Sales.listInvoices': { summary: 'List sales invoices', description: 'Invoices with customer, totals, payments and return status.', returns: 'Paginated invoices.' },
+  'Sales.listInvoices': {
+    summary: 'List sales invoices',
+    description: 'Invoices with customer, totals, payments and return status. Filter by date range, status, payment method or open credit; sort by date, total, number or credit.',
+    returns: 'Paginated invoices.',
+  },
+  'Sales.exportInvoices': {
+    summary: 'Export sales invoices (CSV)',
+    description: 'Invoices matching the list filters with GST split, tenders, open credit and returns. Up to 10,000 rows; recorded in the audit log.',
+    returns: 'CSV file.',
+    csv: true,
+  },
+  'Sales.exportReturns': {
+    summary: 'Export sales returns (CSV)',
+    description: 'Credit notes matching the returns filters. Up to 10,000 rows; recorded in the audit log.',
+    returns: 'CSV file.',
+    csv: true,
+  },
+  'Sales.invoiceSummary': {
+    summary: 'Sales history KPIs',
+    description: 'Totals for the same filters as the invoice list: invoice count, gross, open credit, returns, discount and average bill. Cancelled invoices are counted separately.',
+    returns: 'Summary figures as decimal strings.',
+  },
+  'Sales.cancelInvoice': {
+    summary: 'Cancel an invoice',
+    description:
+      'Cancels an invoice raised in error. Allowed only for current-month invoices with no returns and no receipts recorded after billing; otherwise use a sales return (credit note). Stock returns to the original batches and the sale journal is reversed. Requires a reason.',
+    returns: 'The cancelled invoice.',
+    errors: ['STATE_TRANSITION_INVALID', 'PERIOD_LOCKED'],
+  },
+  'Sales.listHeldBills': { summary: 'List held bills', description: 'Bills parked at the POS for the current branch, newest first.', returns: 'Held bills with label, item count, total and cart payload.' },
+  'Sales.holdBill': {
+    summary: 'Hold a bill',
+    description: 'Parks the current POS cart so the cashier can serve another customer. Up to 20 per branch.',
+    returns: 'The held bill.',
+    errors: ['PLAN_LIMIT_REACHED'],
+  },
+  'Sales.deleteHeldBill': { summary: 'Discard a held bill', description: 'Removes a held bill after it is resumed or abandoned.', returns: 'No content.' },
   'Sales.createInvoice': {
     summary: 'Create a sales invoice (POS bill)',
     description:
@@ -605,7 +834,7 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     description: 'Full invoice for viewing or printing: lines, batches, tax, payments, returns and the organization’s print details.',
     returns: 'The invoice.',
   },
-  'Sales.listReturns': { summary: 'List sales returns', description: 'Credit notes for goods returned by customers.', returns: 'Paginated sales returns.' },
+  'Sales.listReturns': { summary: 'List sales returns', description: 'Credit notes for goods returned by customers. Filter by date range or search by return number, invoice, customer or reason.', returns: 'Paginated sales returns.' },
   'Sales.createReturn': {
     summary: 'Create a sales return',
     description: 'Takes back invoice lines, optionally restocking the original batches, refunds or credits the customer and reverses revenue, GST and cost of goods.',
@@ -655,6 +884,23 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     description: 'Net sales (after returns), cost of goods sold, gross profit, expenses and net profit for a period.',
     returns: 'P&L sections and totals.',
   },
+  'Accounting.profitAndLossTrend': {
+    summary: 'Monthly profit trend',
+    description: 'Income, expenses and net profit per IST month between `from` and `to` (defaults to the current financial year; at most 24 months).',
+    returns: 'Array of `{ month, income, expenses, net }`.',
+  },
+  'Accounting.profitAndLossExport': {
+    summary: 'Export profit and loss (CSV)',
+    description: 'Downloads the profit and loss statement for the period with section totals, net sales, gross profit and net profit.',
+    returns: 'CSV file.',
+    csv: true,
+  },
+  'Accounting.balanceSheetExport': {
+    summary: 'Export balance sheet (CSV)',
+    description: 'Downloads assets, liabilities and equity (including current-year profit) as of `asOf`.',
+    returns: 'CSV file.',
+    csv: true,
+  },
   'Accounting.balanceSheet': { summary: 'Balance sheet', description: 'Assets, liabilities and equity (including current-year profit) as of a date.', returns: 'Balance sheet sections and totals.' },
   'Accounting.listPeriods': { summary: 'Accounting periods', description: 'Monthly periods and their lock status.', returns: 'Array of periods.' },
   'Accounting.setPeriodLock': {
@@ -662,7 +908,16 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     description: 'Locking a month blocks any posting dated in it, for example after GST returns are filed.',
     returns: 'The updated period.',
   },
-  'Expense.listExpenses': { summary: 'List expenses', description: 'Operating expenses such as rent, salaries and utilities.', returns: 'Paginated expenses.' },
+  'Expense.summary': {
+    summary: 'Expense breakdown',
+    description: 'Total spend for the period grouped by category, payment method and month, for charts.',
+    returns: '`{ total, count, byCategory, byMethod, byMonth }`.',
+  },
+  'Expense.listExpenses': {
+    summary: 'List expenses',
+    description: 'Operating expenses such as rent, salaries and utilities. Filter by `category`, `method`, `search` (payee, number, notes) and `from`/`to`.',
+    returns: 'Paginated expenses with the filtered `total`.',
+  },
   'Expense.createExpense': {
     summary: 'Record an expense',
     description: 'Records an expense paid by cash, bank or UPI and posts it to the selected expense account.',
@@ -685,6 +940,11 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
   'Compliance.listLicences': { summary: 'List licences', description: 'Drug licences, GST and other registrations with validity dates.', returns: 'Array of licences.' },
   'Compliance.createLicence': { summary: 'Add a licence', description: 'Records a licence number, issuing authority and validity.', returns: 'The new licence.' },
   'Compliance.updateLicence': { summary: 'Update a licence', description: 'Updates licence details, for example after renewal.', returns: 'The updated licence.' },
+  'Compliance.licenceOverview': {
+    summary: 'Licence overview',
+    description: 'All licences with days to expiry, plus warnings for incomplete sets (for example Form 20 without Form 21, or no drug sale licence).',
+    returns: '`{ items, warnings, expired, expiringSoon }`.',
+  },
   'Compliance.licenceAlerts': { summary: 'Licence alerts', description: 'Licences expired or expiring within 60 days.', returns: 'Array of alerts.' },
   'Compliance.gstSalesSummary': {
     summary: 'GST sales summary',
@@ -697,6 +957,18 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     description: 'Inward supplies with input tax per vendor. Only vendors with a GSTIN are ITC-eligible; ineligible tax is reported separately.',
     returns: 'Summary with eligible and ineligible input tax.',
   },
+  'Compliance.gstr1Export': {
+    summary: 'GSTR-1 JSON for a month',
+    description:
+      'Builds GSTR-1 for `period` (YYYY-MM) in the GSTN offline-tool layout: B2B, B2CL (unregistered inter-state above ₹1 lakh), B2CS, CDNR, HSN summary and document series, plus a `summary` block. Requires the organisation GSTIN.',
+    returns: 'GSTR-1 JSON ready to upload through the offline tool.',
+  },
+  'Compliance.gstr3b': {
+    summary: 'GSTR-3B summary for a month',
+    description:
+      'Table 3.1 outward supplies, 3.2 inter-state supplies to unregistered persons, table 4 ITC (eligible, reversed by debit notes, ineligible) and tax payable after set-off in the Rule 88A order, with credit carried forward.',
+    returns: 'GSTR-3B figures for the period.',
+  },
   'Compliance.listIntegrations': {
     summary: 'List integrations',
     description: 'E-invoice, e-way bill, messaging, email and payment-gateway settings. Unconnected integrations are reported as such, never as working.',
@@ -705,6 +977,21 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
   'Compliance.upsertIntegration': { summary: 'Configure an integration', description: 'Creates or updates the settings of one integration provider.', returns: 'The integration settings.' },
 
   // ── Reports ───────────────────────────────────────────────────────────────
+  'Reports.dashboardTrend': {
+    summary: 'Dashboard sales trend',
+    description: 'Daily sales for the last `days` (7–90, default 14) IST days, zero-filled, and the five best-selling products this month.',
+    returns: '`{ days: [{ date, invoices, revenue }], topProducts }`.',
+  },
+  'Reports.paymentMix': {
+    summary: 'Payment mix',
+    description: 'Amount collected at the counter by tender (cash, UPI, card, bank) plus credit extended, for an optional date range.',
+    returns: '`{ total, methods: [{ method, amount, count, share }] }` — `share` is a percentage.',
+  },
+  'Reports.expiryValue': {
+    summary: 'Expiry value at risk',
+    description: 'On-hand stock grouped by days to expiry (expired, 0–30, 31–60, 61–90, 91–180) with value at purchase cost and at MRP.',
+    returns: 'Buckets with batch count, quantity, cost and MRP value, plus totals.',
+  },
   'Reports.dashboard': {
     summary: 'Dashboard KPIs',
     description: 'Today and month-to-date sales (net of returns), receivables, payables, low stock, near-expiry stock and licence alerts.',
@@ -714,6 +1001,11 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     summary: 'Sales summary',
     description: 'Net sales, cost of goods and gross margin (matching the P&L), tender mix and top products for a period.',
     returns: 'Sales summary.',
+  },
+  'Reports.deadStock': {
+    summary: 'Dead and slow-moving stock',
+    description: 'Products on hand with no sale in the last `days` (dead) or more than 180 days of cover at the current sales rate (slow), ranked by value at cost. Optional `warehouseId`.',
+    returns: '`{ days, cutoff, summary, items }`.',
   },
   'Reports.stockValuation': { summary: 'Stock valuation', description: 'On-hand quantity and value at cost per product and warehouse.', returns: 'Valuation rows and total.' },
   'Reports.aging': { summary: 'Receivable and payable aging', description: 'Outstanding customer and vendor balances bucketed by age (0–30, 31–60, 61–90, 90+ days).', returns: 'Aging buckets per party.' },
@@ -730,6 +1022,13 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
   },
   'Reports.listNotifications': { summary: 'List notifications', description: 'In-app notifications for the workspace, newest first.', returns: 'Paginated notifications.' },
   'Reports.markRead': { summary: 'Mark notification read', description: 'Marks one notification as read.', returns: 'The updated notification.' },
+  'Reports.markAllRead': { summary: 'Mark all notifications read', description: 'Marks every unread notification in the workspace as read.', returns: '`{ updated }` — how many notifications changed.' },
+  'Search.search': {
+    summary: 'Global search',
+    description:
+      'Command-palette search across products (name, generic, SKU, barcode), customers, vendors, sales and purchase invoices, and batch numbers. Each group is included only when the caller can read it.',
+    returns: 'Up to `limit` hits per group, each with `type`, `title`, `subtitle` and an app `href`.',
+  },
 
   // ── Platform admin ────────────────────────────────────────────────────────
   'Platform.overview': {
@@ -743,7 +1042,7 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     description: 'Changes a plan’s limits (−1 means unlimited), included modules and API access. Applies to every tenant on the plan.',
     returns: 'The updated plan.',
   },
-  'Platform.listTenants': { summary: 'List tenants', description: 'Workspaces with plan, subscription status, owner and usage. Search by name or slug.', returns: 'Paginated tenants.' },
+  'Platform.listTenants': { summary: 'List tenants', description: 'Workspaces with plan, subscription status, owner and usage. Search by name, slug or GSTIN; filter by `status`, `planKey` or `suspended`.', returns: 'Paginated tenants.' },
   'Platform.assignSubscription': {
     summary: 'Assign a subscription',
     description: 'Sets a tenant’s plan, status and period length (1–1095 days), with an audit note.',

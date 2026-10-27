@@ -1,12 +1,15 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import {
   paginationQuerySchema,
   productCreateSchema,
   productQuerySchema,
+  substitutesQuerySchema,
   categoryCreateSchema,
+  categoryUpdateSchema,
   manufacturerCreateSchema,
+  manufacturerUpdateSchema,
   taxRateVersionCreateSchema,
 } from '@medicore/validation';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
@@ -48,6 +51,23 @@ export class CatalogController {
     return this.catalog.createCategory(req, dto);
   }
 
+  @Patch('categories/:id')
+  @RequirePermissions('categories.manage')
+  updateCategory(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(categoryUpdateSchema)) dto: z.infer<typeof categoryUpdateSchema>,
+    @Req() req: TenantRequest,
+  ) {
+    return this.catalog.updateCategory(req, id, dto);
+  }
+
+  @Delete('categories/:id')
+  @RequirePermissions('categories.manage')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteCategory(@Param('id') id: string, @Req() req: TenantRequest) {
+    await this.catalog.deleteCategory(req, id);
+  }
+
   @Get('manufacturers')
   @RequirePermissions('products.read')
   listManufacturers(@Req() req: TenantRequest) {
@@ -61,6 +81,23 @@ export class CatalogController {
     @Req() req: TenantRequest,
   ) {
     return this.catalog.createManufacturer(req, dto);
+  }
+
+  @Patch('manufacturers/:id')
+  @RequirePermissions('categories.manage')
+  updateManufacturer(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(manufacturerUpdateSchema)) dto: z.infer<typeof manufacturerUpdateSchema>,
+    @Req() req: TenantRequest,
+  ) {
+    return this.catalog.updateManufacturer(req, id, dto);
+  }
+
+  @Delete('manufacturers/:id')
+  @RequirePermissions('categories.manage')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteManufacturer(@Param('id') id: string, @Req() req: TenantRequest) {
+    await this.catalog.deleteManufacturer(req, id);
   }
 
   // ── Tax configuration ──────────────────────────────────────────────────────
@@ -111,6 +148,11 @@ export class CatalogController {
       search: filters.search,
       categoryId: filters.categoryId,
       status: filters.status,
+      prescriptionClass: filters.prescriptionClass,
+      manufacturerId: filters.manufacturerId,
+      stockWarehouseId: filters.stockWarehouseId,
+      withStock: filters.withStock,
+      ids: filters.ids,
       sortBy: pagination.sortBy,
       sortDirection: pagination.sortDirection,
     });
@@ -142,6 +184,22 @@ export class CatalogController {
     return this.catalog.findDuplicates(req, body);
   }
 
+  @Get('products/:productId/substitutes')
+  @RequirePermissions('products.read')
+  substitutes(
+    @Param('productId') productId: string,
+    @Query(new ZodValidationPipe(substitutesQuerySchema)) query: z.infer<typeof substitutesQuerySchema>,
+    @Req() req: TenantRequest,
+  ) {
+    return this.catalog.substitutes(req, productId, query.warehouseId);
+  }
+
+  @Get('products/:productId/history')
+  @RequirePermissions('products.read')
+  productHistory(@Param('productId') productId: string, @Req() req: TenantRequest) {
+    return this.catalog.productHistory(req, productId);
+  }
+
   @Get('products/:productId')
   @RequirePermissions('products.read')
   getProduct(@Param('productId') productId: string, @Req() req: TenantRequest) {
@@ -171,5 +229,11 @@ export class CatalogController {
   @RequirePermissions('products.deactivate')
   deactivateProduct(@Param('productId') productId: string, @Req() req: TenantRequest) {
     return this.catalog.deactivateProduct(req, productId);
+  }
+
+  @Put('products/:productId/reactivate')
+  @RequirePermissions('products.deactivate')
+  reactivateProduct(@Param('productId') productId: string, @Req() req: TenantRequest) {
+    return this.catalog.reactivateProduct(req, productId);
   }
 }

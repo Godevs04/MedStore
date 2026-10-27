@@ -8,6 +8,8 @@ import { PrismaService } from '../prisma/prisma.module.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AccountLocked, Conflict, Forbidden, InvalidCredentials, NotFound, Unauthenticated } from '../common/app-exception.js';
 import { SYSTEM_ROLE_PERMISSIONS } from '../rbac/permission-catalog.js';
+import { isPlatformPermission } from '../rbac/permission-catalog.js';
+import { loadEnv } from '../config/env.js';
 import { EMAIL_SENDER, type EmailSender } from './email.port.js';
 
 const ARGON_OPTS: argon2.Options = {
@@ -24,6 +26,14 @@ function hashToken(token: string): string {
 function newToken(): string {
   return randomBytes(32).toString('base64url');
 }
+
+function appLink(path: string, token: string): string {
+  const env = loadEnv();
+  const origin = (env.WEB_APP_URL ?? env.CORS_ORIGIN.split(',')[0] ?? '').trim().replace(/\/$/, '');
+  return `${origin}${path}?token=${encodeURIComponent(token)}`;
+}
+
+const INVITATION_INVALID = () => new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Invitation is invalid or has expired' });
 
 @Injectable()
 export class AuthService {
@@ -129,8 +139,11 @@ export class AuthService {
         });
       }
 
-      await tx.branch.create({
+      const branch = await tx.branch.create({
         data: { organizationId: org.id, name: 'Main Branch', isDefault: true },
+      });
+      await tx.warehouse.create({
+        data: { organizationId: org.id, branchId: branch.id, name: 'Main Store', code: 'MAIN', isDefault: true },
       });
 
       await tx.organizationSettings.create({
@@ -259,13 +272,14 @@ export class AuthService {
     });
     if (!user) throw Unauthenticated('User no longer exists');
     const allPermissionKeys = user.memberships.some((m) => m.isOwner)
-      ? (await this.prisma.permission.findMany({ select: { key: true } })).map((p) => p.key)
+      ? (await this.prisma.permission.findMany({ select: { key: true } })).map((p) => p.key).filter((k) => !isPlatformPermission(k))
       : [];
 
     return {
       id: user.id,
       email: user.email,
       fullName: user.fullName,
+      emailVerified: user.emailVerifiedAt !== null,
       isPlatformSuperadmin: user.isPlatformSuperadmin,
       memberships: user.memberships.map((m) => ({
         organizationId: m.organization.id,
@@ -324,7 +338,7 @@ export class AuthService {
       await this.email.send({
         to: user.email,
         subject: 'MediCore password reset',
-        body: `Reset your password with this single-use token (valid 1 hour):\n\n${token}`,
+        body: `Reset your MediCore password (link valid for 1 hour, single use):\n\n${appLink('/reset-password', token)}\n\nIf you did not ask for this, ignore this email — your password stays the same.`,
       });
       await this.audit.record({
         event: 'PASSWORD_RESET_REQUESTED',
@@ -381,6 +395,24 @@ export class AuthService {
       this.prisma.authToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
     ]);
     await this.audit.record({ event: 'EMAIL_VERIFIED', actorUserId: record.userId });
+  }
+
+  /** Burns outstanding verification tokens and emails a fresh 24-hour link. */
+  async resendEmailVerification(userId: string): Promise<{ queued: true; verificationToken?: string }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw Unauthenticated();
+    if (user.emailVerifiedAt) throw Conflict('STATE_TRANSITION_INVALID', 'Your email address is already verified');
+    await this.prisma.authToken.updateMany({ where: { userId, type: 'EMAIL_VERIFICATION', usedAt: null }, data: { usedAt: new Date() } });
+    const token = newToken();
+    await this.prisma.authToken.create({
+      data: { userId, type: 'EMAIL_VERIFICATION', tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) },
+    });
+    await this.email.send({
+      to: user.email,
+      subject: 'Verify your MediCore email address',
+      body: `Confirm this email address for your MediCore account (link valid for 24 hours):\n\n${appLink('/verify-email', token)}`,
+    });
+    return process.env.NODE_ENV === 'test' ? { queued: true, verificationToken: token } : { queued: true };
   }
 
   async changePassword(
@@ -466,22 +498,7 @@ export class AuthService {
       return membershipRow;
     });
 
-    const token = newToken();
-    await this.prisma.authToken.create({
-      data: {
-        userId: membership.userId,
-        membershipId: membership.id,
-        type: 'INVITATION',
-        tokenHash: hashToken(token),
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      },
-    });
-
-    await this.email.send({
-      to: params.email,
-      subject: "You've been invited to MediCore",
-      body: `Accept your invitation with this single-use token (valid 7 days):\n\n${token}`,
-    });
+    const token = await this.issueInvitationToken(membership.userId, membership.id, params.email);
 
     await this.audit.record({
       event: 'USER_CREATED',
@@ -502,32 +519,98 @@ export class AuthService {
     return { invitationEmailQueued: true };
   }
 
-  async acceptInvitation(token: string, password: string, fullName: string, meta: { ip?: string; ua?: string }) {
+  private async issueInvitationToken(userId: string, membershipId: string, email: string): Promise<string> {
+    const token = newToken();
+    await this.prisma.authToken.create({
+      data: {
+        userId,
+        membershipId,
+        type: 'INVITATION',
+        tokenHash: hashToken(token),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+    });
+    await this.email.send({
+      to: email,
+      subject: "You've been invited to MediCore",
+      body: `You have been invited to join a pharmacy workspace on MediCore. Accept within 7 days:\n\n${appLink('/accept-invitation', token)}`,
+    });
+    return token;
+  }
+
+  /** Burns outstanding invitation tokens for a pending membership and sends a fresh one. */
+  async reissueInvitation(params: {
+    organizationId: string;
+    membershipId: string;
+    userId: string;
+    email: string;
+    actorUserId: string;
+    actorEmail: string;
+  }): Promise<{ invitationEmailQueued: boolean; invitationToken?: string }> {
+    await this.prisma.authToken.updateMany({
+      where: { membershipId: params.membershipId, type: 'INVITATION', usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    await this.prisma.organizationMembership.update({ where: { id: params.membershipId }, data: { invitedAt: new Date() } });
+    const token = await this.issueInvitationToken(params.userId, params.membershipId, params.email);
+    await this.audit.record({
+      event: 'USER_CREATED',
+      organizationId: params.organizationId,
+      actorUserId: params.actorUserId,
+      actorEmail: params.actorEmail,
+      entityType: 'OrganizationMembership',
+      entityId: params.membershipId,
+      details: { action: 'INVITATION_RESENT', invitedEmail: params.email },
+    });
+    if (process.env.NODE_ENV === 'test') {
+      return { invitationEmailQueued: true, invitationToken: token };
+    }
+    return { invitationEmailQueued: true };
+  }
+
+  private async findLiveInvitation(token: string) {
+    if (token.length < 32 || token.length > 128) throw INVITATION_INVALID();
     const record = await this.prisma.authToken.findUnique({ where: { tokenHash: hashToken(token) } });
-    if (
-      !record ||
-      record.type !== 'INVITATION' ||
-      record.usedAt !== null ||
-      record.expiresAt < new Date() ||
-      !record.membershipId
-    ) {
-      throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Invitation is invalid or has expired' });
+    if (!record || record.type !== 'INVITATION' || record.usedAt !== null || record.expiresAt < new Date() || !record.membershipId) {
+      throw INVITATION_INVALID();
     }
     const membership = await this.prisma.organizationMembership.findUnique({
       where: { id: record.membershipId },
+      include: { organization: { select: { name: true } }, role: { select: { name: true } }, user: true },
     });
-    if (!membership) throw NotFound('Invitation not found');
+    if (!membership || membership.status !== 'INVITED') throw INVITATION_INVALID();
+    return { record, membership };
+  }
 
-    const passwordHash = await argon2.hash(password, ARGON_OPTS);
+  /** Public preview for the accept screen — reveals only what the invitee already knows from the email. */
+  async describeInvitation(token: string) {
+    const { record, membership } = await this.findLiveInvitation(token);
+    return {
+      email: membership.user.email,
+      fullName: membership.user.fullName,
+      organizationName: membership.organization.name,
+      roleName: membership.role?.name ?? 'Member',
+      expiresAt: record.expiresAt,
+      accountExists: membership.user.passwordHash !== null,
+    };
+  }
+
+  async acceptInvitation(token: string, password: string, fullName: string, meta: { ip?: string; ua?: string }) {
+    const { record, membership } = await this.findLiveInvitation(token);
+    const user = membership.user;
+
+    // An existing account joins with its current password; an invitation never overwrites credentials.
+    let userData: { passwordHash?: string; fullName?: string; status: 'ACTIVE'; emailVerifiedAt: Date };
+    if (user.passwordHash) {
+      if (!(await argon2.verify(user.passwordHash, password))) throw InvalidCredentials();
+      userData = { status: 'ACTIVE', emailVerifiedAt: user.emailVerifiedAt ?? new Date() };
+    } else {
+      userData = { passwordHash: await argon2.hash(password, ARGON_OPTS), fullName, status: 'ACTIVE', emailVerifiedAt: new Date() };
+    }
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: membership.userId },
-        data: {
-          passwordHash,
-          fullName,
-          status: 'ACTIVE',
-          emailVerifiedAt: new Date(),
-        },
+        data: userData.passwordHash ? { ...userData, passwordHistory: { create: { passwordHash: userData.passwordHash } } } : userData,
       }),
       this.prisma.organizationMembership.update({
         where: { id: membership.id },

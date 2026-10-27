@@ -115,5 +115,11 @@ export const calendarDateSchema = isoDateSchema.refine((v) => {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
 }, 'Must be a real calendar date');
 
+/** Command-palette search across the workspace. */
+export const globalSearchQuerySchema = z.object({
+  q: z.string().trim().min(2, 'Type at least 2 characters').max(80, 'Search is limited to 80 characters'),
+  limit: z.coerce.number().int().min(1).max(10).default(5),
+});
+
 /** HSN codes: 4, 6, or 8 digits (8-digit mandatory for turnover > 5 crore). */
 export const hsnCodeSchema = z.string().trim().regex(/^\d{4}(\d{2})?(\d{2})?$/, 'Must be a 4, 6, or 8 digit HSN code');

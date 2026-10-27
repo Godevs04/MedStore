@@ -11,6 +11,8 @@ const envSchema = z.object({
   /** 32+ byte random string; session tokens are hashed, this signs cookies. */
   SESSION_SECRET: z.string().min(32).default('dev-only-session-secret-change-me-32bytes!!'),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
+  /** Public web app origin used in emailed links; defaults to the first CORS origin. */
+  WEB_APP_URL: z.string().url().optional(),
   /** Comma-separated list of superadmin emails seeded/allowed bootstrap. */
   SUPERADMIN_EMAILS: z.string().default(''),
   /** When true, "email" delivery is logged to console (dev); never a claim of delivery. */

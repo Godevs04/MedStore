@@ -19,8 +19,27 @@ export class PlatformService {
     private readonly audit: AuditService,
   ) {}
 
-  async listTenants(request: AuthenticatedRequest, params: { page: number; pageSize: number; search?: string }) {
-    const where = params.search ? { name: { contains: params.search, mode: 'insensitive' as const } } : {};
+  async listTenants(
+    request: AuthenticatedRequest,
+    params: { page: number; pageSize: number; search?: string; status?: PrismaNamespace.EnumSubscriptionStatusFilter['equals']; planKey?: string; suspended?: boolean },
+  ) {
+    const where: PrismaNamespace.OrganizationWhereInput = {};
+    if (params.search) {
+      where.OR = [
+        { name: { contains: params.search, mode: 'insensitive' } },
+        { slug: { contains: params.search, mode: 'insensitive' } },
+        { gstin: { contains: params.search, mode: 'insensitive' } },
+      ];
+    }
+    if (params.status || params.planKey) {
+      where.subscription = { ...(params.status ? { status: params.status } : {}), ...(params.planKey ? { plan: { key: params.planKey } } : {}) };
+    }
+    if (params.suspended !== undefined) {
+      const suspendedIds = (
+        await this.prisma.organizationSettings.findMany({ where: { settings: { path: ['suspended'], equals: true } }, select: { organizationId: true } })
+      ).map((s) => s.organizationId);
+      where.id = params.suspended ? { in: suspendedIds } : { notIn: suspendedIds };
+    }
     const [total, items] = await this.prisma.$transaction([
       this.prisma.organization.count({ where }),
       this.prisma.organization.findMany({

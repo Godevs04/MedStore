@@ -2,7 +2,7 @@
 
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import type { SessionUser } from '@medicore/shared-types';
 import { api, ApiClientError, describeError, getStoredTenant, storeTenant, UNAUTHORIZED_EVENT } from './api';
 import { toast, Toaster } from './toast';
@@ -146,13 +146,24 @@ export function Providers({ children }: { children: ReactNode }) {
   );
 }
 
+const SIGNED_OUT_KEY = 'medicore.signedOut';
+
+/** A deliberate sign-out should not bounce the next sign-in back to the page that was open. */
+export function markSignedOut(): void {
+  window.sessionStorage.setItem(SIGNED_OUT_KEY, '1');
+}
+
 /** Redirects unauthenticated users to /login; renders children otherwise. */
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { user, isLoading } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
   useEffect(() => {
-    if (!isLoading && !user) router.replace('/login');
-  }, [isLoading, user, router]);
+    if (isLoading || user) return;
+    const deliberate = window.sessionStorage.getItem(SIGNED_OUT_KEY) !== null;
+    window.sessionStorage.removeItem(SIGNED_OUT_KEY);
+    router.replace(!deliberate && pathname && pathname !== '/' ? `/login?next=${encodeURIComponent(pathname)}` : '/login');
+  }, [isLoading, user, router, pathname]);
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center text-sm text-neutral-500">

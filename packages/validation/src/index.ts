@@ -3,3 +3,8 @@ export * from './auth';
 export * from './onboarding';
 export * from './master-data';
 export * from './inventory';
+export * from './india';
+export * from './sales';
+export * from './purchasing';
+export * from './finance';
+export * from './admin';

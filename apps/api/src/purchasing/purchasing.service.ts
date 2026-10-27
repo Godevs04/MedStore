@@ -12,6 +12,23 @@ import { amountPaise, major, qty3, qtyStr, toPaise } from '../common/money.js';
 import { tenderAccount } from '../common/tender.js';
 
 const RECEIVABLE_PO_STATUSES = new Set(['SENT', 'CONFIRMED', 'PARTIALLY_RECEIVED']);
+const OPEN_INVOICE_STATUSES = ['PENDING', 'POSTED', 'PARTIALLY_PAID'] as const;
+const DAY = 86_400_000;
+
+interface ListParams {
+  page: number;
+  pageSize: number;
+  status?: string;
+  vendorId?: string;
+  search?: string;
+  id?: string;
+}
+
+/** Start of the current calendar month in IST, as a UTC instant. */
+function istMonthStart(now = new Date()): Date {
+  const ist = new Date(now.getTime() + 330 * 60_000);
+  return new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), 1) - 330 * 60_000);
+}
 
 /**
  * Purchasing lifecycle (spec §9): PO → goods receipt (creates batches +
@@ -80,12 +97,13 @@ export class PurchasingService {
     return po;
   }
 
-  async listPOs(request: TenantRequest, params: { page: number; pageSize: number; status?: string; vendorId?: string }) {
+  async listPOs(request: TenantRequest, params: ListParams) {
     const orgId = request.tenantContext.organizationId;
     const where: Prisma.PurchaseOrderWhereInput = {
       organizationId: orgId,
       ...(params.status ? { status: { in: params.status.split(',') as never[] } } : {}),
       ...(params.vendorId ? { vendorId: params.vendorId } : {}),
+      ...(params.search ? { poNumber: { contains: params.search, mode: 'insensitive' } } : {}),
     };
     return this.prisma.$transaction([
       this.prisma.purchaseOrder.count({ where }),
@@ -282,12 +300,13 @@ export class PurchasingService {
     return grn;
   }
 
-  listGRNs(request: TenantRequest, params: { page: number; pageSize: number; vendorId?: string; uninvoiced?: boolean }) {
+  listGRNs(request: TenantRequest, params: ListParams & { uninvoiced?: boolean }) {
     const orgId = request.tenantContext.organizationId;
     const where: Prisma.GoodsReceiptWhereInput = {
       organizationId: orgId,
       ...(params.vendorId ? { vendorId: params.vendorId } : {}),
       ...(params.uninvoiced ? { invoices: { none: {} } } : {}),
+      ...(params.search ? { grnNumber: { contains: params.search, mode: 'insensitive' } } : {}),
     };
     return this.prisma.$transaction([
       this.prisma.goodsReceipt.count({ where }),
@@ -447,12 +466,14 @@ export class PurchasingService {
     return invoice;
   }
 
-  listInvoices(request: TenantRequest, params: { page: number; pageSize: number; status?: string; vendorId?: string }) {
+  listInvoices(request: TenantRequest, params: ListParams) {
     const orgId = request.tenantContext.organizationId;
     const where: Prisma.PurchaseInvoiceWhereInput = {
       organizationId: orgId,
       ...(params.status ? { status: { in: params.status.split(',') as never[] } } : {}),
       ...(params.vendorId ? { vendorId: params.vendorId } : {}),
+      ...(params.search ? { invoiceNumber: { contains: params.search, mode: 'insensitive' } } : {}),
+      ...(params.id ? { id: params.id } : {}),
     };
     return this.prisma.$transaction([
       this.prisma.purchaseInvoice.count({ where }),
@@ -464,6 +485,166 @@ export class PurchasingService {
         take: params.pageSize,
       }),
     ]);
+  }
+
+  /** Duplicate guard for supplier bills: same vendor + number, ignoring case and spaces. */
+  async checkDuplicateInvoice(request: TenantRequest, vendorId: string, invoiceNumber: string) {
+    const orgId = request.tenantContext.organizationId;
+    const normalized = invoiceNumber.trim();
+    const match = await this.prisma.purchaseInvoice.findFirst({
+      where: { organizationId: orgId, vendorId, invoiceNumber: { equals: normalized, mode: 'insensitive' } },
+      select: { id: true, invoiceNumber: true, invoiceDate: true, total: true, status: true },
+    });
+    return {
+      duplicate: Boolean(match),
+      invoice: match ? { id: match.id, invoiceNumber: match.invoiceNumber, invoiceDate: match.invoiceDate, total: match.total.toFixed(2), status: match.status } : null,
+    };
+  }
+
+  /** Headline numbers for the purchasing workspace. */
+  async summary(request: TenantRequest) {
+    const orgId = request.tenantContext.organizationId;
+    const monthStart = istMonthStart();
+    const [drafts, open, awaitingBill, openInvoices, month] = await this.prisma.$transaction([
+      this.prisma.purchaseOrder.count({ where: { organizationId: orgId, status: 'DRAFT' } }),
+      this.prisma.purchaseOrder.count({ where: { organizationId: orgId, status: { in: ['SENT', 'CONFIRMED', 'PARTIALLY_RECEIVED'] } } }),
+      this.prisma.goodsReceipt.count({ where: { organizationId: orgId, invoices: { none: {} } } }),
+      this.prisma.purchaseInvoice.findMany({
+        where: { organizationId: orgId, status: { in: [...OPEN_INVOICE_STATUSES] } },
+        select: { total: true, paidAmount: true, dueDate: true },
+      }),
+      this.prisma.purchaseInvoice.aggregate({
+        where: { organizationId: orgId, status: { not: 'CANCELLED' }, invoiceDate: { gte: monthStart } },
+        _sum: { total: true, taxAmount: true },
+        _count: true,
+      }),
+    ]);
+    const now = Date.now();
+    let payable = 0n;
+    let overdue = 0n;
+    let dueThisWeek = 0n;
+    for (const inv of openInvoices) {
+      const due = toPaise(inv.total) - toPaise(inv.paidAmount);
+      if (due <= 0n) continue;
+      payable += due;
+      const t = inv.dueDate.getTime();
+      if (t < now) overdue += due;
+      else if (t < now + 7 * DAY) dueThisWeek += due;
+    }
+    return {
+      draftOrders: drafts,
+      openOrders: open,
+      awaitingBill,
+      payable: major(payable),
+      overdue: major(overdue),
+      dueThisWeek: major(dueThisWeek),
+      monthPurchases: month._sum.total ? month._sum.total.toFixed(2) : '0.00',
+      monthInputGst: month._sum.taxAmount ? month._sum.taxAmount.toFixed(2) : '0.00',
+      monthInvoices: month._count,
+    };
+  }
+
+  /**
+   * Products at or below their reorder level (saleable, unexpired stock),
+   * net of quantities already on open purchase orders. The suggested quantity
+   * tops up to the max stock level (or 2× reorder level), rounded up to the
+   * minimum order quantity.
+   */
+  async reorderSuggestions(request: TenantRequest, params: { vendorId?: string; warehouseId?: string }) {
+    const orgId = request.tenantContext.organizationId;
+    if (params.warehouseId) await this.inventory.assertWarehouse(orgId, params.warehouseId);
+    const products = await this.prisma.product.findMany({
+      where: { organizationId: orgId, status: 'ACTIVE', reorderLevel: { gt: 0 } },
+      select: { id: true, name: true, sku: true, reorderLevel: true, maxStockLevel: true, minOrderQuantity: true, purchasePrice: true, mrp: true },
+      take: 1000,
+    });
+    if (products.length === 0) return { items: [] };
+    const ids = products.map((p) => p.id);
+    const since = new Date(Date.now() - 30 * DAY);
+    const [balances, poLines, sold, lastLines, mappings] = await this.prisma.$transaction([
+      this.prisma.inventoryBalance.findMany({
+        where: {
+          organizationId: orgId,
+          quantity: { gt: 0 },
+          ...(params.warehouseId ? { warehouseId: params.warehouseId } : {}),
+          batch: { productId: { in: ids }, status: 'SALEABLE', expiryDate: { gte: new Date() } },
+        },
+        select: { quantity: true, batch: { select: { productId: true } } },
+      }),
+      this.prisma.purchaseOrderLine.findMany({
+        where: { productId: { in: ids }, po: { organizationId: orgId, status: { in: ['DRAFT', 'SENT', 'CONFIRMED', 'PARTIALLY_RECEIVED'] } } },
+        select: { productId: true, quantity: true, receivedQty: true },
+      }),
+      this.prisma.salesInvoiceLine.findMany({
+        where: { productId: { in: ids }, invoice: { organizationId: orgId, status: { not: 'CANCELLED' }, invoiceDate: { gte: since } } },
+        select: { productId: true, quantity: true, returnedQty: true },
+      }),
+      this.prisma.purchaseInvoiceLine.findMany({
+        where: { productId: { in: ids }, invoice: { organizationId: orgId, status: { not: 'CANCELLED' } } },
+        select: { productId: true, unitCost: true, invoice: { select: { vendorId: true, invoiceDate: true, vendor: { select: { legalName: true } } } } },
+        orderBy: { invoice: { invoiceDate: 'desc' } },
+        take: 5000,
+      }),
+      this.prisma.productSupplierMapping.findMany({
+        where: { productId: { in: ids }, vendor: { organizationId: orgId } },
+        select: { productId: true, vendorId: true, lastPurchaseRate: true, vendor: { select: { legalName: true } } },
+      }),
+    ]);
+    const onHand = new Map<string, number>();
+    for (const b of balances) onHand.set(b.batch.productId, (onHand.get(b.batch.productId) ?? 0) + Number(b.quantity));
+    const onOrder = new Map<string, number>();
+    for (const l of poLines) onOrder.set(l.productId, (onOrder.get(l.productId) ?? 0) + Math.max(0, Number(l.quantity) - Number(l.receivedQty)));
+    const sold30 = new Map<string, number>();
+    for (const l of sold) sold30.set(l.productId, (sold30.get(l.productId) ?? 0) + Number(l.quantity) - Number(l.returnedQty));
+    const last = new Map<string, { vendorId: string; vendorName: string; rate: string; date: Date }>();
+    for (const l of lastLines) {
+      if (!last.has(l.productId)) last.set(l.productId, { vendorId: l.invoice.vendorId, vendorName: l.invoice.vendor.legalName, rate: l.unitCost.toFixed(2), date: l.invoice.invoiceDate });
+    }
+    const mapped = new Map<string, Array<{ vendorId: string; vendorName: string; rate: string | null }>>();
+    for (const m of mappings) {
+      const list = mapped.get(m.productId) ?? [];
+      list.push({ vendorId: m.vendorId, vendorName: m.vendor.legalName, rate: m.lastPurchaseRate ? m.lastPurchaseRate.toFixed(2) : null });
+      mapped.set(m.productId, list);
+    }
+
+    const items = [];
+    for (const p of products) {
+      const level = p.reorderLevel ?? 0;
+      const stock = onHand.get(p.id) ?? 0;
+      if (stock > level) continue;
+      const pending = onOrder.get(p.id) ?? 0;
+      const target = p.maxStockLevel && p.maxStockLevel > level ? p.maxStockLevel : level * 2;
+      let suggested = Math.ceil(target - stock - pending);
+      if (suggested <= 0) continue;
+      const moq = p.minOrderQuantity ?? 1;
+      if (moq > 1) suggested = Math.ceil(suggested / moq) * moq;
+      const lastBuy = last.get(p.id);
+      const fallback = mapped.get(p.id)?.[0];
+      const vendor = lastBuy ? { vendorId: lastBuy.vendorId, vendorName: lastBuy.vendorName } : fallback ? { vendorId: fallback.vendorId, vendorName: fallback.vendorName } : null;
+      if (params.vendorId && vendor?.vendorId !== params.vendorId && !mapped.get(p.id)?.some((m) => m.vendorId === params.vendorId)) continue;
+      const daily = (sold30.get(p.id) ?? 0) / 30;
+      const rate = lastBuy?.rate ?? fallback?.rate ?? (p.purchasePrice ? p.purchasePrice.toFixed(2) : null);
+      items.push({
+        productId: p.id,
+        name: p.name,
+        sku: p.sku,
+        onHand: stock,
+        onOrder: pending,
+        reorderLevel: level,
+        maxStockLevel: p.maxStockLevel,
+        suggestedQty: suggested,
+        avgDailySales: Number(daily.toFixed(2)),
+        daysOfCover: daily > 0 ? Math.floor(stock / daily) : null,
+        lastRate: rate,
+        lastPurchased: lastBuy?.date ?? null,
+        mrp: p.mrp ? p.mrp.toFixed(2) : null,
+        vendorId: vendor?.vendorId ?? null,
+        vendorName: vendor?.vendorName ?? null,
+        estimatedCost: rate ? (Number(rate) * suggested).toFixed(2) : null,
+      });
+    }
+    items.sort((a, b) => (a.daysOfCover ?? 9999) - (b.daysOfCover ?? 9999) || a.onHand - b.onHand);
+    return { items };
   }
 
   // ── Supplier payments ──────────────────────────────────────────────────────
@@ -550,12 +731,19 @@ export class PurchasingService {
     return payment;
   }
 
-  listPayments(request: TenantRequest, params: { page: number; pageSize: number }) {
+  listPayments(request: TenantRequest, params: ListParams) {
     const orgId = request.tenantContext.organizationId;
+    const where: Prisma.SupplierPaymentWhereInput = {
+      organizationId: orgId,
+      ...(params.vendorId ? { vendorId: params.vendorId } : {}),
+      ...(params.search
+        ? { OR: [{ paymentNumber: { contains: params.search, mode: 'insensitive' } }, { reference: { contains: params.search, mode: 'insensitive' } }] }
+        : {}),
+    };
     return this.prisma.$transaction([
-      this.prisma.supplierPayment.count({ where: { organizationId: orgId } }),
+      this.prisma.supplierPayment.count({ where }),
       this.prisma.supplierPayment.findMany({
-        where: { organizationId: orgId },
+        where,
         include: { vendor: { select: { legalName: true } }, allocations: { include: { invoice: { select: { invoiceNumber: true } } } } },
         orderBy: { createdAt: 'desc' },
         skip: (params.page - 1) * params.pageSize,
@@ -736,12 +924,19 @@ export class PurchasingService {
     return ret;
   }
 
-  listReturns(request: TenantRequest, params: { page: number; pageSize: number }) {
+  listReturns(request: TenantRequest, params: ListParams) {
     const orgId = request.tenantContext.organizationId;
+    const where: Prisma.PurchaseReturnWhereInput = {
+      organizationId: orgId,
+      ...(params.vendorId ? { vendorId: params.vendorId } : {}),
+      ...(params.search
+        ? { OR: [{ returnNumber: { contains: params.search, mode: 'insensitive' } }, { reason: { contains: params.search, mode: 'insensitive' } }] }
+        : {}),
+    };
     return this.prisma.$transaction([
-      this.prisma.purchaseReturn.count({ where: { organizationId: orgId } }),
+      this.prisma.purchaseReturn.count({ where }),
       this.prisma.purchaseReturn.findMany({
-        where: { organizationId: orgId },
+        where,
         include: { lines: { include: { batch: { include: { product: { select: { name: true, sku: true } } } } } }, vendor: { select: { legalName: true } } },
         orderBy: { createdAt: 'desc' },
         skip: (params.page - 1) * params.pageSize,

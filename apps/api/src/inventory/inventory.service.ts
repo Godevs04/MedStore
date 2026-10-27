@@ -3,7 +3,9 @@ import type { MovementType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.module.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { TenantRequest } from '../rbac/tenant-context.guard.js';
-import { AppException, Conflict, NotFound } from '../common/app-exception.js';
+import { batchDateIssues, priceLadderIssues } from '@medicore/validation';
+import { AppException, Conflict, NotFound, ValidationFailed } from '../common/app-exception.js';
+import { dateRangeFilter } from '../common/query.js';
 import type { TenantPrisma } from './tenant-prisma.js';
 import { AccountingService } from '../accounting/accounting.service.js';
 import { amountPaise, major } from '../common/money.js';
@@ -228,6 +230,13 @@ export class InventoryService {
     const expiry = new Date(`${data.expiryDate}T00:00:00Z`);
     const totalQty = Number(data.quantity) + Number(data.freeQuantity ?? '0');
     if (totalQty <= 0) throw new AppException('VALIDATION_ERROR', 'Quantity must be positive', 400);
+    const ruleIssues = [
+      ...batchDateIssues({ expiryDate: data.expiryDate, manufacturingDate: data.manufacturingDate }),
+      ...priceLadderIssues({ mrp: data.mrp, purchasePrice: data.purchaseRate }).map((i) =>
+        i.field === 'purchasePrice' ? { ...i, field: 'purchaseRate' } : i,
+      ),
+    ];
+    if (ruleIssues.length > 0) throw ValidationFailed(ruleIssues);
 
     // Merge into existing batch when (product, batchNumber, expiry) matches.
     const existing = await this.prisma.inventoryBatch.findUnique({
@@ -427,12 +436,15 @@ export class InventoryService {
 
   // ── Lists for operations UI ────────────────────────────────────────────────
 
-  listTransfers(request: TenantRequest, params: { page: number; pageSize: number }) {
+  listTransfers(request: TenantRequest, params: { page: number; pageSize: number; status?: string; warehouseId?: string }) {
     const orgId = request.tenantContext.organizationId;
+    const where: Prisma.StockTransferWhereInput = { organizationId: orgId };
+    if (params.status) where.status = params.status as Prisma.StockTransferWhereInput['status'];
+    if (params.warehouseId) where.OR = [{ sourceWarehouseId: params.warehouseId }, { destinationWarehouseId: params.warehouseId }];
     return this.prisma.$transaction([
-      this.prisma.stockTransfer.count({ where: { organizationId: orgId } }),
+      this.prisma.stockTransfer.count({ where }),
       this.prisma.stockTransfer.findMany({
-        where: { organizationId: orgId },
+        where,
         include: {
           lines: { include: { batch: { include: { product: { select: { name: true, sku: true } } } } } },
         },
@@ -443,12 +455,15 @@ export class InventoryService {
     ]);
   }
 
-  listCounts(request: TenantRequest, params: { page: number; pageSize: number }) {
+  listCounts(request: TenantRequest, params: { page: number; pageSize: number; status?: string; warehouseId?: string }) {
     const orgId = request.tenantContext.organizationId;
+    const where: Prisma.StockCountWhereInput = { organizationId: orgId };
+    if (params.status) where.status = params.status as Prisma.StockCountWhereInput['status'];
+    if (params.warehouseId) where.warehouseId = params.warehouseId;
     return this.prisma.$transaction([
-      this.prisma.stockCount.count({ where: { organizationId: orgId } }),
+      this.prisma.stockCount.count({ where }),
       this.prisma.stockCount.findMany({
-        where: { organizationId: orgId },
+        where,
         include: {
           lines: { include: { batch: { include: { product: { select: { name: true, sku: true } } } } } },
         },
@@ -459,26 +474,39 @@ export class InventoryService {
     ]);
   }
 
-  listAdjustments(request: TenantRequest, params: { page: number; pageSize: number }) {
+  async listAdjustments(
+    request: TenantRequest,
+    params: { page: number; pageSize: number; reason?: string; direction?: string; warehouseId?: string; from?: string; to?: string },
+  ) {
     const orgId = request.tenantContext.organizationId;
-    return this.prisma.$transaction([
-      this.prisma.stockAdjustment.count({ where: { organizationId: orgId } }),
+    const where: Prisma.StockAdjustmentWhereInput = { organizationId: orgId };
+    if (params.reason) where.reason = params.reason;
+    if (params.direction) where.direction = params.direction;
+    if (params.warehouseId) where.warehouseId = params.warehouseId;
+    const createdAt = dateRangeFilter(params.from, params.to);
+    if (createdAt) where.createdAt = createdAt;
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.stockAdjustment.count({ where }),
       this.prisma.stockAdjustment.findMany({
-        where: { organizationId: orgId },
+        where,
         include: { batch: { include: { product: { select: { name: true, sku: true } } } } },
         orderBy: { createdAt: 'desc' },
         skip: (params.page - 1) * params.pageSize,
         take: params.pageSize,
       }),
     ]);
+    const names = await this.userNames(items.map((i) => i.actorUserId));
+    return [total, items.map((i) => ({ ...i, actorName: names.get(i.actorUserId) ?? null }))] as const;
   }
 
-  listRecalls(request: TenantRequest, params: { page: number; pageSize: number }) {
+  listRecalls(request: TenantRequest, params: { page: number; pageSize: number; status?: string }) {
     const orgId = request.tenantContext.organizationId;
+    const where: Prisma.RecallRecordWhereInput = { organizationId: orgId };
+    if (params.status) where.status = params.status;
     return this.prisma.$transaction([
-      this.prisma.recallRecord.count({ where: { organizationId: orgId } }),
+      this.prisma.recallRecord.count({ where }),
       this.prisma.recallRecord.findMany({
-        where: { organizationId: orgId },
+        where,
         include: { batch: { include: { product: { select: { name: true, sku: true } } } } },
         orderBy: { createdAt: 'desc' },
         skip: (params.page - 1) * params.pageSize,
@@ -491,21 +519,44 @@ export class InventoryService {
 
   async listBatches(
     request: TenantRequest,
-    params: { page: number; pageSize: number; productId?: string; warehouseId?: string; status?: string; search?: string },
+    params: {
+      page: number;
+      pageSize: number;
+      batchId?: string;
+      productId?: string;
+      warehouseId?: string;
+      status?: string;
+      search?: string;
+      expiryAfter?: string;
+      expiryBefore?: string;
+    },
   ) {
     const orgId = request.tenantContext.organizationId;
     const where: Prisma.InventoryBatchWhereInput = { organizationId: orgId };
+    if (params.batchId) where.id = params.batchId;
     if (params.productId) where.productId = params.productId;
     if (params.warehouseId) where.warehouseId = params.warehouseId;
     if (params.status) where.status = params.status as Prisma.EnumBatchStatusFilter['equals'];
-    if (params.search) where.batchNumber = { contains: params.search, mode: 'insensitive' };
+    if (params.search) {
+      where.OR = [
+        { batchNumber: { contains: params.search, mode: 'insensitive' } },
+        { product: { name: { contains: params.search, mode: 'insensitive' } } },
+        { product: { sku: { contains: params.search, mode: 'insensitive' } } },
+      ];
+    }
+    if (params.expiryAfter || params.expiryBefore) {
+      where.expiryDate = {
+        ...(params.expiryAfter ? { gte: new Date(`${params.expiryAfter}T00:00:00Z`) } : {}),
+        ...(params.expiryBefore ? { lte: new Date(`${params.expiryBefore}T00:00:00Z`) } : {}),
+      };
+    }
 
     const [total, items] = await this.prisma.$transaction([
       this.prisma.inventoryBatch.count({ where }),
       this.prisma.inventoryBatch.findMany({
         where,
         include: {
-          product: { select: { id: true, name: true, sku: true, genericName: true } },
+          product: { select: { id: true, name: true, sku: true, genericName: true, rackLocation: true, requiresRefrigeration: true } },
           balances: { where: params.warehouseId ? { warehouseId: params.warehouseId } : undefined },
         },
         orderBy: { expiryDate: 'asc' },
@@ -536,6 +587,8 @@ export class InventoryService {
     });
 
     const buckets = { EXPIRED: 0, DAYS_30: 0, DAYS_60: 0, DAYS_90: 0, CUSTOM: 0, OK: 0 } as Record<string, number>;
+    const costByBucket: Record<string, bigint> = {};
+    const mrpByBucket: Record<string, bigint> = {};
     const rows = batches
       .map((b) => {
         const qty = b.balances.reduce((sum, bal) => sum + Number(bal.quantity), 0);
@@ -549,46 +602,266 @@ export class InventoryService {
         else if (days <= customDays) bucket = 'CUSTOM';
         else bucket = 'OK';
         buckets[bucket] = (buckets[bucket] ?? 0) + 1;
+        const cost = amountPaise(b.purchaseRate, qty.toFixed(3));
+        const atMrp = amountPaise(b.mrp, qty.toFixed(3));
+        costByBucket[bucket] = (costByBucket[bucket] ?? 0n) + cost;
+        mrpByBucket[bucket] = (mrpByBucket[bucket] ?? 0n) + atMrp;
         return {
           batchId: b.id,
+          productId: b.productId,
           productName: b.product.name,
           sku: b.product.sku,
           batchNumber: b.batchNumber,
+          warehouseId: b.warehouseId,
           expiryDate: b.expiryDate,
           daysToExpiry: days,
           bucket,
           quantity: qty,
           status: b.status,
+          purchaseRate: b.purchaseRate,
+          mrp: b.mrp,
+          valueAtCost: major(cost),
+          valueAtMrp: major(atMrp),
         };
       })
       .filter((r): r is NonNullable<typeof r> => r !== null);
 
-    return { buckets, rows };
+    const bucketValues = Object.fromEntries(
+      Object.keys(buckets).map((k) => [k, { cost: major(costByBucket[k] ?? 0n), mrp: major(mrpByBucket[k] ?? 0n) }]),
+    );
+    const atRisk = ['EXPIRED', 'DAYS_30', 'DAYS_60', 'DAYS_90'].reduce(
+      (acc, k) => ({ cost: acc.cost + (costByBucket[k] ?? 0n), mrp: acc.mrp + (mrpByBucket[k] ?? 0n) }),
+      { cost: 0n, mrp: 0n },
+    );
+    return { buckets, bucketValues, valueAtRisk: { cost: major(atRisk.cost), mrp: major(atRisk.mrp) }, customDays, rows };
+  }
+
+  /**
+   * Writes off expired or blocked stock (destruction under Drugs Rules 65(17)):
+   * every positive balance becomes an EXPIRY_WRITEOFF adjustment and the
+   * batch is blocked from sale. Saleable batches more than 30 days from
+   * expiry are refused.
+   */
+  async bulkExpiryWriteoff(request: TenantRequest, data: { batchIds: string[]; warehouseId?: string; notes: string }) {
+    const orgId = request.tenantContext.organizationId;
+    if (data.warehouseId) await this.assertWarehouse(orgId, data.warehouseId);
+    const batches = await this.prisma.inventoryBatch.findMany({
+      where: { id: { in: data.batchIds }, organizationId: orgId },
+      include: { balances: { where: { quantity: { gt: 0 }, ...(data.warehouseId ? { warehouseId: data.warehouseId } : {}) } } },
+    });
+    if (batches.length !== data.batchIds.length) throw NotFound('One or more batches were not found');
+    const cutoff = startOfTodayUtc();
+    cutoff.setUTCDate(cutoff.getUTCDate() + 30);
+    const ineligible = batches.filter((b) => b.status === 'SALEABLE' && b.expiryDate > cutoff);
+    if (ineligible.length > 0) {
+      throw ValidationFailed(
+        ineligible.map((b) => ({
+          field: 'batchIds',
+          message: `Batch ${b.batchNumber} is saleable and more than 30 days from expiry; block or return it instead`,
+        })),
+      );
+    }
+    const empty = batches.filter((b) => b.balances.length === 0);
+    if (empty.length === batches.length) {
+      throw new AppException('INSUFFICIENT_STOCK', 'The selected batches have no stock to write off', 422);
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      let lines = 0;
+      let quantity = 0;
+      let valuePaise = 0n;
+      for (const batch of batches) {
+        for (const bal of batch.balances) {
+          const qty = Number(bal.quantity);
+          await this.writeAdjustment(tx, request, batch, {
+            warehouseId: bal.warehouseId,
+            direction: 'OUT',
+            quantity: qty,
+            reason: 'EXPIRY_WRITEOFF',
+            notes: data.notes,
+          });
+          lines += 1;
+          quantity += qty;
+          valuePaise += amountPaise(batch.purchaseRate, qty.toFixed(3));
+        }
+        if (batch.status === 'SALEABLE' || batch.status === 'QUARANTINED') {
+          await tx.inventoryBatch.update({ where: { id: batch.id }, data: { status: 'EXPIRED_BLOCKED' } });
+        }
+      }
+      return { lines, quantity, value: major(valuePaise) };
+    });
+
+    await this.audit.record({
+      event: 'EXPIRY_WRITTEN_OFF',
+      organizationId: orgId,
+      actorUserId: request.principal.userId,
+      entityType: 'InventoryBatch',
+      details: { batches: batches.map((b) => b.batchNumber), ...result, notes: data.notes },
+    });
+    return { batches: batches.length, skipped: empty.map((b) => b.batchNumber), ...result };
+  }
+
+  /** Stock position for KPI tiles: product counts, batch status split and value at cost/MRP. */
+  async stockSummary(request: TenantRequest, params: { warehouseId?: string }) {
+    const orgId = request.tenantContext.organizationId;
+    const today = startOfTodayUtc();
+    const in30 = new Date(today.getTime() + 30 * 86_400_000);
+    const [products, balances] = await Promise.all([
+      this.prisma.product.findMany({ where: { organizationId: orgId }, select: { id: true, status: true, reorderLevel: true } }),
+      this.prisma.inventoryBalance.findMany({
+        where: { organizationId: orgId, quantity: { gt: 0 }, ...(params.warehouseId ? { warehouseId: params.warehouseId } : {}) },
+        select: { quantity: true, batch: { select: { id: true, productId: true, status: true, expiryDate: true, purchaseRate: true, mrp: true } } },
+      }),
+    ]);
+    const saleableByProduct = new Map<string, number>();
+    const statusAgg = new Map<string, { batches: Set<string>; quantity: number; cost: bigint }>();
+    let cost = 0n;
+    let atMrp = 0n;
+    const expired = { batches: new Set<string>(), cost: 0n };
+    const expiring = { batches: new Set<string>(), cost: 0n };
+    for (const bal of balances) {
+      const b = bal.batch;
+      const q = bal.quantity.toFixed(3);
+      const c = amountPaise(b.purchaseRate, q);
+      cost += c;
+      atMrp += amountPaise(b.mrp, q);
+      const agg = statusAgg.get(b.status) ?? { batches: new Set<string>(), quantity: 0, cost: 0n };
+      agg.batches.add(b.id);
+      agg.quantity += Number(bal.quantity);
+      agg.cost += c;
+      statusAgg.set(b.status, agg);
+      if (b.expiryDate < today) {
+        expired.batches.add(b.id);
+        expired.cost += c;
+      } else if (b.expiryDate <= in30) {
+        expiring.batches.add(b.id);
+        expiring.cost += c;
+      }
+      if (b.status === 'SALEABLE' && b.expiryDate >= today) {
+        saleableByProduct.set(b.productId, (saleableByProduct.get(b.productId) ?? 0) + Number(bal.quantity));
+      }
+    }
+    const active = products.filter((p) => p.status === 'ACTIVE');
+    return {
+      products: {
+        total: products.length,
+        active: active.length,
+        inactive: products.length - active.length,
+        inStock: active.filter((p) => (saleableByProduct.get(p.id) ?? 0) > 0).length,
+        outOfStock: active.filter((p) => (saleableByProduct.get(p.id) ?? 0) <= 0).length,
+        belowReorder: active.filter((p) => (p.reorderLevel ?? 0) > 0 && (saleableByProduct.get(p.id) ?? 0) <= (p.reorderLevel ?? 0)).length,
+      },
+      value: { cost: major(cost), mrp: major(atMrp), potentialMargin: major(atMrp - cost) },
+      batches: Object.fromEntries(
+        [...statusAgg.entries()].map(([status, a]) => [status, { batches: a.batches.size, quantity: Number(a.quantity.toFixed(3)), cost: major(a.cost) }]),
+      ),
+      expired: { batches: expired.batches.size, cost: major(expired.cost) },
+      expiring30: { batches: expiring.batches.size, cost: major(expiring.cost) },
+    };
   }
 
   async stockLedger(
     request: TenantRequest,
-    params: { page: number; pageSize: number; batchId?: string; warehouseId?: string; productId?: string },
+    params: {
+      page: number;
+      pageSize: number;
+      batchId?: string;
+      warehouseId?: string;
+      productId?: string;
+      movementType?: string;
+      direction?: 'IN' | 'OUT';
+      actorUserId?: string;
+      search?: string;
+      from?: string;
+      to?: string;
+    },
   ) {
-    const orgId = request.tenantContext.organizationId;
-    const where: Prisma.InventoryMovementWhereInput = { organizationId: orgId };
-    if (params.batchId) where.batchId = params.batchId;
-    if (params.warehouseId) where.warehouseId = params.warehouseId;
-    if (params.productId) where.batch = { productId: params.productId };
-
+    const where = this.ledgerWhere(request.tenantContext.organizationId, params);
     const [total, items] = await this.prisma.$transaction([
       this.prisma.inventoryMovement.count({ where }),
       this.prisma.inventoryMovement.findMany({
         where,
         include: {
-          batch: { include: { product: { select: { name: true, sku: true } } } },
+          batch: { include: { product: { select: { id: true, name: true, sku: true } } } },
         },
         orderBy: { createdAt: 'desc' },
         skip: (params.page - 1) * params.pageSize,
         take: params.pageSize,
       }),
     ]);
-    return { total, items };
+    const names = await this.userNames(items.map((i) => i.actorUserId));
+    return { total, items: items.map((i) => ({ ...i, actorName: names.get(i.actorUserId) ?? null })) };
+  }
+
+  async exportLedger(request: TenantRequest, params: Parameters<InventoryService['ledgerWhere']>[1]) {
+    const orgId = request.tenantContext.organizationId;
+    const items = await this.prisma.inventoryMovement.findMany({
+      where: this.ledgerWhere(orgId, params),
+      include: { batch: { include: { product: { select: { name: true, sku: true } } } } },
+      orderBy: { createdAt: 'desc' },
+      take: 10_000,
+    });
+    const [names, warehouses] = await Promise.all([
+      this.userNames(items.map((i) => i.actorUserId)),
+      this.prisma.warehouse.findMany({ where: { organizationId: orgId }, select: { id: true, name: true } }),
+    ]);
+    const wh = new Map(warehouses.map((w) => [w.id, w.name]));
+    await this.audit.record({
+      event: 'EXPORT_GENERATED',
+      organizationId: orgId,
+      actorUserId: request.principal.userId,
+      entityType: 'InventoryMovement',
+      details: { report: 'stock-ledger', rows: items.length, ...params },
+    });
+    return {
+      headers: ['Date', 'Product', 'SKU', 'Batch', 'Expiry', 'Warehouse', 'Movement', 'Quantity', 'Reason', 'Document', 'Document ID', 'User'],
+      rows: items.map((i) => [
+        i.createdAt.toISOString(),
+        i.batch.product.name,
+        i.batch.product.sku,
+        i.batch.batchNumber,
+        i.batch.expiryDate,
+        wh.get(i.warehouseId) ?? i.warehouseId,
+        i.movementType,
+        i.quantity.toFixed(3),
+        i.reason,
+        i.sourceDocument,
+        i.sourceDocumentId,
+        names.get(i.actorUserId) ?? i.actorUserId,
+      ]),
+    };
+  }
+
+  private ledgerWhere(
+    orgId: string,
+    params: { batchId?: string; warehouseId?: string; productId?: string; movementType?: string; direction?: 'IN' | 'OUT'; actorUserId?: string; search?: string; from?: string; to?: string },
+  ): Prisma.InventoryMovementWhereInput {
+    const where: Prisma.InventoryMovementWhereInput = { organizationId: orgId };
+    if (params.batchId) where.batchId = params.batchId;
+    if (params.warehouseId) where.warehouseId = params.warehouseId;
+    if (params.actorUserId) where.actorUserId = params.actorUserId;
+    const batch: Prisma.InventoryBatchWhereInput = {};
+    if (params.productId) batch.productId = params.productId;
+    if (params.search) {
+      batch.OR = [
+        { batchNumber: { contains: params.search, mode: 'insensitive' } },
+        { product: { name: { contains: params.search, mode: 'insensitive' } } },
+        { product: { sku: { contains: params.search, mode: 'insensitive' } } },
+      ];
+    }
+    if (Object.keys(batch).length > 0) where.batch = batch;
+    if (params.movementType) where.movementType = params.movementType as Prisma.InventoryMovementWhereInput['movementType'];
+    if (params.direction) where.quantity = params.direction === 'IN' ? { gt: 0 } : { lt: 0 };
+    const createdAt = dateRangeFilter(params.from, params.to);
+    if (createdAt) where.createdAt = createdAt;
+    return where;
+  }
+
+  private async userNames(ids: string[]): Promise<Map<string, string>> {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return new Map();
+    const users = await this.prisma.user.findMany({ where: { id: { in: unique } }, select: { id: true, fullName: true } });
+    return new Map(users.map((u) => [u.id, u.fullName]));
   }
 
   // ── Adjustments ────────────────────────────────────────────────────────────
@@ -606,41 +879,16 @@ export class InventoryService {
 
     const qty = Number(data.quantity);
     if (qty <= 0) throw new AppException('VALIDATION_ERROR', 'Adjustment quantity must be positive', 400);
-    const delta = data.direction === 'IN' ? qty : -qty;
 
-    const adjustment = await this.prisma.$transaction(async (tx) => {
-      await this.applyBalanceDelta(tx, {
-        organizationId: orgId,
-        batchId: batch.id,
+    const adjustment = await this.prisma.$transaction((tx) =>
+      this.writeAdjustment(tx, request, { id: batch.id, batchNumber: batch.batchNumber, purchaseRate: batch.purchaseRate }, {
         warehouseId: data.warehouseId,
-        delta,
-        actorUserId: request.principal.userId,
-        movementType: data.direction === 'IN' ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT',
+        direction: data.direction,
+        quantity: qty,
         reason: data.reason,
-        sourceDocument: 'STOCK_ADJUSTMENT',
-      });
-      const value = amountPaise(batch.purchaseRate, qty.toFixed(3));
-      await this.postStockValue(tx, request, orgId, data.direction === 'IN' ? value : -value, {
-        inKey: 'INVENTORY_GAIN',
-        outKey: 'INVENTORY_LOSS',
-        memo: `Stock adjustment ${data.direction} ${qty} of batch ${batch.batchNumber} (${data.reason})`,
-        sourceType: 'STOCK_ADJUSTMENT',
-        sourceId: batch.id,
-      });
-      return tx.stockAdjustment.create({
-        data: {
-          organizationId: orgId,
-          batchId: batch.id,
-          warehouseId: data.warehouseId,
-          direction: data.direction,
-          quantity: qty.toFixed(3),
-          reason: data.reason,
-          notes: data.notes ?? null,
-          movementId: 'linked-via-ledger',
-          actorUserId: request.principal.userId,
-        },
-      });
-    });
+        notes: data.notes ?? null,
+      }),
+    );
 
     await this.audit.record({
       event: 'STOCK_ADJUSTED',
@@ -653,7 +901,121 @@ export class InventoryService {
     return adjustment;
   }
 
+  /** Moves stock, books its value and records the adjustment, inside the caller's transaction. */
+  private async writeAdjustment(
+    tx: TenantPrisma,
+    request: TenantRequest,
+    batch: { id: string; batchNumber: string; purchaseRate: Prisma.Decimal },
+    data: { warehouseId: string; direction: 'IN' | 'OUT'; quantity: number; reason: string; notes: string | null },
+  ) {
+    const orgId = request.tenantContext.organizationId;
+    const qty = data.quantity;
+    await this.applyBalanceDelta(tx, {
+      organizationId: orgId,
+      batchId: batch.id,
+      warehouseId: data.warehouseId,
+      delta: data.direction === 'IN' ? qty : -qty,
+      actorUserId: request.principal.userId,
+      movementType: data.direction === 'IN' ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT',
+      reason: data.reason,
+      sourceDocument: 'STOCK_ADJUSTMENT',
+    });
+    const value = amountPaise(batch.purchaseRate, qty.toFixed(3));
+    await this.postStockValue(tx, request, orgId, data.direction === 'IN' ? value : -value, {
+      inKey: 'INVENTORY_GAIN',
+      outKey: 'INVENTORY_LOSS',
+      memo: `Stock adjustment ${data.direction} ${qty} of batch ${batch.batchNumber} (${data.reason})`,
+      sourceType: 'STOCK_ADJUSTMENT',
+      sourceId: batch.id,
+    });
+    return tx.stockAdjustment.create({
+      data: {
+        organizationId: orgId,
+        batchId: batch.id,
+        warehouseId: data.warehouseId,
+        direction: data.direction,
+        quantity: qty.toFixed(3),
+        reason: data.reason,
+        notes: data.notes,
+        movementId: 'linked-via-ledger',
+        actorUserId: request.principal.userId,
+      },
+    });
+  }
+
+  /** Adjustment totals by reason and direction, valued at batch cost. */
+  async adjustmentSummary(request: TenantRequest, params: { direction?: string; warehouseId?: string; from?: string; to?: string }) {
+    const orgId = request.tenantContext.organizationId;
+    const where: Prisma.StockAdjustmentWhereInput = { organizationId: orgId };
+    if (params.direction) where.direction = params.direction;
+    if (params.warehouseId) where.warehouseId = params.warehouseId;
+    const createdAt = dateRangeFilter(params.from, params.to);
+    if (createdAt) where.createdAt = createdAt;
+    const rows = await this.prisma.stockAdjustment.findMany({
+      where,
+      select: { reason: true, direction: true, quantity: true, batch: { select: { purchaseRate: true } } },
+    });
+    const byReason = new Map<string, { reason: string; count: number; inQty: number; outQty: number; inValue: bigint; outValue: bigint }>();
+    let inValue = 0n;
+    let outValue = 0n;
+    for (const r of rows) {
+      const entry = byReason.get(r.reason) ?? { reason: r.reason, count: 0, inQty: 0, outQty: 0, inValue: 0n, outValue: 0n };
+      const value = amountPaise(r.batch.purchaseRate, r.quantity.toFixed(3));
+      entry.count += 1;
+      if (r.direction === 'IN') {
+        entry.inQty += Number(r.quantity);
+        entry.inValue += value;
+        inValue += value;
+      } else {
+        entry.outQty += Number(r.quantity);
+        entry.outValue += value;
+        outValue += value;
+      }
+      byReason.set(r.reason, entry);
+    }
+    return {
+      count: rows.length,
+      inValue: major(inValue),
+      outValue: major(outValue),
+      netValue: major(inValue - outValue),
+      byReason: [...byReason.values()]
+        .sort((a, b) => Number(b.outValue + b.inValue - (a.outValue + a.inValue)))
+        .map((e) => ({ ...e, inValue: major(e.inValue), outValue: major(e.outValue) })),
+    };
+  }
+
   // ── Transfers ──────────────────────────────────────────────────────────────
+
+  async getTransfer(request: TenantRequest, transferId: string) {
+    const orgId = request.tenantContext.organizationId;
+    const transfer = await this.prisma.stockTransfer.findFirst({
+      where: { id: transferId, organizationId: orgId },
+      include: {
+        lines: { include: { batch: { include: { product: { select: { id: true, name: true, sku: true } } } } } },
+      },
+    });
+    if (!transfer) throw NotFound('Transfer not found');
+    const [warehouses, creator, movements] = await Promise.all([
+      this.prisma.warehouse.findMany({
+        where: { id: { in: [transfer.sourceWarehouseId, transfer.destinationWarehouseId] } },
+        select: { id: true, name: true },
+      }),
+      this.prisma.user.findUnique({ where: { id: transfer.createdById }, select: { fullName: true } }),
+      this.prisma.inventoryMovement.findMany({
+        where: { organizationId: orgId, sourceDocument: 'STOCK_TRANSFER', sourceDocumentId: transfer.id },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, movementType: true, quantity: true, warehouseId: true, reason: true, createdAt: true, batchId: true },
+      }),
+    ]);
+    const nameOf = (id: string) => warehouses.find((w) => w.id === id)?.name ?? null;
+    return {
+      ...transfer,
+      sourceWarehouseName: nameOf(transfer.sourceWarehouseId),
+      destinationWarehouseName: nameOf(transfer.destinationWarehouseId),
+      createdByName: creator?.fullName ?? null,
+      movements,
+    };
+  }
 
   async createTransfer(
     request: TenantRequest,
@@ -692,6 +1054,13 @@ export class InventoryService {
         });
         if (!batch) {
           throw new AppException('BATCH_INELIGIBLE', 'Batch not found in source warehouse', 422);
+        }
+        if (batch.expiryDate < startOfTodayUtc()) {
+          throw new AppException(
+            'BATCH_INELIGIBLE',
+            `Batch ${batch.batchNumber} has expired; expired stock must stay segregated for destruction (Drugs Rules 65(17))`,
+            422,
+          );
         }
         await tx.stockTransferLine.create({
           data: {
@@ -945,6 +1314,66 @@ export class InventoryService {
     return this.prisma.stockCount.findUniqueOrThrow({ where: { id: count.id }, include: { lines: true } });
   }
 
+  async cancelCount(request: TenantRequest, countId: string, reason: string) {
+    const orgId = request.tenantContext.organizationId;
+    const count = await this.prisma.stockCount.findFirst({ where: { id: countId, organizationId: orgId } });
+    if (!count) throw NotFound('Count not found');
+    if (count.status === 'POSTED' || count.status === 'CANCELLED') {
+      throw Conflict('STATE_TRANSITION_INVALID', `Count cannot be cancelled in status ${count.status}`);
+    }
+    const updated = await this.prisma.stockCount.update({
+      where: { id: count.id },
+      data: { status: 'CANCELLED', notes: [count.notes, `Cancelled: ${reason}`].filter(Boolean).join(' · ') },
+    });
+    await this.audit.record({
+      event: 'STOCK_COUNT_CANCELLED',
+      organizationId: orgId,
+      actorUserId: request.principal.userId,
+      entityType: 'StockCount',
+      entityId: count.id,
+      details: { reason },
+    });
+    return updated;
+  }
+
+  /** Every batch in a warehouse with its system quantity, ordered by rack then product, for a full count. */
+  async countSheet(request: TenantRequest, params: { warehouseId: string; search?: string; includeZero?: boolean }) {
+    const orgId = request.tenantContext.organizationId;
+    await this.assertWarehouse(orgId, params.warehouseId);
+    const where: Prisma.InventoryBatchWhereInput = { organizationId: orgId, warehouseId: params.warehouseId };
+    if (params.search) {
+      where.OR = [
+        { batchNumber: { contains: params.search, mode: 'insensitive' } },
+        { product: { name: { contains: params.search, mode: 'insensitive' } } },
+        { product: { sku: { contains: params.search, mode: 'insensitive' } } },
+      ];
+    }
+    if (!params.includeZero) where.balances = { some: { warehouseId: params.warehouseId, quantity: { gt: 0 } } };
+    const batches = await this.prisma.inventoryBatch.findMany({
+      where,
+      include: {
+        product: { select: { id: true, name: true, sku: true, rackLocation: true } },
+        balances: { where: { warehouseId: params.warehouseId } },
+      },
+      take: 2000,
+    });
+    const items = batches
+      .map((b) => ({
+        batchId: b.id,
+        productId: b.productId,
+        productName: b.product.name,
+        sku: b.product.sku,
+        rackLocation: b.product.rackLocation,
+        batchNumber: b.batchNumber,
+        expiryDate: b.expiryDate,
+        status: b.status,
+        purchaseRate: b.purchaseRate,
+        systemQty: Number(b.balances[0]?.quantity ?? 0),
+      }))
+      .sort((a, b) => (a.rackLocation ?? '\uffff').localeCompare(b.rackLocation ?? '\uffff') || a.productName.localeCompare(b.productName));
+    return { warehouseId: params.warehouseId, items, truncated: batches.length === 2000 };
+  }
+
   // ── Recalls & batch status ─────────────────────────────────────────────────
 
   async createRecall(request: TenantRequest, data: { batchId: string; reason: string; notes?: string | null }) {
@@ -1053,4 +1482,10 @@ export class InventoryService {
     }
     return { checked: balances.length, mismatches, consistent: mismatches.length === 0 };
   }
+}
+
+function startOfTodayUtc(): Date {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
 }

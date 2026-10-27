@@ -14,9 +14,13 @@ import {
   gstinSchema,
   hsnCodeSchema,
   indianPhoneSchema,
+  panSchema,
   pinCodeSchema,
   stateCodeSchema,
 } from './common';
+import { bankAccountSchema, drugLicenceNumberSchema, gstinIssues, ifscSchema } from './india';
+
+const boolQuery = z.enum(['true', 'false']).transform((v) => v === 'true');
 
 // ── Taxonomy ─────────────────────────────────────────────────────────────────
 
@@ -35,17 +39,48 @@ export const manufacturerCreateSchema = z.object({
 
 // ── Tax configuration (versioned; no hardcoded rates — spec §13) ─────────────
 
-export const taxRateVersionCreateSchema = z.object({
-  hsnCode: hsnCodeSchema,
-  description: z.string().trim().min(1).max(200),
-  /** Slab percentages as decimal strings, e.g. cgst "9.00" + sgst "9.00". */
-  cgstPercent: decimalStringSchema.nullish(),
-  sgstPercent: decimalStringSchema.nullish(),
-  igstPercent: decimalStringSchema.nullish(),
-  cessPercent: decimalStringSchema.nullish(),
-  effectiveFrom: calendarDateSchema,
-  effectiveTo: calendarDateSchema.nullish(),
-});
+export const categoryUpdateSchema = categoryCreateSchema.partial();
+export const manufacturerUpdateSchema = manufacturerCreateSchema.partial();
+
+const percentSchema = decimalStringSchema.refine((v) => Number(v) >= 0 && Number(v) <= 100, 'Must be between 0 and 100');
+
+/**
+ * GST is either split intra-state (CGST + SGST, always equal halves) or levied
+ * inter-state as IGST, which must equal CGST + SGST for the same slab.
+ */
+export const taxRateVersionCreateSchema = z
+  .object({
+    hsnCode: hsnCodeSchema,
+    description: z.string().trim().min(1, 'Describe the slab, e.g. "Medicines 5%"').max(200),
+    /** Slab percentages as decimal strings, e.g. cgst "9.00" + sgst "9.00". */
+    cgstPercent: percentSchema.nullish(),
+    sgstPercent: percentSchema.nullish(),
+    igstPercent: percentSchema.nullish(),
+    cessPercent: percentSchema.nullish(),
+    effectiveFrom: calendarDateSchema,
+    effectiveTo: calendarDateSchema.nullish(),
+  })
+  .superRefine((v, ctx) => {
+    const has = (x: string | null | undefined): x is string => x !== null && x !== undefined && x !== '';
+    if (!has(v.cgstPercent) && !has(v.sgstPercent) && !has(v.igstPercent)) {
+      ctx.addIssue({ code: 'custom', path: ['igstPercent'], message: 'Enter CGST + SGST, IGST, or both' });
+      return;
+    }
+    if (has(v.cgstPercent) !== has(v.sgstPercent)) {
+      ctx.addIssue({ code: 'custom', path: [has(v.cgstPercent) ? 'sgstPercent' : 'cgstPercent'], message: 'CGST and SGST are always levied together' });
+    } else if (has(v.cgstPercent) && has(v.sgstPercent) && Number(v.cgstPercent) !== Number(v.sgstPercent)) {
+      ctx.addIssue({ code: 'custom', path: ['sgstPercent'], message: 'SGST must equal CGST' });
+    }
+    if (has(v.igstPercent) && has(v.cgstPercent) && has(v.sgstPercent)) {
+      const split = Number(v.cgstPercent) + Number(v.sgstPercent);
+      if (Math.abs(split - Number(v.igstPercent)) > 0.001) {
+        ctx.addIssue({ code: 'custom', path: ['igstPercent'], message: `IGST must equal CGST + SGST (${split.toFixed(2)}%)` });
+      }
+    }
+    if (v.effectiveTo && v.effectiveTo < v.effectiveFrom) {
+      ctx.addIssue({ code: 'custom', path: ['effectiveTo'], message: 'End date cannot be before the start date' });
+    }
+  });
 
 // ── Products ─────────────────────────────────────────────────────────────────
 
@@ -91,6 +126,20 @@ export const productQuerySchema = z.object({
   manufacturerId: z.string().uuid().optional(),
   status: z.enum(PRODUCT_STATUSES).optional(),
   prescriptionClass: z.enum(PRESCRIPTION_CLASSES).optional(),
+  /** Adds `onHand` (saleable, unexpired) per product for this warehouse. */
+  stockWarehouseId: z.string().uuid().optional(),
+  /** Adds `onHand` (saleable, unexpired) per product across all warehouses. */
+  withStock: boolQuery.optional(),
+  /** Comma-separated product ids (up to 100) to fetch specific products. */
+  ids: z
+    .string()
+    .regex(/^[0-9a-f-]{36}(,[0-9a-f-]{36}){0,99}$/i, 'Comma-separated product ids (max 100)')
+    .transform((v) => v.split(','))
+    .optional(),
+});
+
+export const substitutesQuerySchema = z.object({
+  warehouseId: z.string().uuid().optional(),
 });
 
 // ── Vendors ──────────────────────────────────────────────────────────────────
@@ -99,7 +148,7 @@ export const vendorCreateSchema = z.object({
   legalName: z.string().trim().min(2).max(200),
   tradeName: z.string().trim().max(200).nullish(),
   gstin: gstinSchema.nullish(),
-  pan: z.string().trim().toUpperCase().regex(/^[A-Z]{5}\d{4}[A-Z]$/, 'Must be a valid PAN').nullish(),
+  pan: panSchema.nullish(),
   gstRegistrationType: z.enum(GST_REGISTRATION_TYPES).default('REGULAR'),
   addressLine1: z.string().trim().max(200).nullish(),
   addressLine2: z.string().trim().max(200).nullish(),
@@ -114,10 +163,39 @@ export const vendorCreateSchema = z.object({
   openingBalance: decimalStringSchema.default('0.00'),
   /** Opening balance sign convention: positive = we owe supplier. */
   status: z.enum(VENDOR_STATUSES).default('ACTIVE'),
+  /** Wholesale drug licence (Form 20B/21B) — Drugs & Cosmetics Rules require buying only from licensed suppliers. */
+  drugLicenceNumber: drugLicenceNumberSchema.nullish(),
+  drugLicenceExpiry: calendarDateSchema.nullish(),
+  bankAccount: bankAccountSchema.nullish(),
+  ifsc: ifscSchema.nullish(),
   notes: z.string().trim().max(1000).nullish(),
 });
 
 export type VendorCreateDto = z.infer<typeof vendorCreateSchema>;
+
+/**
+ * Form-level vendor checks: GSTIN ↔ state/PAN, registration type, bank pair.
+ * Shared by the web form (inline errors) and the API (VALIDATION_ERROR).
+ */
+export function vendorIssues(v: {
+  gstin?: string | null;
+  pan?: string | null;
+  stateCode?: string | null;
+  gstRegistrationType?: string | null;
+  bankAccount?: string | null;
+  ifsc?: string | null;
+}, opts: { requireGstin?: boolean } = {}): Array<{ field: string; message: string }> {
+  const issues = gstinIssues({ gstin: v.gstin, stateCode: v.stateCode, pan: v.pan });
+  if (opts.requireGstin && (v.gstRegistrationType === 'REGULAR' || v.gstRegistrationType === 'COMPOSITION') && !v.gstin) {
+    issues.push({ field: 'gstin', message: 'GSTIN is required for a registered supplier' });
+  }
+  if (v.gstRegistrationType === 'UNREGISTERED' && v.gstin) {
+    issues.push({ field: 'gstRegistrationType', message: 'A supplier with a GSTIN cannot be unregistered' });
+  }
+  if (v.bankAccount && !v.ifsc) issues.push({ field: 'ifsc', message: 'IFSC is required with a bank account' });
+  if (v.ifsc && !v.bankAccount) issues.push({ field: 'bankAccount', message: 'Account number is required with an IFSC' });
+  return issues;
+}
 
 export const vendorUpdateSchema = vendorCreateSchema.partial();
 
@@ -125,6 +203,8 @@ export const vendorQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
   status: z.enum(VENDOR_STATUSES).optional(),
   stateCode: z.string().max(2).optional(),
+  /** Adds `payable`, `overdue` and `openInvoices` per vendor. */
+  withBalances: boolQuery.optional(),
 });
 
 // ── Customers ────────────────────────────────────────────────────────────────
@@ -155,5 +235,11 @@ export const customerUpdateSchema = customerCreateSchema.partial();
 export const customerQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
   status: z.enum(CUSTOMER_STATUSES).optional(),
-  isWholesale: z.coerce.boolean().optional(),
+  isWholesale: boolQuery.optional(),
+  /** Adds `outstanding`, `overdue` and `oldestDueDays` per customer. */
+  withBalances: boolQuery.optional(),
+});
+
+export const partnerTopProductsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(10),
 });

@@ -307,6 +307,60 @@
         }
       }
     },
+    "/api/v1/auth/email/verify/resend": {
+      "post": {
+        "operationId": "Auth.resendEmailVerification",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Confirmation that the email was queued."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Resend email verification",
+        "description": "Burns any outstanding verification links for the signed-in user and emails a fresh one, valid for 24 hours.\n\n**Access:** signed-in session (cookie or bearer token).\n\n**Business errors:** `STATE_TRANSITION_INVALID`"
+      }
+    },
+    "/api/v1/auth/invitations/{token}": {
+      "get": {
+        "operationId": "Auth.describeInvitation",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invitation summary with its expiry."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Preview an invitation",
+        "description": "Public lookup used by the accept screen: shows the workspace, role and invited email for a live invitation token, and whether the invitee already has an account.\n\n**Access:** public — no session required.\n\n**Business errors:** `VALIDATION_ERROR`",
+        "security": []
+      }
+    },
     "/api/v1/auth/password/change": {
       "post": {
         "operationId": "Auth.changePassword",
@@ -368,13 +422,16 @@
           },
           "400": {
             "$ref": "#/components/responses/ValidationError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         },
         "tags": [
           "Authentication"
         ],
         "summary": "Accept an invitation",
-        "description": "Joins a workspace using an invitation token. Creates the account when the invitee is new (a password is then required).\n\n**Access:** public — no session required.",
+        "description": "Joins a workspace using an invitation token. New invitees set their name and password; existing accounts confirm with their current password, which is never overwritten.\n\n**Access:** public — no session required.\n\n**Business errors:** `VALIDATION_ERROR`, `INVALID_CREDENTIALS`",
         "security": [],
         "requestBody": {
           "required": true,
@@ -476,6 +533,72 @@
             "$ref": "#/components/parameters/BranchId"
           },
           {
+            "name": "event",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "actorUserId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "entityType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "entityId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -549,6 +672,141 @@
         ],
         "summary": "List audit events",
         "description": "Newest-first audit trail of the workspace: sign-ins, member and role changes, settings, postings and other sensitive actions, with the actor’s email.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `audit.read`"
+      }
+    },
+    "/api/v1/audit/filters": {
+      "get": {
+        "operationId": "Audit.filterOptions",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ events, entityTypes, actors }`."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Audit log"
+        ],
+        "summary": "Audit filter options",
+        "description": "Distinct event codes, entity types and actors recorded for this workspace, used to populate the audit log filters.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `audit.read`"
+      }
+    },
+    "/api/v1/audit/export": {
+      "get": {
+        "operationId": "Audit.export",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "event",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "actorUserId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "entityType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "entityId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV file.",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Audit log"
+        ],
+        "summary": "Export audit log (CSV)",
+        "description": "Downloads up to 10,000 audit events matching the same filters as the list endpoint. The export itself is audited.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `audit.read`, `reports.export`"
       }
     },
     "/api/v1/organizations/permissions": {
@@ -673,6 +931,35 @@
         "description": "Plan, status, period end, days left, limits and current usage (branches, users, warehouses, monthly invoices) of the workspace.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `organization.read`"
       }
     },
+    "/api/v1/organizations/subscription/events": {
+      "get": {
+        "operationId": "Organizations.subscriptionEvents",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of events with from/to plan names."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Subscription history",
+        "description": "Plan changes and period renewals recorded on this workspace’s subscription, newest first.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `organization.read`"
+      }
+    },
     "/api/v1/organizations": {
       "get": {
         "operationId": "Organizations.getOrganization",
@@ -764,12 +1051,12 @@
                   },
                   "gstin": {
                     "type": "string",
-                    "maxLength": 15,
+                    "pattern": "^\\d{2}[A-Z]{5}\\d{4}[A-Z][A-Z\\d]Z[A-Z\\d]$",
                     "nullable": true
                   },
                   "pan": {
                     "type": "string",
-                    "maxLength": 10,
+                    "pattern": "^[A-Z]{5}\\d{4}[A-Z]$",
                     "nullable": true
                   },
                   "addressLine1": {
@@ -789,17 +1076,16 @@
                   },
                   "stateCode": {
                     "type": "string",
-                    "maxLength": 2,
                     "nullable": true
                   },
                   "pinCode": {
                     "type": "string",
-                    "maxLength": 6,
+                    "pattern": "^[1-9]\\d{5}$",
                     "nullable": true
                   },
                   "contactPhone": {
                     "type": "string",
-                    "maxLength": 20,
+                    "pattern": "^(\\+91[\\s-]?)?[0]?[6-9]\\d{9}$",
                     "nullable": true
                   },
                   "contactEmail": {
@@ -835,6 +1121,9 @@
           "200": {
             "description": "The updated settings."
           },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
           "401": {
             "$ref": "#/components/responses/Unauthenticated"
           },
@@ -855,12 +1144,52 @@
         "description": "Merges preferences such as invoice footer, rounding and default payment method into the workspace settings.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `organization.settings.manage`",
         "requestBody": {
           "required": true,
-          "description": "A JSON object of settings to merge. Unknown keys are stored as-is.",
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
+                "properties": {
+                  "receiptFooter": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "nullable": true
+                  },
+                  "invoiceTerms": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "nullable": true
+                  },
+                  "printLicenceOnInvoice": {
+                    "type": "boolean"
+                  },
+                  "defaultPrintFormat": {
+                    "type": "string",
+                    "enum": [
+                      "A4",
+                      "THERMAL_80"
+                    ]
+                  },
+                  "upiId": {
+                    "type": "string",
+                    "pattern": "^[\\w.-]{2,256}@[A-Za-z]{2,64}$",
+                    "nullable": true
+                  },
+                  "lowStockAlertDays": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 365
+                  },
+                  "expiryAlertDays": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 730
+                  }
+                },
                 "additionalProperties": true
+              },
+              "example": {
+                "invoiceFooter": "Thank you. Get well soon!",
+                "roundOff": true
               }
             }
           }
@@ -971,6 +1300,11 @@
                     "pattern": "^(\\+91[\\s-]?)?[0]?[6-9]\\d{9}$",
                     "nullable": true
                   },
+                  "gstin": {
+                    "type": "string",
+                    "pattern": "^\\d{2}[A-Z]{5}\\d{4}[A-Z][A-Z\\d]Z[A-Z\\d]$",
+                    "nullable": true
+                  },
                   "isBillingEnabled": {
                     "type": "boolean",
                     "default": true
@@ -1034,7 +1368,7 @@
           "Organizations"
         ],
         "summary": "Update a branch",
-        "description": "Changes name, code, address, contact or active status of a branch.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `branches.manage`",
+        "description": "Changes name, code, address, contact, GSTIN or active status of a branch. `isDefault: true` makes it the default branch. The default branch and the last active branch cannot be deactivated; a branch GSTIN must match the branch state and the organisation PAN.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `branches.manage`\n\n**Business errors:** `VALIDATION_ERROR`, `DUPLICATE_ENTITY`, `STATE_TRANSITION_INVALID`",
         "requestBody": {
           "required": true,
           "content": {
@@ -1076,9 +1410,169 @@
                     "pattern": "^(\\+91[\\s-]?)?[0]?[6-9]\\d{9}$",
                     "nullable": true
                   },
+                  "gstin": {
+                    "type": "string",
+                    "pattern": "^\\d{2}[A-Z]{5}\\d{4}[A-Z][A-Z\\d]Z[A-Z\\d]$",
+                    "nullable": true
+                  },
                   "isBillingEnabled": {
                     "type": "boolean",
                     "default": true
+                  },
+                  "isActive": {
+                    "type": "boolean"
+                  },
+                  "isDefault": {
+                    "type": "boolean",
+                    "enum": [
+                      true
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/organizations/branches/{branchId}/counters": {
+      "post": {
+        "operationId": "Organizations.createCounter",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "branchId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Branch UUID."
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "The new counter."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Add a billing counter",
+        "description": "Creates a named POS counter (till) under a branch. Names are unique per branch, case-insensitively.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `branches.manage`\n\n**Business errors:** `DUPLICATE_ENTITY`",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 60
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "name": "Counter 2"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/organizations/counters/{counterId}": {
+      "patch": {
+        "operationId": "Organizations.updateCounter",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "counterId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The updated counter."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Rename or deactivate a billing counter",
+        "description": "Renames a counter or switches it on/off.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `branches.manage`\n\n**Business errors:** `DUPLICATE_ENTITY`",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 60
+                  },
+                  "isActive": {
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": false
@@ -1180,6 +1674,50 @@
             "$ref": "#/components/parameters/BranchId"
           },
           {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter by status.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "INVITED",
+                "SUSPENDED"
+              ]
+            }
+          },
+          {
+            "name": "roleId",
+            "in": "query",
+            "required": false,
+            "description": "Role UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "branchId",
+            "in": "query",
+            "required": false,
+            "description": "Branch UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -1229,7 +1767,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Array of memberships.",
+            "description": "Paginated memberships plus `counts` by status.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1252,7 +1790,7 @@
           "Organizations"
         ],
         "summary": "List members",
-        "description": "Users of the workspace with role, status and branch assignments, plus pending invitations.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `users.read`"
+        "description": "Users of the workspace with role, status and branch assignments, plus pending invitations. Filter by `search` (name or email), `status`, `roleId` or `branchId`.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `users.read`"
       }
     },
     "/api/v1/organizations/members/invite": {
@@ -1334,6 +1872,108 @@
         }
       }
     },
+    "/api/v1/organizations/members/{membershipId}/invite/resend": {
+      "post": {
+        "operationId": "Organizations.resendInvite",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "membershipId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Membership UUID."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ invitationEmailQueued }`."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Resend an invitation",
+        "description": "Burns any outstanding invitation tokens for a pending member and emails a fresh one (valid 7 days).\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `users.manage`\n\n**Business errors:** `STATE_TRANSITION_INVALID`"
+      }
+    },
+    "/api/v1/organizations/members/{membershipId}/invite": {
+      "delete": {
+        "operationId": "Organizations.revokeInvite",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "membershipId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Membership UUID."
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Revoke an invitation",
+        "description": "Cancels a pending invitation: its tokens stop working and the membership is removed. Active members must be suspended instead.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `users.manage`\n\n**Business errors:** `STATE_TRANSITION_INVALID`"
+      }
+    },
     "/api/v1/organizations/members/{membershipId}/role": {
       "patch": {
         "operationId": "Organizations.setMemberRole",
@@ -1400,6 +2040,86 @@
                   "roleId"
                 ],
                 "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/organizations/members/{membershipId}/branches": {
+      "patch": {
+        "operationId": "Organizations.setMemberBranches",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "membershipId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Membership UUID."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The membership with its branch assignments."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Assign branches to a member",
+        "description": "Replaces the set of branches a member can work in. Send an empty list to remove every assignment.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `users.manage`",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "branchIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "maxItems": 50
+                  }
+                },
+                "required": [
+                  "branchIds"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "branchIds": [
+                  "00000000-0000-0000-0000-000000000000"
+                ]
               }
             }
           }
@@ -1542,7 +2262,7 @@
           "Organizations"
         ],
         "summary": "Create a custom role",
-        "description": "Creates a role from a set of permission keys, for example “Counter staff” or “Accountant”.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `roles.manage`",
+        "description": "Creates a role from a set of permission keys, for example “Counter staff” or “Accountant”. At least one permission is required and names are unique (case-insensitive).\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `roles.manage`\n\n**Business errors:** `DUPLICATE_ENTITY`, `VALIDATION_ERROR`",
         "requestBody": {
           "required": true,
           "content": {
@@ -1566,7 +2286,7 @@
                       "type": "string",
                       "maxLength": 64
                     },
-                    "minItems": 0,
+                    "minItems": 1,
                     "maxItems": 200
                   }
                 },
@@ -1672,7 +2392,7 @@
                       "type": "string",
                       "maxLength": 64
                     },
-                    "minItems": 0,
+                    "minItems": 1,
                     "maxItems": 200
                   }
                 },
@@ -1833,6 +2553,132 @@
         }
       }
     },
+    "/api/v1/catalog/categories/{id}": {
+      "patch": {
+        "operationId": "Catalog.updateCategory",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Resource UUID."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The updated category."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Update a category",
+        "description": "Renames a category, edits its description or moves it under another parent. Loops in the tree are rejected.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `categories.manage`\n\n**Business errors:** `DUPLICATE_ENTITY`, `VALIDATION_ERROR`",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "parentId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "nullable": true
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "Catalog.deleteCategory",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Resource UUID."
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Delete a category",
+        "description": "Deletes a category that has no products and no sub-categories.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `categories.manage`\n\n**Business errors:** `STATE_TRANSITION_INVALID`"
+      }
+    },
     "/api/v1/catalog/manufacturers": {
       "get": {
         "operationId": "Catalog.listManufacturers",
@@ -1932,6 +2778,137 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/catalog/manufacturers/{id}": {
+      "patch": {
+        "operationId": "Catalog.updateManufacturer",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Resource UUID."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The updated manufacturer."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Update a manufacturer",
+        "description": "Edits a manufacturer’s name and contact details.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `categories.manage`\n\n**Business errors:** `DUPLICATE_ENTITY`",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "contactEmail": {
+                    "type": "string",
+                    "format": "email",
+                    "nullable": true
+                  },
+                  "contactPhone": {
+                    "type": "string",
+                    "pattern": "^(\\+91[\\s-]?)?[0]?[6-9]\\d{9}$",
+                    "nullable": true
+                  },
+                  "notes": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "nullable": true
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "Catalog.deleteManufacturer",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Resource UUID."
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Delete a manufacturer",
+        "description": "Deletes a manufacturer that no product references.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `categories.manage`\n\n**Business errors:** `STATE_TRANSITION_INVALID`"
       }
     },
     "/api/v1/catalog/tax-rates": {
@@ -2228,6 +3205,36 @@
             }
           },
           {
+            "name": "stockWarehouseId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "withStock",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f-]{36}(,[0-9a-f-]{36}){0,99}$"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -2300,7 +3307,7 @@
           "Catalog"
         ],
         "summary": "List products",
-        "description": "Searchable product master with barcodes, prices, HSN and stock status.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `products.read`"
+        "description": "Searchable product master with barcodes, prices, HSN, resolved GST rate (`taxResolved`, `gstPercent`) and status. Pass `stockWarehouseId` (one warehouse) or `withStock=true` (all warehouses) to add saleable `onHand`, or `ids` (comma-separated) to fetch specific products.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `products.read`"
       },
       "post": {
         "operationId": "Catalog.createProduct",
@@ -2663,6 +3670,106 @@
         }
       }
     },
+    "/api/v1/catalog/products/{productId}/substitutes": {
+      "get": {
+        "operationId": "Catalog.substitutes",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "productId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Product UUID."
+          },
+          {
+            "name": "warehouseId",
+            "in": "query",
+            "required": false,
+            "description": "Warehouse UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ generic, strength, items }` with price, manufacturer, `onHand` and `sameStrength` per product."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Generic substitutes",
+        "description": "Other active products with the same generic name, same strength first, then in-stock, then cheapest. Pass `warehouseId` to count stock in one warehouse.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `products.read`"
+      }
+    },
+    "/api/v1/catalog/products/{productId}/history": {
+      "get": {
+        "operationId": "Catalog.productHistory",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "productId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Product UUID."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ items: [{ changeType, details, createdAt, actorName }] }`."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Product change history",
+        "description": "Up to 100 most recent changes (created, updated with before/after values, deactivated, reactivated) with the acting user’s name.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `products.read`"
+      }
+    },
     "/api/v1/catalog/products/{productId}": {
       "get": {
         "operationId": "Catalog.getProduct",
@@ -2998,6 +4105,57 @@
         "description": "Hides the product from POS and purchasing while keeping its history and existing stock records.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `products.deactivate`"
       }
     },
+    "/api/v1/catalog/products/{productId}/reactivate": {
+      "put": {
+        "operationId": "Catalog.reactivateProduct",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "productId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Product UUID."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ reactivated: true }`."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Reactivate a product",
+        "description": "Makes an inactive product available again in POS and purchasing. Recorded in product history and the audit log.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `products.deactivate`\n\n**Business errors:** `STATE_TRANSITION_INVALID`"
+      }
+    },
     "/api/v1/imports/{type}/preview": {
       "post": {
         "operationId": "Import.preview",
@@ -3192,6 +4350,18 @@
             }
           },
           {
+            "name": "withBalances",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -3264,7 +4434,7 @@
           "Partners"
         ],
         "summary": "List vendors",
-        "description": "Suppliers with GST registration, credit terms and status.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `vendors.read`"
+        "description": "Suppliers with GST registration, drug licence, credit terms and status. Search matches name, GSTIN, phone or contact. Pass `withBalances=true` to add `payable` (opening balance plus unpaid invoices), `overdue` and `openInvoices`.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `vendors.read`"
       },
       "post": {
         "operationId": "Partners.createVendor",
@@ -3300,7 +4470,7 @@
           "Partners"
         ],
         "summary": "Create a vendor",
-        "description": "Adds a supplier. Registered vendors need a GSTIN whose state prefix matches the state code; input tax credit is only claimable from registered vendors.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `vendors.manage`\n\n**Business errors:** `DUPLICATE_ENTITY`",
+        "description": "Adds a supplier. The GSTIN state prefix must match the state code and characters 3–12 must match the PAN; a supplier with a GSTIN cannot be UNREGISTERED. Bank account and IFSC go together. Drug licence (Form 20B/21B) number and expiry are recorded for purchase checks.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `vendors.manage`\n\n**Business errors:** `DUPLICATE_ENTITY`",
         "requestBody": {
           "required": true,
           "content": {
@@ -3402,6 +4572,28 @@
                     ],
                     "default": "ACTIVE"
                   },
+                  "drugLicenceNumber": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 60,
+                    "pattern": "^[A-Z0-9][A-Z0-9/\\-. ]*$",
+                    "nullable": true
+                  },
+                  "drugLicenceExpiry": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "nullable": true
+                  },
+                  "bankAccount": {
+                    "type": "string",
+                    "pattern": "^\\d{9,18}$",
+                    "nullable": true
+                  },
+                  "ifsc": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{4}0[A-Z0-9]{6}$",
+                    "nullable": true
+                  },
                   "notes": {
                     "type": "string",
                     "maxLength": 1000,
@@ -3416,6 +4608,62 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/partners/vendors/{vendorId}/products": {
+      "get": {
+        "operationId": "Partners.vendorProducts",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "vendorId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Vendor UUID."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of `{ productId, name, sku, mrp, quantity, freeQty, spend, invoices, lastRate, lastPurchased }`."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "tags": [
+          "Partners"
+        ],
+        "summary": "Products supplied by a vendor",
+        "description": "Products bought from this vendor on posted purchase invoices, ranked by spend, with quantity, free quantity, number of invoices and the latest rate paid.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `vendors.read`, `purchases.read`"
       }
     },
     "/api/v1/partners/vendors/{vendorId}": {
@@ -3460,7 +4708,7 @@
           "Partners"
         ],
         "summary": "Get a vendor",
-        "description": "Vendor details.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `vendors.read`"
+        "description": "Vendor details with mapped products.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `vendors.read`"
       },
       "put": {
         "operationId": "Partners.updateVendor",
@@ -3509,7 +4757,7 @@
           "Partners"
         ],
         "summary": "Update a vendor",
-        "description": "Updates vendor details, credit terms or status.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `vendors.manage`",
+        "description": "Updates vendor details, licence, bank details, credit terms or status. The GSTIN, state and PAN checks run against the merged record.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `vendors.manage`",
         "requestBody": {
           "required": true,
           "content": {
@@ -3610,6 +4858,28 @@
                       "BLOCKED"
                     ],
                     "default": "ACTIVE"
+                  },
+                  "drugLicenceNumber": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 60,
+                    "pattern": "^[A-Z0-9][A-Z0-9/\\-. ]*$",
+                    "nullable": true
+                  },
+                  "drugLicenceExpiry": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "nullable": true
+                  },
+                  "bankAccount": {
+                    "type": "string",
+                    "pattern": "^\\d{9,18}$",
+                    "nullable": true
+                  },
+                  "ifsc": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{4}0[A-Z0-9]{6}$",
+                    "nullable": true
                   },
                   "notes": {
                     "type": "string",
@@ -3663,7 +4933,23 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "boolean"
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "withBalances",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
             }
           },
           {
@@ -3739,7 +5025,7 @@
           "Partners"
         ],
         "summary": "List customers",
-        "description": "Retail and wholesale customers with credit terms.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `customers.read`"
+        "description": "Retail and wholesale customers with credit terms. Search matches name, phone, GSTIN or category. Pass `withBalances=true` to add `outstanding`, `overdue` (past the credit days) and `oldestDueDays`.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `customers.read`"
       },
       "post": {
         "operationId": "Partners.createCustomer",
@@ -3775,7 +5061,7 @@
           "Partners"
         ],
         "summary": "Create a customer",
-        "description": "Adds a customer. Wholesale customers with a GSTIN get B2B tax invoices; credit limits are enforced at billing.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `customers.manage`",
+        "description": "Adds a customer. Wholesale customers with a GSTIN get B2B tax invoices; the GSTIN state prefix must match the state code. Credit limits are enforced at billing.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `customers.manage`",
         "requestBody": {
           "required": true,
           "content": {
@@ -3870,6 +5156,62 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/partners/customers/{customerId}/top-products": {
+      "get": {
+        "operationId": "Partners.customerTopProducts",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "customerId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Customer UUID."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of `{ productId, name, quantity, value, bills, lastBought }`."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "tags": [
+          "Partners"
+        ],
+        "summary": "Customer top products",
+        "description": "What this customer buys most, net of returns and excluding cancelled invoices, ranked by value.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `customers.read`, `sales.read`"
       }
     },
     "/api/v1/partners/customers/{customerId}": {
@@ -4181,6 +5523,16 @@
             "$ref": "#/components/parameters/BranchId"
           },
           {
+            "name": "batchId",
+            "in": "query",
+            "required": false,
+            "description": "Batch UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
             "name": "productId",
             "in": "query",
             "required": false,
@@ -4224,6 +5576,24 @@
             "schema": {
               "type": "string",
               "maxLength": 120
+            }
+          },
+          {
+            "name": "expiryAfter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "expiryBefore",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
             }
           },
           {
@@ -4299,7 +5669,7 @@
           "Inventory"
         ],
         "summary": "List batches",
-        "description": "Batches with expiry, MRP, cost, status and on-hand quantity per warehouse. Filter by product, warehouse, status or expiry.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.read`"
+        "description": "Batches with expiry, MRP, cost, status and on-hand quantity per warehouse. Filter by batch id, product, warehouse, status, search (batch, product or SKU) or expiry range.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.read`"
       }
     },
     "/api/v1/inventory/batches/{batchId}/status": {
@@ -4457,6 +5827,48 @@
         }
       }
     },
+    "/api/v1/inventory/stock-summary": {
+      "get": {
+        "operationId": "Inventory.stockSummary",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "warehouseId",
+            "in": "query",
+            "required": false,
+            "description": "Warehouse UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Summary object."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "Stock summary",
+        "description": "Product counts (active, in stock, out of stock, below reorder level), stock value at cost and MRP, quantity and value per batch status, and expired / expiring-in-30-days value. Optionally for one warehouse.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.read`"
+      }
+    },
     "/api/v1/inventory/transfers": {
       "get": {
         "operationId": "Inventory.listTransfers",
@@ -4466,6 +5878,33 @@
           },
           {
             "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter by status.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DRAFT",
+                "DISPATCHED",
+                "IN_TRANSIT",
+                "PARTIALLY_RECEIVED",
+                "RECEIVED",
+                "CANCELLED"
+              ]
+            }
+          },
+          {
+            "name": "warehouseId",
+            "in": "query",
+            "required": false,
+            "description": "Warehouse UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           {
             "name": "page",
@@ -4576,7 +6015,7 @@
           "Inventory"
         ],
         "summary": "Create a stock transfer",
-        "description": "Dispatches batches from one warehouse to another. Stock leaves the source immediately and is in transit until received.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.transfer`\n\n**Business errors:** `INSUFFICIENT_STOCK`, `TRANSFER_QUANTITY_INVALID`",
+        "description": "Dispatches batches from one warehouse to another. Stock leaves the source immediately and is in transit until received. Expired batches cannot be transferred and each batch may appear once.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.transfer`\n\n**Business errors:** `INSUFFICIENT_STOCK`, `TRANSFER_QUANTITY_INVALID`",
         "requestBody": {
           "required": true,
           "content": {
@@ -4638,6 +6077,115 @@
         }
       }
     },
+    "/api/v1/inventory/transfers/{transferId}": {
+      "get": {
+        "operationId": "Inventory.getTransfer",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "transferId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Stock transfer UUID."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The transfer."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "Get a stock transfer",
+        "description": "Transfer with its lines (product, batch, dispatched and received quantity), warehouse names, creator and the stock movements it produced.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.read`"
+      }
+    },
+    "/api/v1/inventory/counts/sheet": {
+      "get": {
+        "operationId": "Inventory.countSheet",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "warehouseId",
+            "in": "query",
+            "required": true,
+            "description": "Warehouse UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            }
+          },
+          {
+            "name": "includeZero",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ warehouseId, items, truncated }`."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "Count sheet",
+        "description": "Every batch in a warehouse with its system quantity, rack location and cost, ordered by rack then product, to run a full stock-take. Pass `includeZero=true` to include batches with no stock.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.count`"
+      }
+    },
     "/api/v1/inventory/counts": {
       "get": {
         "operationId": "Inventory.listCounts",
@@ -4647,6 +6195,32 @@
           },
           {
             "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter by status.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DRAFT",
+                "IN_PROGRESS",
+                "COMPLETED",
+                "POSTED",
+                "CANCELLED"
+              ]
+            }
+          },
+          {
+            "name": "warehouseId",
+            "in": "query",
+            "required": false,
+            "description": "Warehouse UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           {
             "name": "page",
@@ -4814,6 +6388,80 @@
         }
       }
     },
+    "/api/v1/inventory/adjustments/summary": {
+      "get": {
+        "operationId": "Inventory.adjustmentSummary",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "IN",
+                "OUT"
+              ]
+            }
+          },
+          {
+            "name": "warehouseId",
+            "in": "query",
+            "required": false,
+            "description": "Warehouse UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ count, inValue, outValue, netValue, byReason }`."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "Adjustment summary",
+        "description": "Adjustment count, quantity and value at batch cost per reason, split into IN and OUT, for the filters given.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.read`"
+      }
+    },
     "/api/v1/inventory/adjustments": {
       "get": {
         "operationId": "Inventory.listAdjustments",
@@ -4823,6 +6471,67 @@
           },
           {
             "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DAMAGE",
+                "BREAKAGE",
+                "EXPIRY_WRITEOFF",
+                "THEFT_LOSS",
+                "COUNT_CORRECTION",
+                "DATA_ENTRY_CORRECTION",
+                "TEMPERATURE_EXCURSION",
+                "CONTAMINATION",
+                "OTHER"
+              ]
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "IN",
+                "OUT"
+              ]
+            }
+          },
+          {
+            "name": "warehouseId",
+            "in": "query",
+            "required": false,
+            "description": "Warehouse UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           },
           {
             "name": "page",
@@ -4897,7 +6606,7 @@
           "Inventory"
         ],
         "summary": "List stock adjustments",
-        "description": "Manual stock corrections with reasons.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.read`"
+        "description": "Manual stock corrections with reasons and the acting user’s name.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.read`"
       },
       "post": {
         "operationId": "Inventory.adjustStock",
@@ -5003,6 +6712,19 @@
           },
           {
             "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter by status.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "OPEN",
+                "RESOLVED"
+              ]
+            }
           },
           {
             "name": "page",
@@ -5180,7 +6902,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Expiry buckets with batches."
+            "description": "Expiry buckets, bucket values, value at risk and batch rows."
           },
           "400": {
             "$ref": "#/components/responses/ValidationError"
@@ -5196,7 +6918,228 @@
           "Inventory"
         ],
         "summary": "Expiry dashboard",
-        "description": "Stock grouped into expired, expiring within 30/60/90 days and later, with quantities and cost value.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.read`"
+        "description": "Stock grouped into expired, expiring within 30/60/90/custom days and later. Each row and bucket carries value at cost and at MRP; `valueAtRisk` totals expired and ≤90-day stock.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.read`"
+      }
+    },
+    "/api/v1/inventory/expiry/bulk-writeoff": {
+      "post": {
+        "operationId": "Inventory.bulkExpiryWriteoff",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ batches, lines, quantity, value, skipped }`."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "Write off expired stock",
+        "description": "Writes off every positive balance of the selected batches as `EXPIRY_WRITEOFF` adjustments (valued at cost) and blocks the batches from sale, for destruction under Drugs Rules 65(17). Saleable batches more than 30 days from expiry are refused. A note is required.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.adjust`\n\n**Business errors:** `INSUFFICIENT_STOCK`",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "batchIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "minItems": 1,
+                    "maxItems": 200
+                  },
+                  "warehouseId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "notes": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "batchIds",
+                  "notes"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/ledger/export": {
+      "get": {
+        "operationId": "Inventory.exportLedger",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "productId",
+            "in": "query",
+            "required": false,
+            "description": "Product UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "batchId",
+            "in": "query",
+            "required": false,
+            "description": "Batch UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "warehouseId",
+            "in": "query",
+            "required": false,
+            "description": "Warehouse UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "movementType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "OPENING_STOCK",
+                "PURCHASE_RECEIPT",
+                "SALE",
+                "SALES_RETURN_IN",
+                "PURCHASE_RETURN_OUT",
+                "EXPIRY_RETURN_OUT",
+                "DAMAGE_OUT",
+                "ADJUSTMENT_IN",
+                "ADJUSTMENT_OUT",
+                "TRANSFER_OUT",
+                "TRANSFER_IN",
+                "COUNT_VARIANCE_IN",
+                "COUNT_VARIANCE_OUT",
+                "RECALL_OUT",
+                "QUARANTINE_IN",
+                "QUARANTINE_RELEASE",
+                "SALE_CANCELLED_IN"
+              ]
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "IN",
+                "OUT"
+              ]
+            }
+          },
+          {
+            "name": "actorUserId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV file.",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "Export stock ledger (CSV)",
+        "description": "Up to 10,000 movements matching the ledger filters, with warehouse and user names. Recorded in the audit log.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.read`, `reports.export`"
       }
     },
     "/api/v1/inventory/ledger": {
@@ -5208,6 +7151,114 @@
           },
           {
             "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "productId",
+            "in": "query",
+            "required": false,
+            "description": "Product UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "batchId",
+            "in": "query",
+            "required": false,
+            "description": "Batch UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "warehouseId",
+            "in": "query",
+            "required": false,
+            "description": "Warehouse UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "movementType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "OPENING_STOCK",
+                "PURCHASE_RECEIPT",
+                "SALE",
+                "SALES_RETURN_IN",
+                "PURCHASE_RETURN_OUT",
+                "EXPIRY_RETURN_OUT",
+                "DAMAGE_OUT",
+                "ADJUSTMENT_IN",
+                "ADJUSTMENT_OUT",
+                "TRANSFER_OUT",
+                "TRANSFER_IN",
+                "COUNT_VARIANCE_IN",
+                "COUNT_VARIANCE_OUT",
+                "RECALL_OUT",
+                "QUARANTINE_IN",
+                "QUARANTINE_RELEASE",
+                "SALE_CANCELLED_IN"
+              ]
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "IN",
+                "OUT"
+              ]
+            }
+          },
+          {
+            "name": "actorUserId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           },
           {
             "name": "page",
@@ -5282,7 +7333,7 @@
           "Inventory"
         ],
         "summary": "Stock ledger",
-        "description": "Every stock movement (receipt, sale, return, transfer, adjustment, count) with running balance. Filter by product, batch or warehouse.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.read`"
+        "description": "Every stock movement (receipt, sale, return, transfer, adjustment, count) with the acting user’s name. Filter by product, batch, warehouse, movement type, direction, user, date or `search` (batch, product or SKU).\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.read`"
       }
     },
     "/api/v1/inventory/transfers/{transferId}/receive": {
@@ -5497,6 +7548,78 @@
         "description": "Applies the count’s variances to stock as count-variance movements. A posted count is final.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.count`\n\n**Business errors:** `STATE_TRANSITION_INVALID`"
       }
     },
+    "/api/v1/inventory/counts/{countId}/cancel": {
+      "post": {
+        "operationId": "Inventory.cancelCount",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "countId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Stock count UUID."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The cancelled count."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "Cancel a stock count",
+        "description": "Cancels an unposted count with a reason. Stock is not changed.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `inventory.count`\n\n**Business errors:** `STATE_TRANSITION_INVALID`",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/inventory/recalls/{recallId}/resolve": {
       "post": {
         "operationId": "Inventory.resolveRecall",
@@ -5578,11 +7701,24 @@
           },
           {
             "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "warehouseId",
+            "in": "query",
+            "required": false,
+            "description": "Warehouse UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "Number checked, mismatches and a consistency flag."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
           },
           "401": {
             "$ref": "#/components/responses/Unauthenticated"
@@ -6000,21 +8136,23 @@
           },
           {
             "name": "from",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "Start date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           },
           {
             "name": "to",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "End date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           }
         ],
         "responses": {
@@ -6038,6 +8176,118 @@
         "description": "Net sales (after returns), cost of goods sold, gross profit, expenses and net profit for a period.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `accounting.read`  \n**Plan module:** Accounting (`accounting`) must be in the workspace plan."
       }
     },
+    "/api/v1/accounting/profit-and-loss/trend": {
+      "get": {
+        "operationId": "Accounting.profitAndLossTrend",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of `{ month, income, expenses, net }`."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Accounting"
+        ],
+        "summary": "Monthly profit trend",
+        "description": "Income, expenses and net profit per IST month between `from` and `to` (defaults to the current financial year; at most 24 months).\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `accounting.read`  \n**Plan module:** Accounting (`accounting`) must be in the workspace plan."
+      }
+    },
+    "/api/v1/accounting/profit-and-loss/export": {
+      "get": {
+        "operationId": "Accounting.profitAndLossExport",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV file.",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Accounting"
+        ],
+        "summary": "Export profit and loss (CSV)",
+        "description": "Downloads the profit and loss statement for the period with section totals, net sales, gross profit and net profit.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `accounting.read`, `reports.export`  \n**Plan module:** Accounting (`accounting`) must be in the workspace plan."
+      }
+    },
     "/api/v1/accounting/balance-sheet": {
       "get": {
         "operationId": "Accounting.balanceSheet",
@@ -6050,12 +8300,13 @@
           },
           {
             "name": "asOf",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Balance date (YYYY-MM-DD); defaults to today.",
             "schema": {
-              "type": "string"
-            },
-            "description": "Balance date (YYYY-MM-DD); defaults to today."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           }
         ],
         "responses": {
@@ -6077,6 +8328,56 @@
         ],
         "summary": "Balance sheet",
         "description": "Assets, liabilities and equity (including current-year profit) as of a date.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `accounting.read`  \n**Plan module:** Accounting (`accounting`) must be in the workspace plan."
+      }
+    },
+    "/api/v1/accounting/balance-sheet/export": {
+      "get": {
+        "operationId": "Accounting.balanceSheetExport",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "asOf",
+            "in": "query",
+            "required": false,
+            "description": "Balance date (YYYY-MM-DD); defaults to today.",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV file.",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Accounting"
+        ],
+        "summary": "Export balance sheet (CSV)",
+        "description": "Downloads assets, liabilities and equity (including current-year profit) as of `asOf`.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `accounting.read`, `reports.export`  \n**Plan module:** Accounting (`accounting`) must be in the workspace plan."
       }
     },
     "/api/v1/accounting/periods": {
@@ -6225,7 +8526,7 @@
                   },
                   "amount": {
                     "type": "string",
-                    "pattern": "^\\d+(\\.\\d{1,2})?$"
+                    "pattern": "^\\d{1,12}(\\.\\d{1,2})?$"
                   },
                   "method": {
                     "type": "string",
@@ -6266,11 +8567,120 @@
           },
           {
             "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "method",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CASH",
+                "BANK",
+                "UPI"
+              ]
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "Page number, starting at 1.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "description": "Items per page (1–200).",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 25
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "required": false,
+            "description": "Field to sort by.",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "sortDirection",
+            "in": "query",
+            "required": false,
+            "description": "Sort direction.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Paginated expenses."
+            "description": "Paginated expenses with the filtered `total`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Paginated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
           },
           "401": {
             "$ref": "#/components/responses/Unauthenticated"
@@ -6283,7 +8693,59 @@
           "Accounting"
         ],
         "summary": "List expenses",
-        "description": "Operating expenses such as rent, salaries and utilities.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `accounting.read`  \n**Plan module:** Accounting (`accounting`) must be in the workspace plan."
+        "description": "Operating expenses such as rent, salaries and utilities. Filter by `category`, `method`, `search` (payee, number, notes) and `from`/`to`.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `accounting.read`  \n**Plan module:** Accounting (`accounting`) must be in the workspace plan."
+      }
+    },
+    "/api/v1/accounting/expenses/summary": {
+      "get": {
+        "operationId": "Expense.summary",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ total, count, byCategory, byMethod, byMonth }`."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Accounting"
+        ],
+        "summary": "Expense breakdown",
+        "description": "Total spend for the period grouped by category, payment method and month, for charts.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `accounting.read`  \n**Plan module:** Accounting (`accounting`) must be in the workspace plan."
       }
     },
     "/api/v1/purchasing/purchase-orders": {
@@ -6393,21 +8855,56 @@
           },
           {
             "name": "status",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Filter by status.",
             "schema": {
-              "type": "string"
-            },
-            "description": "Filter by status."
+              "type": "string",
+              "pattern": "^[A-Z_]+(,[A-Z_]+)*$"
+            }
           },
           {
             "name": "vendorId",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Vendor UUID.",
             "schema": {
-              "type": "string"
-            },
-            "description": "Vendor UUID."
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "uninvoiced",
+            "in": "query",
+            "required": false,
+            "description": "When `true`, only goods receipts not yet linked to a purchase invoice.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Resource UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           {
             "name": "page",
@@ -6482,7 +8979,7 @@
           "Purchasing"
         ],
         "summary": "List purchase orders",
-        "description": "Purchase orders with vendor, totals and status.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `purchases.read`  \n**Plan module:** Purchasing (`purchases`) must be in the workspace plan."
+        "description": "Purchase orders with vendor, lines and status. Filter by `status` (comma-separated), `vendorId` or `search` on the PO number.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `purchases.read`  \n**Plan module:** Purchasing (`purchases`) must be in the workspace plan."
       }
     },
     "/api/v1/purchasing/purchase-orders/{poId}/action": {
@@ -6701,22 +9198,57 @@
             "$ref": "#/components/parameters/BranchId"
           },
           {
-            "name": "vendorId",
-            "required": false,
+            "name": "status",
             "in": "query",
+            "required": false,
+            "description": "Filter by status.",
             "schema": {
-              "type": "string"
-            },
-            "description": "Vendor UUID."
+              "type": "string",
+              "pattern": "^[A-Z_]+(,[A-Z_]+)*$"
+            }
+          },
+          {
+            "name": "vendorId",
+            "in": "query",
+            "required": false,
+            "description": "Vendor UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
           },
           {
             "name": "uninvoiced",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "When `true`, only goods receipts not yet linked to a purchase invoice.",
             "schema": {
-              "type": "string"
-            },
-            "description": "When `true`, only goods receipts not yet linked to a purchase invoice."
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Resource UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           {
             "name": "page",
@@ -6791,7 +9323,7 @@
           "Purchasing"
         ],
         "summary": "List goods receipts",
-        "description": "Goods receipt notes (GRNs). Use `uninvoiced=true` to find receipts awaiting a vendor bill.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `purchases.read`  \n**Plan module:** Purchasing (`purchases`) must be in the workspace plan."
+        "description": "Goods receipt notes (GRNs). Use `uninvoiced=true` to find receipts awaiting a vendor bill; filter by `vendorId` or `search` on the GRN number.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `purchases.read`  \n**Plan module:** Purchasing (`purchases`) must be in the workspace plan."
       }
     },
     "/api/v1/purchasing/invoices": {
@@ -6916,21 +9448,56 @@
           },
           {
             "name": "status",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Filter by status.",
             "schema": {
-              "type": "string"
-            },
-            "description": "Filter by status."
+              "type": "string",
+              "pattern": "^[A-Z_]+(,[A-Z_]+)*$"
+            }
           },
           {
             "name": "vendorId",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Vendor UUID.",
             "schema": {
-              "type": "string"
-            },
-            "description": "Vendor UUID."
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "uninvoiced",
+            "in": "query",
+            "required": false,
+            "description": "When `true`, only goods receipts not yet linked to a purchase invoice.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Resource UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           {
             "name": "page",
@@ -7005,7 +9572,140 @@
           "Purchasing"
         ],
         "summary": "List purchase invoices",
-        "description": "Vendor bills with tax breakup, paid and outstanding amounts.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `purchases.read`  \n**Plan module:** Purchasing (`purchases`) must be in the workspace plan."
+        "description": "Vendor bills with tax breakup, paid and outstanding amounts. Filter by `status` (comma-separated), `vendorId`, `search` on the invoice number, or `id` for a single invoice (deep links from the ledger and global search).\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `purchases.read`  \n**Plan module:** Purchasing (`purchases`) must be in the workspace plan."
+      }
+    },
+    "/api/v1/purchasing/invoices/check-duplicate": {
+      "get": {
+        "operationId": "Purchasing.checkDuplicateInvoice",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "vendorId",
+            "in": "query",
+            "required": true,
+            "description": "Vendor UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "invoiceNumber",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ duplicate, invoice }` where `invoice` is the existing bill or null."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Purchasing"
+        ],
+        "summary": "Check for a duplicate supplier bill",
+        "description": "Looks for an invoice with the same number from the same vendor, ignoring case, so the bill can be flagged before it is posted twice.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `purchases.read`  \n**Plan module:** Purchasing (`purchases`) must be in the workspace plan."
+      }
+    },
+    "/api/v1/purchasing/summary": {
+      "get": {
+        "operationId": "Purchasing.summary",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Summary counts and amounts."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Purchasing"
+        ],
+        "summary": "Purchasing summary",
+        "description": "Draft and open purchase orders, receipts awaiting a bill, payables (total, overdue, due in 7 days) and this IST month’s purchases with input GST.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `purchases.read`  \n**Plan module:** Purchasing (`purchases`) must be in the workspace plan."
+      }
+    },
+    "/api/v1/purchasing/reorder-suggestions": {
+      "get": {
+        "operationId": "Purchasing.reorderSuggestions",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "vendorId",
+            "in": "query",
+            "required": false,
+            "description": "Vendor UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "warehouseId",
+            "in": "query",
+            "required": false,
+            "description": "Warehouse UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ items }` sorted by days of cover."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Purchasing"
+        ],
+        "summary": "Reorder suggestions",
+        "description": "Active products at or below their reorder level (saleable, unexpired stock), net of open PO quantities. The suggested quantity tops up to the max stock level (or twice the reorder level), rounded up to the minimum order quantity, with the last vendor and rate, 30-day sales velocity and days of cover.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `purchases.read`  \n**Plan module:** Purchasing (`purchases`) must be in the workspace plan."
       }
     },
     "/api/v1/purchasing/payments": {
@@ -7118,6 +9818,59 @@
             "$ref": "#/components/parameters/BranchId"
           },
           {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter by status.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z_]+(,[A-Z_]+)*$"
+            }
+          },
+          {
+            "name": "vendorId",
+            "in": "query",
+            "required": false,
+            "description": "Vendor UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "uninvoiced",
+            "in": "query",
+            "required": false,
+            "description": "When `true`, only goods receipts not yet linked to a purchase invoice.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Resource UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -7190,7 +9943,7 @@
           "Purchasing"
         ],
         "summary": "List vendor payments",
-        "description": "Payments made to vendors with their invoice allocations.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `purchases.read`  \n**Plan module:** Purchasing (`purchases`) must be in the workspace plan."
+        "description": "Payments made to vendors with their invoice allocations. Filter by `vendorId` or `search` on the payment number or UTR/cheque reference.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `purchases.read`  \n**Plan module:** Purchasing (`purchases`) must be in the workspace plan."
       }
     },
     "/api/v1/purchasing/vendors/{vendorId}/ledger": {
@@ -7345,6 +10098,59 @@
             "$ref": "#/components/parameters/BranchId"
           },
           {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter by status.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z_]+(,[A-Z_]+)*$"
+            }
+          },
+          {
+            "name": "vendorId",
+            "in": "query",
+            "required": false,
+            "description": "Vendor UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "uninvoiced",
+            "in": "query",
+            "required": false,
+            "description": "When `true`, only goods receipts not yet linked to a purchase invoice.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Resource UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -7417,7 +10223,7 @@
           "Purchasing"
         ],
         "summary": "List purchase returns",
-        "description": "Debit notes for stock returned to vendors.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `purchases.read`  \n**Plan module:** Purchasing (`purchases`) must be in the workspace plan."
+        "description": "Debit notes for stock returned to vendors. Filter by `vendorId` or `search` on the number or reason.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `purchases.read`  \n**Plan module:** Purchasing (`purchases`) must be in the workspace plan."
       }
     },
     "/api/v1/sales/invoices": {
@@ -7488,15 +10294,15 @@
                         },
                         "quantity": {
                           "type": "string",
-                          "pattern": "^\\d+(\\.\\d{1,3})?$"
+                          "pattern": "^\\d{1,12}(\\.\\d{1,3})?$"
                         },
                         "unitPrice": {
                           "type": "string",
-                          "pattern": "^\\d+(\\.\\d{1,4})?$"
+                          "pattern": "^\\d{1,12}(\\.\\d{1,4})?$"
                         },
                         "discountAmount": {
                           "type": "string",
-                          "pattern": "^\\d+(\\.\\d{1,2})?$"
+                          "pattern": "^\\d{1,13}(\\.\\d{1,2})?$"
                         },
                         "explicitBatchId": {
                           "type": "string",
@@ -7531,7 +10337,7 @@
                         },
                         "amount": {
                           "type": "string",
-                          "pattern": "^\\d+(\\.\\d{1,2})?$"
+                          "pattern": "^\\d{1,13}(\\.\\d{1,2})?$"
                         },
                         "reference": {
                           "type": "string",
@@ -7559,13 +10365,23 @@
                     "properties": {
                       "patientName": {
                         "type": "string",
-                        "minLength": 1,
+                        "minLength": 2,
                         "maxLength": 160
+                      },
+                      "patientPhone": {
+                        "type": "string",
+                        "pattern": "^(\\+91[\\s-]?)?[0]?[6-9]\\d{9}$",
+                        "nullable": true
                       },
                       "prescriberName": {
                         "type": "string",
-                        "minLength": 1,
+                        "minLength": 2,
                         "maxLength": 160
+                      },
+                      "prescriberRegNo": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9/.\\- ]{2,29}$",
+                        "nullable": true
                       },
                       "prescriberAddress": {
                         "type": "string",
@@ -7622,49 +10438,177 @@
             "$ref": "#/components/parameters/BranchId"
           },
           {
-            "name": "customerId",
-            "required": false,
+            "name": "page",
             "in": "query",
+            "required": false,
+            "description": "Page number, starting at 1.",
             "schema": {
-              "type": "string"
-            },
-            "description": "Customer UUID."
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "description": "Items per page (1–200).",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 25
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "required": false,
+            "description": "Field to sort by.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "invoiceDate",
+                "total",
+                "invoiceNumber",
+                "creditAmount"
+              ]
+            }
+          },
+          {
+            "name": "sortDirection",
+            "in": "query",
+            "required": false,
+            "description": "Sort direction.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            }
+          },
+          {
+            "name": "customerId",
+            "in": "query",
+            "required": false,
+            "description": "Customer UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           {
             "name": "search",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
             "schema": {
-              "type": "string"
-            },
-            "description": "Case-insensitive text search."
+              "type": "string",
+              "maxLength": 80
+            }
           },
           {
             "name": "from",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "Start date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           },
           {
             "name": "to",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "End date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           },
           {
             "name": "status",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Filter by status.",
             "schema": {
-              "type": "string"
-            },
-            "description": "Filter by status."
+              "type": "string",
+              "enum": [
+                "POSTED",
+                "PARTIALLY_RETURNED",
+                "RETURNED",
+                "CANCELLED"
+              ]
+            }
+          },
+          {
+            "name": "paymentMethod",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CASH",
+                "UPI",
+                "CARD",
+                "CREDIT",
+                "BANK"
+              ]
+            }
+          },
+          {
+            "name": "hasCredit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated invoices.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Paginated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Sales & POS"
+        ],
+        "summary": "List sales invoices",
+        "description": "Invoices with customer, totals, payments and return status. Filter by date range, status, payment method or open credit; sort by date, total, number or credit.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `sales.read`  \n**Plan module:** POS billing (`pos`) must be in the workspace plan."
+      }
+    },
+    "/api/v1/sales/invoices/export": {
+      "get": {
+        "operationId": "Sales.exportInvoices",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
           },
           {
             "name": "page",
@@ -7696,7 +10640,12 @@
             "description": "Field to sort by.",
             "schema": {
               "type": "string",
-              "maxLength": 64
+              "enum": [
+                "invoiceDate",
+                "total",
+                "invoiceNumber",
+                "creditAmount"
+              ]
             }
           },
           {
@@ -7712,11 +10661,267 @@
               ],
               "default": "desc"
             }
+          },
+          {
+            "name": "customerId",
+            "in": "query",
+            "required": false,
+            "description": "Customer UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter by status.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "POSTED",
+                "PARTIALLY_RETURNED",
+                "RETURNED",
+                "CANCELLED"
+              ]
+            }
+          },
+          {
+            "name": "paymentMethod",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CASH",
+                "UPI",
+                "CARD",
+                "CREDIT",
+                "BANK"
+              ]
+            }
+          },
+          {
+            "name": "hasCredit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Paginated invoices.",
+            "description": "CSV file.",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Sales & POS"
+        ],
+        "summary": "Export sales invoices (CSV)",
+        "description": "Invoices matching the list filters with GST split, tenders, open credit and returns. Up to 10,000 rows; recorded in the audit log.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `sales.read`, `reports.export`  \n**Plan module:** POS billing (`pos`) must be in the workspace plan."
+      }
+    },
+    "/api/v1/sales/invoices/summary": {
+      "get": {
+        "operationId": "Sales.invoiceSummary",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "Page number, starting at 1.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "description": "Items per page (1–200).",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 25
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "required": false,
+            "description": "Field to sort by.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "invoiceDate",
+                "total",
+                "invoiceNumber",
+                "creditAmount"
+              ]
+            }
+          },
+          {
+            "name": "sortDirection",
+            "in": "query",
+            "required": false,
+            "description": "Sort direction.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            }
+          },
+          {
+            "name": "customerId",
+            "in": "query",
+            "required": false,
+            "description": "Customer UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter by status.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "POSTED",
+                "PARTIALLY_RETURNED",
+                "RETURNED",
+                "CANCELLED"
+              ]
+            }
+          },
+          {
+            "name": "paymentMethod",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CASH",
+                "UPI",
+                "CARD",
+                "CREDIT",
+                "BANK"
+              ]
+            }
+          },
+          {
+            "name": "hasCredit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Summary figures as decimal strings.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7738,8 +10943,8 @@
         "tags": [
           "Sales & POS"
         ],
-        "summary": "List sales invoices",
-        "description": "Invoices with customer, totals, payments and return status.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `sales.read`  \n**Plan module:** POS billing (`pos`) must be in the workspace plan."
+        "summary": "Sales history KPIs",
+        "description": "Totals for the same filters as the invoice list: invoice count, gross, open credit, returns, discount and average bill. Cancelled invoices are counted separately.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `sales.read`  \n**Plan module:** POS billing (`pos`) must be in the workspace plan."
       }
     },
     "/api/v1/sales/invoices/{invoiceId}": {
@@ -7785,6 +10990,235 @@
         ],
         "summary": "Get a sales invoice",
         "description": "Full invoice for viewing or printing: lines, batches, tax, payments, returns and the organization’s print details.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `sales.read`  \n**Plan module:** POS billing (`pos`) must be in the workspace plan."
+      }
+    },
+    "/api/v1/sales/invoices/{invoiceId}/cancel": {
+      "post": {
+        "operationId": "Sales.cancelInvoice",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "invoiceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Invoice UUID."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The cancelled invoice."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Sales & POS"
+        ],
+        "summary": "Cancel an invoice",
+        "description": "Cancels an invoice raised in error. Allowed only for current-month invoices with no returns and no receipts recorded after billing; otherwise use a sales return (credit note). Stock returns to the original batches and the sale journal is reversed. Requires a reason.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `sales.void`  \n**Plan module:** POS billing (`pos`) must be in the workspace plan.\n\n**Business errors:** `STATE_TRANSITION_INVALID`, `PERIOD_LOCKED`",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sales/held-bills": {
+      "get": {
+        "operationId": "Sales.listHeldBills",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Held bills with label, item count, total and cart payload."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Sales & POS"
+        ],
+        "summary": "List held bills",
+        "description": "Bills parked at the POS for the current branch, newest first.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `sales.create`  \n**Plan module:** POS billing (`pos`) must be in the workspace plan."
+      },
+      "post": {
+        "operationId": "Sales.holdBill",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "The held bill."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Sales & POS"
+        ],
+        "summary": "Hold a bill",
+        "description": "Parks the current POS cart so the cashier can serve another customer. Up to 20 per branch.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `sales.create`  \n**Plan module:** POS billing (`pos`) must be in the workspace plan.\n\n**Business errors:** `PLAN_LIMIT_REACHED`",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "customerId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true
+                  },
+                  "itemCount": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "total": {
+                    "type": "string",
+                    "pattern": "^\\d{1,13}(\\.\\d{1,2})?$"
+                  },
+                  "payload": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "label",
+                  "itemCount",
+                  "total",
+                  "payload"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sales/held-bills/{id}": {
+      "delete": {
+        "operationId": "Sales.deleteHeldBill",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Resource UUID."
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Sales & POS"
+        ],
+        "summary": "Discard a held bill",
+        "description": "Removes a held bill after it is resumed or abandoned.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `sales.create`  \n**Plan module:** POS billing (`pos`) must be in the workspace plan."
       }
     },
     "/api/v1/sales/returns": {
@@ -7942,6 +11376,36 @@
               ],
               "default": "desc"
             }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           }
         ],
         "responses": {
@@ -7969,7 +11433,124 @@
           "Sales & POS"
         ],
         "summary": "List sales returns",
-        "description": "Credit notes for goods returned by customers.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `returns.read`  \n**Plan module:** Returns (`returns`) must be in the workspace plan."
+        "description": "Credit notes for goods returned by customers. Filter by date range or search by return number, invoice, customer or reason.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `returns.read`  \n**Plan module:** Returns (`returns`) must be in the workspace plan."
+      }
+    },
+    "/api/v1/sales/returns/export": {
+      "get": {
+        "operationId": "Sales.exportReturns",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "Page number, starting at 1.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "description": "Items per page (1–200).",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 25
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "required": false,
+            "description": "Field to sort by.",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "sortDirection",
+            "in": "query",
+            "required": false,
+            "description": "Sort direction.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV file.",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Sales & POS"
+        ],
+        "summary": "Export sales returns (CSV)",
+        "description": "Credit notes matching the returns filters. Up to 10,000 rows; recorded in the audit log.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `returns.read`, `reports.export`  \n**Plan module:** Returns (`returns`) must be in the workspace plan."
       }
     },
     "/api/v1/sales/receipts": {
@@ -8021,7 +11602,7 @@
                   },
                   "amount": {
                     "type": "string",
-                    "pattern": "^\\d+(\\.\\d{1,2})?$"
+                    "pattern": "^\\d{1,13}(\\.\\d{1,2})?$"
                   },
                   "method": {
                     "type": "string",
@@ -8152,30 +11733,33 @@
           },
           {
             "name": "from",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "Start date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           },
           {
             "name": "to",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "End date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           },
           {
             "name": "search",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
             "schema": {
-              "type": "string"
-            },
-            "description": "Case-insensitive text search."
+              "type": "string",
+              "maxLength": 80
+            }
           },
           {
             "name": "page",
@@ -8265,21 +11849,23 @@
           },
           {
             "name": "from",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "Start date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           },
           {
             "name": "to",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "End date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           }
         ],
         "responses": {
@@ -8434,6 +12020,35 @@
         }
       }
     },
+    "/api/v1/compliance/licences/overview": {
+      "get": {
+        "operationId": "Compliance.licenceOverview",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ items, warnings, expired, expiringSoon }`."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Compliance"
+        ],
+        "summary": "Licence overview",
+        "description": "All licences with days to expiry, plus warnings for incomplete sets (for example Form 20 without Form 21, or no drug sale licence).\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `compliance.read`"
+      }
+    },
     "/api/v1/compliance/licences/{licenceId}": {
       "patch": {
         "operationId": "Compliance.updateLicence",
@@ -8584,21 +12199,23 @@
           },
           {
             "name": "from",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "Start date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           },
           {
             "name": "to",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "End date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           }
         ],
         "responses": {
@@ -8634,21 +12251,23 @@
           },
           {
             "name": "from",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "Start date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           },
           {
             "name": "to",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "End date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           }
         ],
         "responses": {
@@ -8692,21 +12311,23 @@
           },
           {
             "name": "from",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "Start date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           },
           {
             "name": "to",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "End date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           }
         ],
         "responses": {
@@ -8728,6 +12349,88 @@
         ],
         "summary": "GST purchase summary",
         "description": "Inward supplies with input tax per vendor. Only vendors with a GSTIN are ITC-eligible; ineligible tax is reported separately.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `compliance.read`"
+      }
+    },
+    "/api/v1/compliance/gst/gstr1/export": {
+      "get": {
+        "operationId": "Compliance.gstr1Export",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GSTR-1 JSON ready to upload through the offline tool."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Compliance"
+        ],
+        "summary": "GSTR-1 JSON for a month",
+        "description": "Builds GSTR-1 for `period` (YYYY-MM) in the GSTN offline-tool layout: B2B, B2CL (unregistered inter-state above ₹1 lakh), B2CS, CDNR, HSN summary and document series, plus a `summary` block. Requires the organisation GSTIN.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `compliance.read`, `reports.export`"
+      }
+    },
+    "/api/v1/compliance/gst/gstr3b": {
+      "get": {
+        "operationId": "Compliance.gstr3b",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GSTR-3B figures for the period."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Compliance"
+        ],
+        "summary": "GSTR-3B summary for a month",
+        "description": "Table 3.1 outward supplies, 3.2 inter-state supplies to unregistered persons, table 4 ITC (eligible, reversed by debit notes, ineligible) and tax payable after set-off in the Rule 88A order, with credit carried forward.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `compliance.read`"
       }
     },
     "/api/v1/compliance/integrations": {
@@ -8858,6 +12561,131 @@
         "description": "Today and month-to-date sales (net of returns), receivables, payables, low stock, near-expiry stock and licence alerts.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `organization.read`"
       }
     },
+    "/api/v1/reports/dashboard/trend": {
+      "get": {
+        "operationId": "Reports.dashboardTrend",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "description": "Look-ahead window in days.",
+            "schema": {
+              "type": "integer",
+              "minimum": 7,
+              "maximum": 90,
+              "default": 14
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ days: [{ date, invoices, revenue }], topProducts }`."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Dashboard sales trend",
+        "description": "Daily sales for the last `days` (7–90, default 14) IST days, zero-filled, and the five best-selling products this month.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `organization.read`"
+      }
+    },
+    "/api/v1/reports/payment-mix": {
+      "get": {
+        "operationId": "Reports.paymentMix",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ total, methods: [{ method, amount, count, share }] }` — `share` is a percentage."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Payment mix",
+        "description": "Amount collected at the counter by tender (cash, UPI, card, bank) plus credit extended, for an optional date range.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `reports.read`"
+      }
+    },
+    "/api/v1/reports/expiry-value": {
+      "get": {
+        "operationId": "Reports.expiryValue",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Buckets with batch count, quantity, cost and MRP value, plus totals."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Expiry value at risk",
+        "description": "On-hand stock grouped by days to expiry (expired, 0–30, 31–60, 61–90, 91–180) with value at purchase cost and at MRP.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `reports.read`"
+      }
+    },
     "/api/v1/reports/sales-summary": {
       "get": {
         "operationId": "Reports.salesSummary",
@@ -8870,21 +12698,23 @@
           },
           {
             "name": "from",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "Start date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "Start date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           },
           {
             "name": "to",
-            "required": false,
             "in": "query",
+            "required": false,
+            "description": "End date, inclusive (YYYY-MM-DD).",
             "schema": {
-              "type": "string"
-            },
-            "description": "End date, inclusive (YYYY-MM-DD)."
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
           }
         ],
         "responses": {
@@ -8906,6 +12736,60 @@
         ],
         "summary": "Sales summary",
         "description": "Net sales, cost of goods and gross margin (matching the P&L), tender mix and top products for a period.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `reports.read`"
+      }
+    },
+    "/api/v1/reports/dead-stock": {
+      "get": {
+        "operationId": "Reports.deadStock",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "description": "Look-ahead window in days.",
+            "schema": {
+              "type": "integer",
+              "minimum": 30,
+              "maximum": 365,
+              "default": 90
+            }
+          },
+          {
+            "name": "warehouseId",
+            "in": "query",
+            "required": false,
+            "description": "Warehouse UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ days, cutoff, summary, items }`."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Dead and slow-moving stock",
+        "description": "Products on hand with no sale in the last `days` (dead) or more than 180 days of cover at the current sales rate (slow), ranked by value at cost. Optional `warehouseId`.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `reports.read`"
       }
     },
     "/api/v1/reports/stock-valuation": {
@@ -9166,6 +13050,41 @@
         "description": "In-app notifications for the workspace, newest first.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `reports.read`"
       }
     },
+    "/api/v1/reports/notifications/read-all": {
+      "post": {
+        "operationId": "Reports.markAllRead",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "`{ updated }` — how many notifications changed."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Mark all notifications read",
+        "description": "Marks every unread notification in the workspace as read.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `reports.read`"
+      }
+    },
     "/api/v1/reports/notifications/{id}/read": {
       "post": {
         "operationId": "Reports.markRead",
@@ -9214,6 +13133,59 @@
         ],
         "summary": "Mark notification read",
         "description": "Marks one notification as read.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `reports.read`"
+      }
+    },
+    "/api/v1/search": {
+      "get": {
+        "operationId": "Search.search",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "default": 5
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Up to `limit` hits per group, each with `type`, `title`, `subtitle` and an app `href`."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Global search",
+        "description": "Command-palette search across products (name, generic, SKU, barcode), customers, vendors, sales and purchase invoices, and batch numbers. Each group is included only when the caller can read it.\n\n**Access:** signed-in session (cookie or bearer token)."
       }
     },
     "/api/v1/platform/overview": {
@@ -9353,18 +13325,88 @@
         "operationId": "Platform.listTenants",
         "parameters": [
           {
-            "name": "search",
-            "required": false,
+            "name": "page",
             "in": "query",
+            "required": false,
+            "description": "Page number, starting at 1.",
             "schema": {
-              "type": "string"
-            },
-            "description": "Case-insensitive text search."
+              "type": "number"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "description": "Items per page (1–200).",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive text search.",
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter by status.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "TRIALING",
+                "ACTIVE",
+                "PAST_DUE",
+                "GRACE",
+                "CANCELLED",
+                "EXPIRED"
+              ]
+            }
+          },
+          {
+            "name": "planKey",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "TRIAL",
+                "STARTER",
+                "PROFESSIONAL",
+                "BUSINESS",
+                "ENTERPRISE"
+              ]
+            }
+          },
+          {
+            "name": "suspended",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Paginated tenants."
+            "description": "Paginated tenants.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Paginated"
+                }
+              }
+            }
           },
           "400": {
             "$ref": "#/components/responses/ValidationError"
@@ -9380,7 +13422,7 @@
           "Platform admin"
         ],
         "summary": "List tenants",
-        "description": "Workspaces with plan, subscription status, owner and usage. Search by name or slug.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Requires:** platform superadmin."
+        "description": "Workspaces with plan, subscription status, owner and usage. Search by name, slug or GSTIN; filter by `status`, `planKey` or `suspended`.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Requires:** platform superadmin."
       }
     },
     "/api/v1/platform/tenants/{orgId}/status": {
@@ -9646,7 +13688,7 @@
     },
     {
       "name": "Reports",
-      "description": "Dashboard KPIs, sales summary, stock valuation, receivable/payable aging, CSV exports and notifications."
+      "description": "Dashboard KPIs, sales summary, stock valuation, receivable/payable aging, CSV exports, notifications and global search."
     },
     {
       "name": "Platform admin",
@@ -9707,6 +13749,8 @@
                   "DUPLICATE_ENTITY",
                   "STATE_TRANSITION_INVALID",
                   "PERIOD_LOCKED",
+                  "LICENCE_DUPLICATE",
+                  "GSTIN_REQUIRED",
                   "INSUFFICIENT_STOCK",
                   "BATCH_INELIGIBLE",
                   "OVERSELL_BLOCKED",

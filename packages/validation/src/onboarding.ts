@@ -5,9 +5,11 @@ import {
   emailSchema,
   gstinSchema,
   indianPhoneSchema,
+  panSchema,
   pinCodeSchema,
   stateCodeSchema,
 } from './common';
+import { gstinCheckedSchema } from './india';
 
 /**
  * Guided onboarding (spec §6). Steps arrive individually; the organization
@@ -19,7 +21,7 @@ export const organizationSetupSchema = z.object({
   legalEntityName: z.string().trim().max(160).nullish(),
   gstRegistrationStatus: z.enum(GST_REGISTRATION_TYPES).default('REGULAR'),
   gstin: gstinSchema.nullish(),
-  pan: z.string().trim().toUpperCase().regex(/^[A-Z]{5}\d{4}[A-Z]$/).nullish(),
+  pan: panSchema.nullish(),
   addressLine1: z.string().trim().max(200),
   addressLine2: z.string().trim().max(200).nullish(),
   city: z.string().trim().max(100),
@@ -41,6 +43,8 @@ export const branchCreateSchema = z.object({
   stateCode: stateCodeSchema.nullish(),
   pinCode: pinCodeSchema.nullish(),
   phone: indianPhoneSchema.nullish(),
+  /** A branch in another state needs its own GST registration. */
+  gstin: gstinCheckedSchema.nullish(),
   isBillingEnabled: z.boolean().default(true),
 });
 

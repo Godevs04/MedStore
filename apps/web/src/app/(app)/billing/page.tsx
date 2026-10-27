@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon, type IconName } from '@/components/icons';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
@@ -25,7 +26,38 @@ const STATUS_TONE: Record<string, 'green' | 'blue' | 'amber' | 'red' | 'neutral'
 };
 const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL;
 
+interface SubscriptionEvent {
+  id: string;
+  eventType: string;
+  fromPlan: string | null;
+  toPlan: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+const EVENT_META: Record<string, { label: string; tone: string; icon: IconName }> = {
+  PLAN_CHANGED: { label: 'Plan changed', tone: 'bg-brand-500', icon: 'transfers' },
+  PERIOD_UPDATED: { label: 'Period renewed', tone: 'bg-emerald-500', icon: 'refresh' },
+  TRIAL_STARTED: { label: 'Trial started', tone: 'bg-sky-500', icon: 'star' },
+  STATUS_CHANGED: { label: 'Status changed', tone: 'bg-amber-500', icon: 'info' },
+};
+const eventMeta = (type: string) =>
+  EVENT_META[type] ?? { label: type.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase()), tone: 'bg-neutral-400', icon: 'circle' as IconName };
+
 const fmtLimit = (v: unknown, unit = '') => (typeof v === 'number' ? (v < 0 ? 'Unlimited' : `${v.toLocaleString('en-IN')}${unit}`) : '—');
+const fmtCount = (v: unknown, one: string, many: string) => `${fmtLimit(v)} ${v === 1 ? one : many}`;
+const PLAN_ORDER = ['TRIAL', 'STARTER', 'PROFESSIONAL', 'BUSINESS', 'ENTERPRISE'];
+const planRank = (key: string) => {
+  const i = PLAN_ORDER.indexOf(key);
+  return i === -1 ? PLAN_ORDER.length : i;
+};
+const STATUS_LABEL: Record<string, string> = {
+  TRIALING: 'Trial',
+  ACTIVE: 'Active',
+  PAST_DUE: 'Payment due',
+  GRACE: 'Grace period',
+  CANCELLED: 'Cancelled',
+  EXPIRED: 'Expired',
+};
 
 function Meter({ label, used, limit }: { label: string; used: number; limit: number | null }) {
   const pct = limit ? Math.min(100, (used / limit) * 100) : 0;
@@ -55,6 +87,11 @@ export default function BillingPage() {
     queryFn: () => api<SubscriptionSummary>('/organizations/subscription'),
     enabled: Boolean(tenant?.organizationId),
   });
+  const events = useQuery({
+    queryKey: ['subscription-events', tenant?.organizationId],
+    queryFn: () => api<SubscriptionEvent[]>('/organizations/subscription/events'),
+    enabled: Boolean(tenant?.organizationId),
+  });
 
   if (!tenant?.organizationId) {
     return (
@@ -66,6 +103,7 @@ export default function BillingPage() {
   if (q.isLoading) return <div className="mx-auto max-w-6xl"><SkeletonRows rows={6} cols={3} /></div>;
   if (q.error || !q.data) return <div className="mx-auto max-w-6xl"><ErrorState message="Failed to load your subscription." retry={() => void q.refetch()} /></div>;
   const { subscription: sub, usage, plans, suspended } = q.data;
+  const eventList = events.data ?? [];
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
@@ -78,7 +116,7 @@ export default function BillingPage() {
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold uppercase tracking-widest text-neutral-400">Current plan</span>
                 <Badge tone={suspended ? 'red' : STATUS_TONE[sub.status] ?? 'neutral'} dot>
-                  {suspended ? 'Suspended' : sub.lapsed ? 'Ended' : sub.status.replace('_', ' ').toLowerCase()}
+                  {suspended ? 'Suspended' : sub.lapsed ? 'Ended' : (STATUS_LABEL[sub.status] ?? sub.status)}
                 </Badge>
               </div>
               <div>
@@ -133,7 +171,7 @@ export default function BillingPage() {
 
       <Card title="Compare plans">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {plans.map((p, i) => {
+          {[...plans].sort((a, b) => planRank(a.key) - planRank(b.key)).map((p, i) => {
             const current = p.key === sub?.planKey;
             const mods = Array.isArray(p.limits.modules) ? (p.limits.modules as string[]) : [];
             return (
@@ -151,11 +189,11 @@ export default function BillingPage() {
                 </div>
                 {p.description ? <p className="mt-1 text-xs text-neutral-500">{p.description}</p> : null}
                 <ul className="mt-3 space-y-1.5 text-xs text-neutral-700">
-                  <li>✓ {fmtLimit(p.limits.monthlyInvoiceLimit)} invoices / month</li>
-                  <li>✓ {fmtLimit(p.limits.maxUsers)} users</li>
-                  <li>✓ {fmtLimit(p.limits.maxBranches)} branches · {fmtLimit(p.limits.maxWarehouses)} warehouses</li>
-                  <li>✓ {mods.includes('*') ? 'All modules' : mods.map((m) => MODULE_LABELS[m] ?? m).join(', ')}</li>
-                  <li>{p.limits.apiAccess ? '✓ API access' : '— No API access'}</li>
+                  <li><Icon name="check" size={13} strokeWidth={2.5} /> {fmtCount(p.limits.monthlyInvoiceLimit, 'invoice', 'invoices')} / month</li>
+                  <li><Icon name="check" size={13} strokeWidth={2.5} /> {fmtCount(p.limits.maxUsers, 'user', 'users')}</li>
+                  <li><Icon name="check" size={13} strokeWidth={2.5} /> {fmtCount(p.limits.maxBranches, 'branch', 'branches')} · {fmtCount(p.limits.maxWarehouses, 'warehouse', 'warehouses')}</li>
+                  <li><Icon name="check" size={13} strokeWidth={2.5} /> {mods.includes('*') ? 'All modules' : mods.map((m) => MODULE_LABELS[m] ?? m).join(', ')}</li>
+                  <li>{p.limits.apiAccess ? <><Icon name="check" size={13} strokeWidth={2.5} /> API access</> : <span className="text-neutral-400"><Icon name="close" size={13} /> No API access</span>}</li>
                 </ul>
                 <div className="mt-auto pt-4">
                   {current ? (
@@ -176,6 +214,43 @@ export default function BillingPage() {
         <p className="mt-4 text-xs text-neutral-500">
           Online payment is not connected yet. Plan changes and renewals are activated by your MediCore platform administrator, and every change is recorded in the audit log.
         </p>
+      </Card>
+
+      <Card title="Subscription history" actions={eventList.length ? <span className="text-xs text-neutral-500">{eventList.length} event{eventList.length === 1 ? '' : 's'}</span> : undefined}>
+        {events.isLoading ? (
+          <SkeletonRows rows={3} cols={2} />
+        ) : events.error ? (
+          <ErrorState message="Failed to load subscription history." retry={() => void events.refetch()} />
+        ) : eventList.length === 0 ? (
+          <EmptyState title="No changes yet" hint="Plan upgrades, renewals and status changes made by your platform administrator will appear here." />
+        ) : (
+          <ol className="relative ml-3 space-y-4 border-l border-neutral-200 pl-5">
+            {eventList.map((e, i) => {
+              const m = eventMeta(e.eventType);
+              return (
+                <li key={e.id} className="mc-anim-fade-up relative" style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}>
+                  <span className={cn('absolute -left-[31px] top-0.5 grid h-5 w-5 place-items-center rounded-full text-white ring-4 ring-white', m.tone)}>
+                    <Icon name={m.icon} size={11} strokeWidth={2.5} />
+                  </span>
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <p className="text-sm font-medium text-neutral-800">
+                      {m.label}
+                      {e.fromPlan && e.toPlan && e.fromPlan !== e.toPlan ? (
+                        <span className="font-normal text-neutral-600"> · {e.fromPlan} → <strong className="text-neutral-800">{e.toPlan}</strong></span>
+                      ) : e.toPlan ? (
+                        <span className="font-normal text-neutral-600"> · {e.toPlan}</span>
+                      ) : null}
+                    </p>
+                    <time className="text-xs tabular-nums text-neutral-500" dateTime={e.createdAt}>
+                      {new Date(e.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </time>
+                  </div>
+                  {e.notes ? <p className="mt-0.5 text-xs text-neutral-500">{e.notes}</p> : null}
+                </li>
+              );
+            })}
+          </ol>
+        )}
       </Card>
     </div>
   );

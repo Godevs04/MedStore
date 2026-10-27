@@ -149,6 +149,32 @@ body {
 .mc-collapse[data-open='true'] { grid-template-rows: 1fr; }
 .mc-collapse > * { overflow: hidden; }
 
+/* ── Charts, palette and shell ────────────────────────────────────────────── */
+@keyframes mc-grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes mc-grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes mc-draw-line { from { stroke-dashoffset: 400; } to { stroke-dashoffset: 0; } }
+@keyframes mc-drop-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes mc-ring {
+  0%, 100% { transform: rotate(0); }
+  15% { transform: rotate(14deg); }
+  30% { transform: rotate(-12deg); }
+  45% { transform: rotate(8deg); }
+  60% { transform: rotate(-4deg); }
+}
+@keyframes mc-highlight {
+  from { background-color: rgb(204 251 241 / 0.9); }
+  to { background-color: transparent; }
+}
+.mc-anim-grow { animation: mc-grow 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.mc-anim-grow-x { animation: mc-grow-x 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.mc-draw-line { stroke-dasharray: 400; animation: mc-draw-line 1.1s cubic-bezier(0.65, 0, 0.35, 1) both; }
+.mc-anim-drop { animation: mc-drop-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.mc-anim-ring { animation: mc-ring 1s ease-in-out both; transform-origin: 50% 0; }
+.mc-anim-highlight { animation: mc-highlight 1.6s ease-out both; }
+
 /* ── Print: tax invoice (A4 and 80mm thermal) ─────────────────────────────── */
 .print-only { display: none; }
 @media print {
@@ -168,7 +194,8 @@ body {
   .mc-anim-drawer, .mc-anim-toast,
   .mc-anim-fade-up, .mc-anim-fade-in, .mc-anim-scale-in, .mc-anim-slide-in,
   .mc-anim-float, .mc-anim-pulse-dot, .mc-stagger > *,
-  .mc-anim-bob, .mc-anim-pop, .mc-anim-shake, .mc-anim-ripple, .mc-progress-stripes {
+  .mc-anim-bob, .mc-anim-pop, .mc-anim-shake, .mc-anim-ripple, .mc-progress-stripes,
+  .mc-anim-grow, .mc-anim-grow-x, .mc-draw-line, .mc-anim-drop, .mc-anim-ring, .mc-anim-highlight {
     animation: none;
   }
   .mc-draw-check { animation: none; stroke-dashoffset: 0; }

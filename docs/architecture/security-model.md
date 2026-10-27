@@ -8,7 +8,9 @@
 - **Sessions:** opaque 256-bit random tokens; only SHA-256 hashes stored. httpOnly, SameSite=Lax cookies scoped to `/api/v1`; `Authorization: Bearer` accepted for API clients. 7-day sliding expiry (refreshed on use past 24h). Logout, password reset, and suspension revoke sessions.
 - **Failed-login protection:** per-user counter; 5 failures → 15-minute lock (423 ACCOUNT_LOCKED). Login attempts recorded with IP/UA for analysis.
 - **Password policy:** min 10 chars, mixed case + digit (Zod, shared with web forms).
-- **Email verification / password reset / invitations:** single-use hashed tokens with expiry (1h reset, 7d invite). Reset revokes all sessions.
+- **Email verification / password reset / invitations:** single-use hashed tokens with expiry (1h reset, 24h verification, 7d invite), delivered as links to `WEB_APP_URL`. Reset revokes all sessions. Re-sending a verification link or an invitation burns the previous token.
+- **Invitations:** `GET /auth/invitations/:token` previews only what the invitee already knows (workspace, role, invited email, expiry). Accepting as an existing account requires that account's current password; an invitation never replaces credentials. Revoked, resent or expired invitations fail with the same non-revealing `VALIDATION_ERROR`.
+- **Rate limiting:** in-memory sliding window (20 requests / minute / IP / route) on login, register, forgot and reset password, email verification (and resend) and invitation acceptance. Multi-instance deployments need the Redis-backed limiter noted in `DECISIONS.md`.
 - **MFA:** NOT IMPLEMENTED (schema-ready; Phase 12 hardening).
 - **Email delivery:** console transport only — the system logs intent and does NOT claim delivery (spec §1.32). SMTP integration lands with notification phase.
 
@@ -17,7 +19,8 @@
 - **Permission catalog:** 34 `resource.action` keys seeded at startup; roles (system + custom) reference keys. A role name grants nothing beyond its explicitly assigned permissions (spec §4).
 - **System roles:** Owner (implicit all), Organization Admin, Pharmacist, Store Manager, Cashier, Inventory Manager, Purchase Manager, Accountant, Auditor, Analyst — seeded per organization at registration with explicit permission sets.
 - **Enforcement:** `SessionGuard` (global) → `TenantContextGuard` (global): resolves ACTIVE membership, loads role permissions, validates the requested branch and the user's assignment (owner or `branches.manage` holders operate org-wide), then enforces `@RequirePermissions(...)` per endpoint. 403 with stable `FORBIDDEN` code; cross-tenant lookups 404 to avoid existence leaks (negative tests assert this).
-- **Platform superadmin:** a user flag, not an org role; dedicated platform admin area is Phase 11. No current endpoint grants tenant data access via the flag.
+- **Platform superadmin:** a user flag, not an org role, checked by the dedicated platform guard. Platform-scope keys (`platform.*`) are excluded from the tenant permission catalog, role templates, the Organization Admin set and the owner's effective permissions; role create/update rejects them and any legacy grants are stripped at boot. No endpoint grants tenant business data via the flag.
+- **Custom roles:** must grant at least one permission and have a unique (case-insensitive) name per organization.
 
 ## Tenant isolation
 
@@ -42,7 +45,7 @@
 | Item | Phase |
 |---|---|
 | CSRF: cookie auth + SameSite=Lax covers the SPA threat model for now; token-based CSRF headers re-evaluated when server-side forms arrive | 5/12 |
-| Rate limiting (login, API-wide) | 12 |
+| Rate limiting API-wide and Redis-backed (auth routes are limited in-process today) | 12 |
 | File uploads (prescriptions, attachments) — validation, private storage, signed links | 8/10 |
 | Dependency vulnerability scanning in CI | 12 |
 | `REVOKE UPDATE/DELETE` on append-only tables for the app DB role | 12 |

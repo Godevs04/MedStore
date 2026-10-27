@@ -1,19 +1,11 @@
 import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
+import { dateRangeQuerySchema, expenseCreateSchema, expenseListQuerySchema, paginationQuerySchema } from '@medicore/validation';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { RequirePermissions, TenantContextGuard, type TenantRequest } from '../rbac/tenant-context.guard.js';
 import { RequireModule } from '../common/subscription-policy.js';
 import { ExpenseService } from './expense.service.js';
-
-const expenseSchema = z.object({
-  category: z.string().trim().min(2).max(80),
-  payee: z.string().trim().min(2).max(160),
-  amount: z.string().regex(/^\d+(\.\d{1,2})?$/),
-  method: z.enum(['CASH', 'BANK', 'UPI']),
-  expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  notes: z.string().max(300).nullish(),
-});
 
 @ApiTags('accounting')
 @UseGuards(TenantContextGuard)
@@ -24,17 +16,23 @@ export class ExpenseController {
 
   @Post()
   @RequirePermissions('accounting.post')
-  createExpense(@Body(new ZodValidationPipe(expenseSchema)) dto: z.infer<typeof expenseSchema>, @Req() req: TenantRequest) {
+  createExpense(@Body(new ZodValidationPipe(expenseCreateSchema)) dto: z.infer<typeof expenseCreateSchema>, @Req() req: TenantRequest) {
     return this.expenses.createExpense(req, dto);
+  }
+
+  @Get('summary')
+  @RequirePermissions('accounting.read')
+  summary(@Req() req: TenantRequest, @Query(new ZodValidationPipe(dateRangeQuerySchema)) q: z.infer<typeof dateRangeQuerySchema>) {
+    return this.expenses.summary(req, q);
   }
 
   @Get()
   @RequirePermissions('accounting.read')
-  async listExpenses(
+  listExpenses(
     @Req() req: TenantRequest,
-    @Query('page') page = '1',
-    @Query('pageSize') pageSize = '50',
+    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
+    @Query(new ZodValidationPipe(expenseListQuerySchema)) filters: z.infer<typeof expenseListQuerySchema>,
   ) {
-    return this.expenses.listExpenses(req, { page: Number(page), pageSize: Number(pageSize) });
+    return this.expenses.listExpenses(req, { ...pagination, ...filters });
   }
 }

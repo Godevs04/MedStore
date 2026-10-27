@@ -1,6 +1,9 @@
 'use client';
 
+import Link from 'next/link';
+import { createPortal } from 'react-dom';
 import { useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type Ref, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import { Icon, type IconName } from './icons';
 
 const inr = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -88,15 +91,41 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
   );
 }
 
-export function Field({ label, error, children }: { label: string; error?: string; children: ReactNode }) {
+export function Field({
+  label,
+  error,
+  hint,
+  required,
+  className,
+  children,
+}: {
+  label: string;
+  error?: string;
+  hint?: ReactNode;
+  required?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <label className="block space-y-1">
-      <span className="text-xs font-medium text-neutral-600">{label}</span>
-      {children}
+    <label className={cn('block space-y-1', className)}>
+      <span className="text-xs font-medium text-neutral-600">
+        {label}
+        {required ? <span className="ml-0.5 text-red-500">*</span> : null}
+      </span>
+      <span
+        className={cn(
+          'block rounded-lg',
+          error && '[&_input]:border-red-400 [&_select]:border-red-400 [&_textarea]:border-red-400 [&_input]:ring-3 [&_input]:ring-red-500/10',
+        )}
+      >
+        {children}
+      </span>
       {error ? (
-        <span className="mc-anim-fade-in block text-xs text-red-600" role="alert">
+        <span key={error} className="mc-anim-shake block text-xs text-red-600" role="alert">
           {error}
         </span>
+      ) : hint ? (
+        <span className="block text-[11px] text-neutral-500">{hint}</span>
       ) : null}
     </label>
   );
@@ -200,11 +229,11 @@ export function SkeletonRows({ rows = 4, cols = 5 }: { rows?: number; cols?: num
   );
 }
 
-export function EmptyState({ title, hint, action }: { title: string; hint?: string; action?: ReactNode }) {
+export function EmptyState({ title, hint, action, icon = 'empty' }: { title: string; hint?: string; action?: ReactNode; icon?: IconName }) {
   return (
     <div className="mc-anim-fade-up flex flex-col items-center gap-2.5 py-12 text-center">
-      <div className="mc-anim-float flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-xl shadow-sm ring-1 ring-brand-100">
-        📦
+      <div className="mc-anim-float flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-600 shadow-sm ring-1 ring-brand-100">
+        <Icon name={icon} size={22} />
       </div>
       <p className="text-sm font-medium text-neutral-700">{title}</p>
       {hint ? <p className="max-w-md text-xs leading-relaxed text-neutral-500">{hint}</p> : null}
@@ -216,7 +245,9 @@ export function EmptyState({ title, hint, action }: { title: string; hint?: stri
 export function ErrorState({ message, retry }: { message: string; retry?: () => void }) {
   return (
     <div className="mc-anim-scale-in flex flex-col items-center gap-2.5 rounded-xl border border-red-200 bg-gradient-to-b from-red-50 to-white py-9 text-center">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 text-lg">⚠️</div>
+      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 text-red-600">
+        <Icon name="warning" size={20} />
+      </div>
       <p className="text-sm font-medium text-red-800">{message}</p>
       {retry ? (
         <Button variant="secondary" onClick={retry}>
@@ -301,6 +332,7 @@ export function Stat({
   tone = 'neutral',
   delay,
   href,
+  footer,
 }: {
   label: string;
   value: ReactNode;
@@ -308,6 +340,8 @@ export function Stat({
   tone?: 'neutral' | 'green' | 'amber' | 'red' | 'blue';
   delay?: number;
   href?: string;
+  /** Extra content under the hint, e.g. a sparkline. */
+  footer?: ReactNode;
 }) {
   const accent = {
     neutral: 'from-neutral-300 to-neutral-200',
@@ -328,12 +362,13 @@ export function Stat({
       <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">{label}</p>
       <p className="mt-1 text-xl font-semibold tabular-nums tracking-tight text-neutral-900">{value}</p>
       {hint ? <p className="mt-0.5 text-xs text-neutral-500">{hint}</p> : null}
+      {footer ? <div className="mt-2">{footer}</div> : null}
     </div>
   );
   return href ? (
-    <a href={href} className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60 rounded-xl">
+    <Link href={href} className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60">
       {body}
-    </a>
+    </Link>
   ) : (
     body
   );
@@ -392,8 +427,8 @@ export function Drawer({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
-  if (!open) return null;
-  return (
+  if (!open || typeof document === 'undefined') return null;
+  return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={title}>
       <button aria-label="Close" className="mc-anim-fade-in absolute inset-0 bg-neutral-900/30 backdrop-blur-[2px]" onClick={onClose} />
       <aside className={cn('mc-anim-drawer relative flex h-full w-full flex-col bg-white shadow-2xl', width)}>
@@ -402,13 +437,14 @@ export function Drawer({
             <h2 className="text-base font-semibold tracking-tight text-neutral-900">{title}</h2>
             {subtitle ? <div className="mt-0.5 text-xs text-neutral-500">{subtitle}</div> : null}
           </div>
-          <Button variant="ghost" onClick={onClose} aria-label="Close drawer">
-            ✕
+          <Button variant="ghost" className="px-2" onClick={onClose} aria-label="Close drawer">
+            <Icon name="close" size={18} />
           </Button>
         </header>
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">{children}</div>
       </aside>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

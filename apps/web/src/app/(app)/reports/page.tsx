@@ -1,32 +1,14 @@
 'use client';
 
+import { Icon } from '@/components/icons';
 import Link from 'next/link';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
 import { api, ApiClientError, downloadCsv } from '@/lib/api';
-import { useCurrentMembership } from '@/lib/session';
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorBanner,
-  ErrorState,
-  Input,
-  PageHeader,
-  SkeletonRows,
-  Stat,
-  SuccessBanner,
-  Table,
-  Tabs,
-  Td,
-  Th,
-  Tr,
-  cn,
-  fmtDate,
-  money,
-  todayIso,
-} from '@/components/ui';
+import { toast } from '@/lib/toast';
+import { BATCH_STATUS_LABEL, BATCH_STATUS_TONE, qtyFmt, useCan, useWarehouses } from '@/lib/stock';
+import { BarChart, DateRangePicker, Donut, FilterChips, KpiGrid, Pagination, SearchInput, SortableTh, datePresets, type DateRange, type PageInfo, type SortState } from '@/components/kit';
+import { Badge, Button, Card, EmptyState, ErrorState, PageHeader, Select, SkeletonRows, Stat, Table, Tabs, Td, Th, Tr, cn, fmtDate, money } from '@/components/ui';
 
 interface SalesSummary {
   totals: {
@@ -47,8 +29,20 @@ interface SalesSummary {
   byProduct: Array<{ productId: string; product: string; quantity: number; revenue: string; margin: string }>;
   byPayment: Array<{ method: string; amount: string }>;
 }
+interface ValuationRow {
+  batchId: string;
+  product: string;
+  sku: string;
+  batchNumber: string;
+  expiryDate: string;
+  status: string;
+  quantity: number;
+  purchaseRate: string;
+  mrp: string;
+  value: string;
+}
 interface Valuation {
-  rows: Array<{ batchId: string; product: string; sku: string; batchNumber: string; expiryDate: string; status: string; quantity: number; purchaseRate: string; mrp: string; value: string }>;
+  rows: ValuationRow[];
   totalValue: string;
   totalMrp: string;
   expiredValue: string;
@@ -70,8 +64,28 @@ interface AgingSide {
   buckets: Record<string, string>;
   total: string;
 }
+interface DeadRow {
+  productId: string;
+  name: string;
+  sku: string;
+  rackLocation: string | null;
+  onHand: number;
+  value: string;
+  mrpValue: string;
+  soldQty: number;
+  lastSoldAt: string | null;
+  daysSinceSale: number | null;
+  coverDays: number | null;
+  nearestExpiry: string | null;
+  classification: 'DEAD' | 'SLOW';
+}
+interface DeadStock {
+  days: number;
+  summary: { deadItems: number; deadValue: string; slowItems: number; slowValue: string };
+  items: DeadRow[];
+}
 
-type Tab = 'sales' | 'valuation' | 'aging';
+type Tab = 'sales' | 'valuation' | 'dead' | 'aging';
 const n = (v: string | number | null | undefined) => Number(v ?? 0);
 const BUCKETS: Array<[string, string]> = [
   ['CURRENT', 'Current'],
@@ -80,299 +94,392 @@ const BUCKETS: Array<[string, string]> = [
   ['D61_90', '61–90 d'],
   ['D90_PLUS', '90+ d'],
 ];
-const daysAgo = (d: number) => new Date(Date.now() - d * 86400000 + 5.5 * 3600000).toISOString().slice(0, 10);
+const METHOD_LABEL: Record<string, string> = { CASH: 'Cash', UPI: 'UPI', CARD: 'Card', BANK: 'Bank', CREDIT: 'Credit', CHEQUE: 'Cheque' };
 
-export default function ReportsPage() {
-  const queryClient = useQueryClient();
-  const membership = useCurrentMembership();
-  const canExport = Boolean(membership && (membership.isOwner || membership.permissions.includes('reports.export')));
-  const [tab, setTab] = useState<Tab>('sales');
-  const [from, setFrom] = useState(daysAgo(29));
-  const [to, setTo] = useState(todayIso());
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [exporting, setExporting] = useState<string | null>(null);
-
-  const sales = useQuery({ queryKey: ['report-sales', from, to], queryFn: () => api<SalesSummary>(`/reports/sales-summary?from=${from}&to=${to}`), retry: false });
-  const valuation = useQuery({ queryKey: ['report-valuation'], queryFn: () => api<Valuation>('/reports/stock-valuation'), enabled: tab === 'valuation', retry: false });
-  const aging = useQuery({ queryKey: ['report-aging'], queryFn: () => api<{ receivables: AgingSide; payables: AgingSide }>('/reports/aging'), enabled: tab === 'aging', retry: false });
-  const notifications = useQuery({
-    queryKey: ['notifications'],
-    queryFn: () => api<{ items: Array<{ id: string; type: string; title: string; body: string; readAt: string | null; createdAt: string }> }>('/reports/notifications?page=1&pageSize=30'),
-    retry: false,
-  });
-
-  const generate = useMutation({
-    meta: { silent: true },
-    mutationFn: () => api<{ generated: number; scanned: number }>('/reports/notifications/generate', { method: 'POST' }),
-    onSuccess: (r) => {
-      setNotice(r.generated ? `${r.generated} new alert${r.generated === 1 ? '' : 's'} raised.` : 'Scan complete — nothing new to flag.');
-      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
+/** Sorts and pages rows already in memory. */
+function useTable<T, F extends string>(rows: T[], initial: SortState<F>, value: (row: T, field: F) => string | number | null, pageSize = 20) {
+  const [sort, setSort] = useState<SortState<F>>(initial);
+  const [page, setPage] = useState(1);
+  const sorted = useMemo(() => {
+    const dir = sort.direction === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const x = value(a, sort.field);
+      const y = value(b, sort.field);
+      if (x === y) return 0;
+      if (x === null) return 1;
+      if (y === null) return -1;
+      return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y))) * dir;
+    });
+  }, [rows, sort, value]);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const current = Math.min(page, totalPages);
+  const info: PageInfo = { page: current, pageSize, totalItems: sorted.length, totalPages };
+  return {
+    sort,
+    onSort: (s: SortState<F>) => {
+      setSort(s);
+      setPage(1);
     },
-    onError: (e) => setError(e instanceof ApiClientError ? e.message : 'Failed to generate'),
-  });
-  const markRead = useMutation({
-    meta: { silent: true },
-    mutationFn: (id: string) => api(`/reports/notifications/${id}/read`, { method: 'POST' }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['notifications'] }),
-  });
+    rows: sorted.slice((current - 1) * pageSize, current * pageSize),
+    info,
+    setPage,
+  };
+}
 
-  async function exportCsv(report: string, withRange = false) {
-    setExporting(report);
-    setError(null);
-    try {
-      await downloadCsv(`/reports/export/${report}${withRange ? `?from=${from}&to=${to}` : ''}`, `${report}.csv`);
-    } catch (e) {
-      setError(e instanceof ApiClientError ? e.message : 'Export failed');
-    } finally {
-      setExporting(null);
-    }
+async function exportCsv(path: string, name: string) {
+  try {
+    await downloadCsv(path, name);
+    toast.success('Export ready', name);
+  } catch (e) {
+    toast.error('Export failed', e instanceof ApiClientError ? e.message : 'Try again');
   }
-  const csvButton = (report: string, withRange = false) =>
-    canExport ? (
-      <Button variant="secondary" className="text-xs" disabled={exporting === report} onClick={() => void exportCsv(report, withRange)}>
-        {exporting === report ? 'Exporting…' : '⤓ CSV'}
-      </Button>
-    ) : null;
+}
 
+type ProductField = 'product' | 'quantity' | 'revenue' | 'margin' | 'pct';
+const productValue = (p: SalesSummary['byProduct'][number], f: ProductField) =>
+  f === 'product' ? p.product : f === 'quantity' ? p.quantity : f === 'revenue' ? n(p.revenue) : f === 'margin' ? n(p.margin) : n(p.revenue) ? n(p.margin) / n(p.revenue) : 0;
+
+function SalesTab({ canExport }: { canExport: boolean }) {
+  const presets = useMemo(() => datePresets(), []);
+  const [range, setRange] = useState<DateRange>(presets.find((p) => p.id === '30d')!.range);
+  const valid = !range.from || !range.to || range.from <= range.to;
+  const rq = `from=${range.from}&to=${range.to}`;
+  const sales = useQuery({ queryKey: ['report-sales', rq], queryFn: () => api<SalesSummary>(`/reports/sales-summary?${rq}`), enabled: valid, placeholderData: (prev) => prev });
   const s = sales.data;
-  const maxDay = Math.max(1, ...(s?.byDay.map((d) => n(d.revenue)) ?? [1]));
+  const table = useTable<SalesSummary['byProduct'][number], ProductField>(s?.byProduct ?? [], { field: 'revenue', direction: 'desc' }, productValue, 15);
   const marginPct = s && n(s.totals.netSales) ? (n(s.totals.grossMargin) / n(s.totals.netSales)) * 100 : 0;
-  const unread = notifications.data?.items.filter((x) => !x.readAt).length ?? 0;
+  const csv = (report: string) => (canExport ? <Button variant="secondary" className="text-xs" onClick={() => void exportCsv(`/reports/export/${report}?${rq}`, `${report}-${range.from}-${range.to}.csv`)}><Icon name="download" size={14} /> CSV</Button> : null);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
-      <PageHeader title="Reports & alerts" subtitle="Server-side aggregates over posted documents. Every export is audited." />
-      <Tabs
-        value={tab}
-        onChange={(t) => { setTab(t); setError(null); }}
-        tabs={[
-          { id: 'sales', label: 'Sales' },
-          { id: 'valuation', label: 'Stock valuation' },
-          { id: 'aging', label: 'Receivables & payables' },
-        ]}
-      />
-      {notice ? <SuccessBanner>{notice}</SuccessBanner> : null}
-      {error ? <ErrorBanner>{error}</ErrorBanner> : null}
-
-      {tab === 'sales' ? (
-        <>
-          <div className="flex flex-wrap items-center gap-2">
-            <Input type="date" className="w-36" value={from} max={to} onChange={(e) => setFrom(e.target.value)} aria-label="From" />
-            <span className="text-xs text-neutral-400">to</span>
-            <Input type="date" className="w-36" value={to} max={todayIso()} onChange={(e) => setTo(e.target.value)} aria-label="To" />
-            <Button variant="ghost" className="text-xs" onClick={() => { setFrom(todayIso()); setTo(todayIso()); }}>Today</Button>
-            <Button variant="ghost" className="text-xs" onClick={() => { setFrom(daysAgo(6)); setTo(todayIso()); }}>7 days</Button>
-            <Button variant="ghost" className="text-xs" onClick={() => { setFrom(daysAgo(29)); setTo(todayIso()); }}>30 days</Button>
-          </div>
-          {sales.isLoading ? (
-            <SkeletonRows rows={5} cols={4} />
-          ) : sales.error || !s ? (
-            <ErrorState message="Failed to load sales report." retry={() => void sales.refetch()} />
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <Stat label="Billed (incl. GST)" value={money(s.totals.revenue)} hint={`${s.totals.invoices} invoices · avg ${money(s.totals.averageBill)}`} tone="blue" />
-                <Stat label="Returns" value={money(s.totals.returnsValue)} hint={`${s.totals.returns} credit notes · net billed ${money(s.totals.netRevenue)}`} tone="amber" delay={60} />
-                <Stat label="Net sales" value={money(s.totals.netSales)} hint={`before GST, after returns · GST ${money(s.totals.tax)}`} delay={120} />
-                <Stat label="Gross margin" value={money(s.totals.grossMargin)} hint={`${marginPct.toFixed(1)}% · cost of goods ${money(s.totals.costOfGoods)}`} tone="green" delay={180} />
-              </div>
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                <Card title="Daily sales" className="lg:col-span-2" actions={csvButton('sales-by-day', true)}>
-                  {s.byDay.length === 0 ? (
-                    <EmptyState title="No sales in this range" />
-                  ) : (
-                    <>
-                    <div className="flex h-48 items-end justify-center gap-1.5 border-b border-neutral-200">
-                      {s.byDay.map((d) => (
-                        <div key={d.date} className="group relative flex max-w-14 flex-1 flex-col items-center justify-end" title={`${fmtDate(d.date)} · ${money(d.revenue)} · ${d.invoices} bills`}>
-                          {s.byDay.length <= 14 ? <span className="mb-1 text-[10px] tabular-nums text-neutral-500">{money(d.revenue)}</span> : null}
-                          <div className="w-full rounded-t-md bg-brand-500/80 transition-all group-hover:bg-brand-600" style={{ height: `${Math.max(4, (n(d.revenue) / maxDay) * 130)}px` }} />
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-1 flex justify-center gap-1.5">
-                      {s.byDay.map((d, i) => (
-                        <span key={d.date} className="max-w-14 flex-1 truncate text-center text-[10px] text-neutral-400">
-                          {s.byDay.length <= 14 || i % Math.ceil(s.byDay.length / 10) === 0 ? d.date.slice(5).split('-').reverse().join('/') : ''}
-                        </span>
-                      ))}
-                    </div>
-                    </>
-                  )}
-                </Card>
-                <Card title="Tender mix">
-                  {s.byPayment.length === 0 ? (
-                    <p className="text-sm text-neutral-500">No tenders.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {s.byPayment.map((p) => {
-                        const total = s.byPayment.reduce((a, b) => a + n(b.amount), 0) || 1;
-                        return (
-                          <div key={p.method}>
-                            <div className="flex justify-between text-sm">
-                              <span className="font-medium">{p.method}</span>
-                              <span className="tabular-nums">{money(p.amount)}</span>
-                            </div>
-                            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-neutral-100">
-                              <div className="h-full rounded-full bg-brand-500" style={{ width: `${(n(p.amount) / total) * 100}%` }} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                      <p className="pt-1 text-[11px] text-neutral-400">Credit sales collected later appear as receipts, not here.</p>
-                    </div>
-                  )}
-                </Card>
-              </div>
-              <Card title="Top products (taxable value)" actions={csvButton('sales-by-product', true)}>
-                {s.byProduct.length === 0 ? (
-                  <EmptyState title="No products sold in this range" />
-                ) : (
-                  <Table head={<tr><Th>Product</Th><Th right>Qty</Th><Th right>Revenue</Th><Th right>Margin</Th><Th right>Margin %</Th></tr>}>
-                    {s.byProduct.map((p) => (
-                      <Tr key={p.productId}>
-                        <Td className="text-sm font-medium">{p.product}</Td>
-                        <Td right>{p.quantity}</Td>
-                        <Td right>{money(p.revenue)}</Td>
-                        <Td right className={n(p.margin) >= 0 ? 'text-emerald-700' : 'text-red-700'}>{money(p.margin)}</Td>
-                        <Td right className="text-xs text-neutral-500">{n(p.revenue) ? `${((n(p.margin) / n(p.revenue)) * 100).toFixed(1)}%` : '—'}</Td>
-                      </Tr>
-                    ))}
-                  </Table>
-                )}
-              </Card>
-            </>
-          )}
-        </>
-      ) : null}
-
-      {tab === 'valuation' ? (
-        valuation.isLoading ? (
-          <SkeletonRows rows={6} cols={6} />
-        ) : valuation.error || !valuation.data ? (
-          <ErrorState message="Failed to load stock valuation." retry={() => void valuation.refetch()} />
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <Stat label="Stock at cost" value={money(valuation.data.totalValue)} tone="blue" />
-              <Stat label="Stock at MRP" value={money(valuation.data.totalMrp)} hint={n(valuation.data.totalValue) ? `${(((n(valuation.data.totalMrp) - n(valuation.data.totalValue)) / n(valuation.data.totalValue)) * 100).toFixed(0)}% potential mark-up` : undefined} delay={60} />
-              <Stat label="Expired / blocked" value={money(n(valuation.data.expiredValue) + n(valuation.data.blockedValue))} hint={`expired ${money(valuation.data.expiredValue)}`} tone="red" delay={120} />
-              <Stat label="Inventory in books" value={money(valuation.data.bookValue)} hint={n(valuation.data.unbookedDifference) ? `${money(valuation.data.unbookedDifference)} received but not yet billed` : 'matches physical stock'} tone="green" delay={180} />
-            </div>
-            <Card title={`Batches on hand (${valuation.data.rows.length})`} actions={csvButton('stock-valuation')}>
-              {valuation.data.rows.length === 0 ? (
-                <EmptyState title="No stock on hand" />
+    <>
+      <Card>
+        <DateRangePicker value={range} onChange={setRange} />
+      </Card>
+      {sales.isLoading ? (
+        <SkeletonRows rows={5} cols={4} />
+      ) : sales.error || !s ? (
+        <ErrorState message="Failed to load sales report." retry={() => void sales.refetch()} />
+      ) : (
+        <div className={cn('space-y-4 transition-opacity', sales.isFetching && 'opacity-60')}>
+          <KpiGrid cols={4}>
+            <Stat label="Billed (incl. GST)" value={money(s.totals.revenue)} hint={`${s.totals.invoices} invoices · avg ${money(s.totals.averageBill)}`} tone="blue" />
+            <Stat label="Returns" value={money(s.totals.returnsValue)} hint={`${s.totals.returns} credit notes · net billed ${money(s.totals.netRevenue)}`} tone="amber" delay={60} />
+            <Stat label="Net sales" value={money(s.totals.netSales)} hint={`before GST, after returns · GST ${money(s.totals.tax)}`} delay={120} />
+            <Stat label="Gross margin" value={money(s.totals.grossMargin)} hint={`${marginPct.toFixed(1)}% · cost of goods ${money(s.totals.costOfGoods)}`} tone="green" delay={180} />
+          </KpiGrid>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <Card title="Daily sales" className="lg:col-span-2" actions={csv('sales-by-day')}>
+              {s.byDay.length === 0 ? (
+                <EmptyState title="No sales in this range" />
               ) : (
-                <Table head={<tr><Th>Product</Th><Th>Batch</Th><Th>Expiry</Th><Th>Status</Th><Th right>Qty</Th><Th right>Cost</Th><Th right>MRP</Th><Th right>Value</Th></tr>}>
-                  {valuation.data.rows.map((r) => (
-                    <Tr key={r.batchId}>
-                      <Td className="text-sm">
-                        {r.product}
-                        <span className="block font-mono text-[10px] text-neutral-400">{r.sku}</span>
-                      </Td>
-                      <Td className="font-mono text-xs">{r.batchNumber}</Td>
-                      <Td className="text-xs">{fmtDate(r.expiryDate)}</Td>
-                      <Td><Badge tone={r.status === 'ACTIVE' ? 'green' : r.status === 'EXPIRED' ? 'red' : 'amber'}>{r.status.toLowerCase()}</Badge></Td>
-                      <Td right>{r.quantity}</Td>
-                      <Td right className="text-xs">{money(r.purchaseRate, false)}</Td>
-                      <Td right className="text-xs">{money(r.mrp, false)}</Td>
-                      <Td right className="font-medium">{money(r.value)}</Td>
+                <BarChart
+                  data={s.byDay.map((d) => ({ label: d.date.slice(5).split('-').reverse().join('/'), value: n(d.revenue), hint: `${fmtDate(d.date)} · ${d.invoices} bill${d.invoices === 1 ? '' : 's'}` }))}
+                  format={(v) => money(v)}
+                  height={200}
+                />
+              )}
+            </Card>
+            <Card title="Tender mix">
+              <Donut data={s.byPayment.map((p) => ({ label: METHOD_LABEL[p.method] ?? p.method, value: n(p.amount) }))} format={(v) => money(v)} centerLabel="Collected" />
+              <p className="pt-2 text-[11px] text-neutral-400">Credit sales collected later appear as receipts, not here.</p>
+            </Card>
+          </div>
+          <Card title={`Products sold (${s.byProduct.length})`} actions={csv('sales-by-product')}>
+            {s.byProduct.length === 0 ? (
+              <EmptyState title="No products sold in this range" />
+            ) : (
+              <>
+                <Table
+                  head={
+                    <tr>
+                      <SortableTh label="Product" field="product" sort={table.sort} onSort={table.onSort} />
+                      <SortableTh label="Qty" field="quantity" sort={table.sort} onSort={table.onSort} right />
+                      <SortableTh label="Revenue" field="revenue" sort={table.sort} onSort={table.onSort} right />
+                      <SortableTh label="Margin" field="margin" sort={table.sort} onSort={table.onSort} right />
+                      <SortableTh label="Margin %" field="pct" sort={table.sort} onSort={table.onSort} right />
+                    </tr>
+                  }
+                >
+                  {table.rows.map((p) => (
+                    <Tr key={p.productId}>
+                      <Td className="text-sm font-medium"><Link href={`/products?focus=${p.productId}`} className="hover:text-brand-700 hover:underline">{p.product}</Link></Td>
+                      <Td right>{qtyFmt(p.quantity)}</Td>
+                      <Td right>{money(p.revenue)}</Td>
+                      <Td right className={n(p.margin) >= 0 ? 'text-emerald-700' : 'text-red-700'}>{money(p.margin)}</Td>
+                      <Td right className="text-xs text-neutral-500">{n(p.revenue) ? `${((n(p.margin) / n(p.revenue)) * 100).toFixed(1)}%` : '—'}</Td>
                     </Tr>
                   ))}
                 </Table>
-              )}
-            </Card>
-          </>
-        )
-      ) : null}
+                <Pagination info={table.info} onChange={table.setPage} label="products" />
+              </>
+            )}
+          </Card>
+        </div>
+      )}
+    </>
+  );
+}
 
-      {tab === 'aging' ? (
-        aging.isLoading ? (
-          <SkeletonRows rows={6} cols={4} />
-        ) : aging.error || !aging.data ? (
-          <ErrorState message="Failed to load aging." retry={() => void aging.refetch()} />
-        ) : (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {(['receivables', 'payables'] as const).map((side) => {
-              const d = aging.data[side];
-              const total = n(d.total) || 1;
-              return (
-                <Card
-                  key={side}
-                  title={side === 'receivables' ? 'Receivables · customers owe you' : 'Payables · you owe suppliers'}
-                  actions={
-                    <div className="flex items-center gap-2">
-                      <Badge tone={side === 'receivables' ? 'blue' : 'amber'}>{money(d.total)}</Badge>
-                      {csvButton(side)}
-                    </div>
-                  }
-                >
-                  <div className="mb-3 flex h-2 overflow-hidden rounded-full bg-neutral-100">
-                    {BUCKETS.map(([k], i) => (
-                      <div key={k} className={cn('h-full', ['bg-emerald-500', 'bg-amber-300', 'bg-amber-500', 'bg-orange-500', 'bg-red-500'][i])} style={{ width: `${(n(d.buckets[k]) / total) * 100}%` }} />
-                    ))}
-                  </div>
-                  <div className="mb-3 grid grid-cols-5 gap-1 text-center">
-                    {BUCKETS.map(([k, label]) => (
-                      <div key={k} className="rounded-lg bg-neutral-50 px-1 py-1.5">
-                        <p className="text-[10px] uppercase tracking-wide text-neutral-400">{label}</p>
-                        <p className="text-xs font-semibold tabular-nums">{money(d.buckets[k] ?? 0, false)}</p>
-                      </div>
-                    ))}
-                  </div>
-                  {d.rows.length === 0 ? (
-                    <EmptyState title="Nothing outstanding" />
-                  ) : (
-                    <Table head={<tr><Th>Party</Th><Th>Document</Th><Th right>Outstanding</Th><Th right>Overdue</Th></tr>}>
-                      {d.rows.map((r) => (
-                        <Tr key={r.docId}>
-                          <Td className="text-sm">{r.party}</Td>
-                          <Td className="font-mono text-xs">
-                            {side === 'receivables' ? <Link className="text-brand-700 hover:underline" href={`/sales-history/${r.docId}`}>{r.doc}</Link> : r.doc}
-                          </Td>
-                          <Td right className="font-medium">{money(r.outstanding)}</Td>
-                          <Td right><Badge tone={r.daysOverdue > 60 ? 'red' : r.daysOverdue > 0 ? 'amber' : 'green'}>{r.daysOverdue ? `${r.daysOverdue}d` : 'current'}</Badge></Td>
-                        </Tr>
-                      ))}
-                    </Table>
-                  )}
-                </Card>
-              );
-            })}
-          </div>
-        )
-      ) : null}
+type ValField = 'product' | 'expiryDate' | 'quantity' | 'value';
+const valValue = (r: ValuationRow, f: ValField) => (f === 'product' ? r.product : f === 'expiryDate' ? r.expiryDate : f === 'quantity' ? r.quantity : n(r.value));
 
+function ValuationTab({ canExport }: { canExport: boolean }) {
+  const valuation = useQuery({ queryKey: ['report-valuation'], queryFn: () => api<Valuation>('/reports/stock-valuation') });
+  const [search, setSearch] = useState('');
+  const q = search.trim().toLowerCase();
+  const rows = useMemo(() => (valuation.data?.rows ?? []).filter((r) => !q || r.product.toLowerCase().includes(q) || r.sku.toLowerCase().includes(q) || r.batchNumber.toLowerCase().includes(q)), [valuation.data, q]);
+  const table = useTable<ValuationRow, ValField>(rows, { field: 'value', direction: 'desc' }, valValue, 25);
+  if (valuation.isLoading) return <SkeletonRows rows={6} cols={6} />;
+  if (valuation.error || !valuation.data) return <ErrorState message="Failed to load stock valuation." retry={() => void valuation.refetch()} />;
+  const v = valuation.data;
+  return (
+    <>
+      <KpiGrid cols={4}>
+        <Stat label="Stock at cost" value={money(v.totalValue)} tone="blue" />
+        <Stat label="Stock at MRP" value={money(v.totalMrp)} hint={n(v.totalValue) ? `${(((n(v.totalMrp) - n(v.totalValue)) / n(v.totalValue)) * 100).toFixed(0)}% potential mark-up` : undefined} delay={60} />
+        <Stat label="Expired / blocked" value={money(n(v.expiredValue) + n(v.blockedValue))} hint={`expired ${money(v.expiredValue)}`} tone="red" delay={120} />
+        <Stat label="Inventory in books" value={money(v.bookValue)} hint={n(v.unbookedDifference) ? `${money(v.unbookedDifference)} received but not yet billed` : 'matches physical stock'} tone="green" delay={180} />
+      </KpiGrid>
       <Card
-        title={`Alerts${unread ? ` · ${unread} unread` : ''}`}
+        title={`Batches on hand (${rows.length})`}
         actions={
-          <Button variant="secondary" disabled={generate.isPending} onClick={() => generate.mutate()}>
-            {generate.isPending ? 'Scanning…' : 'Scan now'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <SearchInput value={search} onChange={(x) => { setSearch(x); table.setPage(1); }} placeholder="Product, SKU or batch" className="w-56" />
+            {canExport ? <Button variant="secondary" className="text-xs" onClick={() => void exportCsv('/reports/export/stock-valuation', 'stock-valuation.csv')}><Icon name="download" size={14} /> CSV</Button> : null}
+          </div>
         }
       >
-        {notifications.isLoading ? (
-          <SkeletonRows rows={3} cols={2} />
-        ) : (notifications.data?.items.length ?? 0) === 0 ? (
-          <EmptyState title="No alerts" hint="“Scan now” checks low stock, near-expiry batches and licences due for renewal." />
+        {rows.length === 0 ? (
+          <EmptyState title={q ? 'Nothing matches this search' : 'No stock on hand'} />
         ) : (
-          <div className="space-y-2">
-            {notifications.data?.items.map((x) => (
-              <div key={x.id} className={cn('mc-anim-fade-up flex items-start justify-between gap-3 rounded-lg border px-3 py-2', x.readAt ? 'border-neutral-100 bg-white' : 'border-amber-200 bg-amber-50/60')}>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Badge tone={x.type === 'LOW_STOCK' ? 'red' : x.type.includes('LICEN') ? 'blue' : 'amber'} dot={!x.readAt}>{x.type.replaceAll('_', ' ').toLowerCase()}</Badge>
-                    <span className="text-sm font-medium text-neutral-800">{x.title}</span>
-                  </div>
-                  <p className="mt-0.5 text-xs text-neutral-500">{x.body}</p>
-                </div>
-                {x.readAt ? <span className="text-xs text-neutral-400">read</span> : <Button variant="ghost" className="text-xs" onClick={() => markRead.mutate(x.id)}>Mark read</Button>}
-              </div>
-            ))}
-          </div>
+          <>
+            <Table
+              head={
+                <tr>
+                  <SortableTh label="Product" field="product" sort={table.sort} onSort={table.onSort} />
+                  <Th>Batch</Th>
+                  <SortableTh label="Expiry" field="expiryDate" sort={table.sort} onSort={table.onSort} />
+                  <Th>Status</Th>
+                  <SortableTh label="Qty" field="quantity" sort={table.sort} onSort={table.onSort} right />
+                  <Th right>Cost</Th>
+                  <Th right>MRP</Th>
+                  <SortableTh label="Value" field="value" sort={table.sort} onSort={table.onSort} right />
+                </tr>
+              }
+            >
+              {table.rows.map((r) => (
+                <Tr key={r.batchId}>
+                  <Td className="text-sm">
+                    {r.product}
+                    <span className="block font-mono text-[10px] text-neutral-400">{r.sku}</span>
+                  </Td>
+                  <Td className="font-mono text-xs"><Link href={`/batches?focus=${r.batchId}`} className="hover:text-brand-700 hover:underline">{r.batchNumber}</Link></Td>
+                  <Td className="text-xs">{fmtDate(r.expiryDate)}</Td>
+                  <Td><Badge tone={BATCH_STATUS_TONE[r.status] ?? 'neutral'}>{BATCH_STATUS_LABEL[r.status] ?? r.status}</Badge></Td>
+                  <Td right>{qtyFmt(r.quantity)}</Td>
+                  <Td right className="text-xs">{money(r.purchaseRate, false)}</Td>
+                  <Td right className="text-xs">{money(r.mrp, false)}</Td>
+                  <Td right className="font-medium">{money(r.value)}</Td>
+                </Tr>
+              ))}
+            </Table>
+            <Pagination info={table.info} onChange={table.setPage} label="batches" />
+          </>
         )}
       </Card>
+    </>
+  );
+}
+
+type DeadField = 'name' | 'onHand' | 'value' | 'daysSinceSale' | 'coverDays';
+const deadValue = (r: DeadRow, f: DeadField) => (f === 'name' ? r.name : f === 'onHand' ? r.onHand : f === 'value' ? n(r.value) : f === 'daysSinceSale' ? r.daysSinceSale : r.coverDays);
+
+function DeadStockTab({ canExport }: { canExport: boolean }) {
+  const warehouses = useWarehouses();
+  const [days, setDays] = useState('90');
+  const [warehouseId, setWarehouseId] = useState('');
+  const [cls, setCls] = useState<'' | 'DEAD' | 'SLOW'>('');
+  const dead = useQuery({
+    queryKey: ['dead-stock', days, warehouseId],
+    queryFn: () => api<DeadStock>(`/reports/dead-stock?days=${days}${warehouseId ? `&warehouseId=${warehouseId}` : ''}`),
+    placeholderData: (prev) => prev,
+  });
+  const rows = useMemo(() => (dead.data?.items ?? []).filter((r) => !cls || r.classification === cls), [dead.data, cls]);
+  const table = useTable<DeadRow, DeadField>(rows, { field: 'value', direction: 'desc' }, deadValue, 20);
+  const d = dead.data;
+  return (
+    <>
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-neutral-600">
+            No sale in
+            <FilterChips options={[{ id: '60', label: '60 days' }, { id: '90', label: '90 days' }, { id: '180', label: '180 days' }, { id: '365', label: '1 year' }]} value={days} onChange={(v) => setDays(v || '90')} allLabel={null} />
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className="w-52" aria-label="Warehouse">
+              <option value="">All warehouses</option>
+              {warehouses.list.map((w) => (
+                <option key={w.id} value={w.id}>{w.label}</option>
+              ))}
+            </Select>
+            {canExport ? <Button variant="secondary" className="text-xs" onClick={() => void exportCsv('/reports/export/dead-stock', 'dead-stock-90d.csv')}><Icon name="download" size={14} /> CSV (90 d)</Button> : null}
+          </div>
+        </div>
+      </Card>
+      {dead.isLoading ? (
+        <SkeletonRows rows={5} cols={6} />
+      ) : dead.error || !d ? (
+        <ErrorState message="Failed to load the dead-stock report." retry={() => void dead.refetch()} />
+      ) : (
+        <>
+          <KpiGrid cols={4}>
+            <Stat label="Dead stock" value={money(d.summary.deadValue)} hint={`${d.summary.deadItems} products · no sale in ${d.days} days`} tone="red" />
+            <Stat label="Slow movers" value={money(d.summary.slowValue)} hint={`${d.summary.slowItems} products · over 6 months of cover`} tone="amber" delay={60} />
+            <Stat label="Capital locked" value={money(n(d.summary.deadValue) + n(d.summary.slowValue))} hint="At purchase cost" delay={120} />
+            <Stat label="Suggested action" value={d.summary.deadItems ? 'Return / discount' : 'Healthy'} hint={d.summary.deadItems ? 'Ask suppliers for returns before expiry' : 'Nothing dead in this window'} tone={d.summary.deadItems ? 'amber' : 'green'} delay={180} />
+          </KpiGrid>
+          <Card
+            title={`Products (${rows.length})`}
+            actions={<FilterChips options={[{ id: 'DEAD', label: 'Dead', count: d.summary.deadItems, tone: 'red' }, { id: 'SLOW', label: 'Slow', count: d.summary.slowItems, tone: 'amber' }]} value={cls} onChange={(v) => { setCls(v); table.setPage(1); }} />}
+          >
+            {rows.length === 0 ? (
+              <EmptyState title="Nothing dead or slow" hint="Every stocked product sold recently enough. Try a shorter window." />
+            ) : (
+              <>
+                <Table
+                  head={
+                    <tr>
+                      <SortableTh label="Product" field="name" sort={table.sort} onSort={table.onSort} />
+                      <Th>Class</Th>
+                      <SortableTh label="On hand" field="onHand" sort={table.sort} onSort={table.onSort} right />
+                      <SortableTh label="Value" field="value" sort={table.sort} onSort={table.onSort} right />
+                      <SortableTh label="Last sold" field="daysSinceSale" sort={table.sort} onSort={table.onSort} right />
+                      <SortableTh label="Cover" field="coverDays" sort={table.sort} onSort={table.onSort} right />
+                      <Th>Nearest expiry</Th>
+                    </tr>
+                  }
+                >
+                  {table.rows.map((r) => (
+                    <Tr key={r.productId}>
+                      <Td>
+                        <Link href={`/products?focus=${r.productId}`} className="text-sm font-medium hover:text-brand-700 hover:underline">{r.name}</Link>
+                        <span className="block font-mono text-[10px] text-neutral-400">{r.sku}{r.rackLocation ? ` · rack ${r.rackLocation}` : ''}</span>
+                      </Td>
+                      <Td><Badge tone={r.classification === 'DEAD' ? 'red' : 'amber'} dot>{r.classification === 'DEAD' ? 'Dead' : 'Slow'}</Badge></Td>
+                      <Td right>{qtyFmt(r.onHand)}</Td>
+                      <Td right className="font-medium">{money(r.value)}</Td>
+                      <Td right className="text-xs text-neutral-600">{r.daysSinceSale === null ? 'never' : `${r.daysSinceSale} d ago`}</Td>
+                      <Td right className="text-xs">{r.coverDays === null ? '∞' : `${r.coverDays} d`}</Td>
+                      <Td className="text-xs">{r.nearestExpiry ? fmtDate(r.nearestExpiry) : '—'}</Td>
+                    </Tr>
+                  ))}
+                </Table>
+                <Pagination info={table.info} onChange={table.setPage} label="products" />
+              </>
+            )}
+          </Card>
+        </>
+      )}
+    </>
+  );
+}
+
+type AgingField = 'party' | 'outstanding' | 'daysOverdue';
+const agingValue = (r: AgingRow, f: AgingField) => (f === 'party' ? r.party : f === 'outstanding' ? n(r.outstanding) : r.daysOverdue);
+
+function AgingCard({ side, d, canExport }: { side: 'receivables' | 'payables'; d: AgingSide; canExport: boolean }) {
+  const table = useTable<AgingRow, AgingField>(d.rows, { field: 'daysOverdue', direction: 'desc' }, agingValue, 10);
+  const total = n(d.total) || 1;
+  return (
+    <Card
+      title={side === 'receivables' ? 'Receivables · customers owe you' : 'Payables · you owe suppliers'}
+      actions={
+        <div className="flex items-center gap-2">
+          <Badge tone={side === 'receivables' ? 'blue' : 'amber'}>{money(d.total)}</Badge>
+          {canExport ? <Button variant="secondary" className="text-xs" onClick={() => void exportCsv(`/reports/export/${side}`, `${side}.csv`)}><Icon name="download" size={14} /> CSV</Button> : null}
+        </div>
+      }
+    >
+      <div className="mb-3 flex h-2 overflow-hidden rounded-full bg-neutral-100">
+        {BUCKETS.map(([k], i) => (
+          <div key={k} className={cn('mc-anim-grow-x h-full origin-left', ['bg-emerald-500', 'bg-amber-300', 'bg-amber-500', 'bg-orange-500', 'bg-red-500'][i])} style={{ width: `${(n(d.buckets[k]) / total) * 100}%` }} />
+        ))}
+      </div>
+      <div className="mb-3 grid grid-cols-5 gap-1 text-center">
+        {BUCKETS.map(([k, label]) => (
+          <div key={k} className="rounded-lg bg-neutral-50 px-1 py-1.5">
+            <p className="text-[10px] uppercase tracking-wide text-neutral-400">{label}</p>
+            <p className="text-xs font-semibold tabular-nums">{money(d.buckets[k] ?? 0, false)}</p>
+          </div>
+        ))}
+      </div>
+      {d.rows.length === 0 ? (
+        <EmptyState title="Nothing outstanding" />
+      ) : (
+        <>
+          <Table
+            head={
+              <tr>
+                <SortableTh label="Party" field="party" sort={table.sort} onSort={table.onSort} />
+                <Th>Document</Th>
+                <SortableTh label="Outstanding" field="outstanding" sort={table.sort} onSort={table.onSort} right />
+                <SortableTh label="Overdue" field="daysOverdue" sort={table.sort} onSort={table.onSort} right />
+              </tr>
+            }
+          >
+            {table.rows.map((r) => (
+              <Tr key={r.docId}>
+                <Td className="text-sm">
+                  {r.partyId ? <Link href={side === 'receivables' ? `/customers?focus=${r.partyId}` : `/vendors?focus=${r.partyId}`} className="hover:text-brand-700 hover:underline">{r.party}</Link> : r.party}
+                </Td>
+                <Td className="font-mono text-xs">
+                  <Link className="text-brand-700 hover:underline" href={side === 'receivables' ? `/sales-history/${r.docId}` : `/purchasing?tab=invoices&focus=${r.docId}`}>{r.doc}</Link>
+                </Td>
+                <Td right className="font-medium">{money(r.outstanding)}</Td>
+                <Td right><Badge tone={r.daysOverdue > 60 ? 'red' : r.daysOverdue > 0 ? 'amber' : 'green'}>{r.daysOverdue ? `${r.daysOverdue}d` : 'current'}</Badge></Td>
+              </Tr>
+            ))}
+          </Table>
+          <Pagination info={table.info} onChange={table.setPage} label="documents" />
+        </>
+      )}
+    </Card>
+  );
+}
+
+function AgingTab({ canExport }: { canExport: boolean }) {
+  const aging = useQuery({ queryKey: ['report-aging'], queryFn: () => api<{ receivables: AgingSide; payables: AgingSide }>('/reports/aging') });
+  if (aging.isLoading) return <SkeletonRows rows={6} cols={4} />;
+  if (aging.error || !aging.data) return <ErrorState message="Failed to load aging." retry={() => void aging.refetch()} />;
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <AgingCard side="receivables" d={aging.data.receivables} canExport={canExport} />
+      <AgingCard side="payables" d={aging.data.payables} canExport={canExport} />
+    </div>
+  );
+}
+
+export default function ReportsPage() {
+  const can = useCan();
+  const canExport = can('reports.export');
+  const [tab, setTab] = useState<Tab>('sales');
+  return (
+    <div className="mx-auto max-w-6xl space-y-4">
+      <PageHeader title="Reports" subtitle="Server-side aggregates over posted documents. Every export is audited; alerts live in the bell at the top." />
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { id: 'sales', label: 'Sales' },
+          { id: 'valuation', label: 'Stock valuation' },
+          { id: 'dead', label: 'Dead & slow stock' },
+          { id: 'aging', label: 'Receivables & payables' },
+        ]}
+      />
+      {tab === 'sales' ? <SalesTab canExport={canExport} /> : null}
+      {tab === 'valuation' ? <ValuationTab canExport={canExport} /> : null}
+      {tab === 'dead' ? <DeadStockTab canExport={canExport} /> : null}
+      {tab === 'aging' ? <AgingTab canExport={canExport} /> : null}
     </div>
   );
 }

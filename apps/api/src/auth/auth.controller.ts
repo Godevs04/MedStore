@@ -110,6 +110,18 @@ export class AuthController {
     await this.auth.verifyEmail(dto.token);
   }
 
+  @Post('email/verify/resend')
+  @HttpCode(HttpStatus.OK)
+  resendEmailVerification(@Req() req: AuthenticatedRequest) {
+    return this.auth.resendEmailVerification(req.principal.userId);
+  }
+
+  @Public()
+  @Get('invitations/:token')
+  describeInvitation(@Param('token') token: string) {
+    return this.auth.describeInvitation(token);
+  }
+
   @Post('password/change')
   @HttpCode(HttpStatus.NO_CONTENT)
   async changePassword(

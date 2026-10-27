@@ -150,7 +150,8 @@ describe('vendors and customers', () => {
       user: owner,
       body: { legalName: 'Wrong State Traders', gstin: '27AAAPZ1234C1ZV', stateCode: '29' },
     });
-    expect(mismatch.status).toBe(409);
+    expect(mismatch.status).toBe(400);
+    expect((mismatch.body as { error: { details: Array<{ field: string }> } }).error.details[0]!.field).toBe('stateCode');
   });
 
   it('creates a customer and lists with pagination envelope', async () => {

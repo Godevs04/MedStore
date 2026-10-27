@@ -115,6 +115,104 @@ export class ReportsService {
   }
 
   /** Batch-wise stock valuation at carrying cost, reconciled to the Inventory GL account. */
+  /**
+   * Dead and slow-moving stock: products on hand with no sale in `days`
+   * (dead, if stocked before the window) or more than 180 days of cover at
+   * the current sales rate (slow). Ranked by value locked up at cost.
+   */
+  async deadStock(request: TenantRequest, params: { days: number; warehouseId?: string }) {
+    const orgId = request.tenantContext.organizationId;
+    const cutoff = new Date(Date.now() - params.days * 86_400_000);
+    const balances = await this.prisma.inventoryBalance.findMany({
+      where: { organizationId: orgId, quantity: { gt: 0 }, ...(params.warehouseId ? { warehouseId: params.warehouseId } : {}) },
+      include: { batch: { select: { id: true, productId: true, purchaseRate: true, mrp: true, expiryDate: true, createdAt: true, product: { select: { name: true, sku: true, rackLocation: true } } } } },
+    });
+    const batchIds = [...new Set(balances.map((b) => b.batchId))];
+    const productOf = new Map(balances.map((b) => [b.batchId, b.batch.productId]));
+    const allBatches = batchIds.length
+      ? await this.prisma.inventoryBatch.findMany({ where: { organizationId: orgId, productId: { in: [...new Set(balances.map((b) => b.batch.productId))] } }, select: { id: true, productId: true } })
+      : [];
+    for (const b of allBatches) productOf.set(b.id, b.productId);
+    const saleWhere = { organizationId: orgId, movementType: 'SALE' as const, batchId: { in: allBatches.map((b) => b.id) }, ...(params.warehouseId ? { warehouseId: params.warehouseId } : {}) };
+    const [lastSales, windowSales] = allBatches.length
+      ? await Promise.all([
+          this.prisma.inventoryMovement.groupBy({ by: ['batchId'], where: saleWhere, _max: { createdAt: true } }),
+          this.prisma.inventoryMovement.groupBy({ by: ['batchId'], where: { ...saleWhere, createdAt: { gte: cutoff } }, _sum: { quantity: true } }),
+        ])
+      : [[], []];
+
+    type Row = { productId: string; name: string; sku: string; rackLocation: string | null; onHand: number; value: bigint; mrpValue: bigint; nearestExpiry: Date | null; firstStocked: Date; soldQty: number; lastSoldAt: Date | null };
+    const byProduct = new Map<string, Row>();
+    for (const b of balances) {
+      const qty = b.quantity.toFixed(3);
+      const r = byProduct.get(b.batch.productId) ?? {
+        productId: b.batch.productId,
+        name: b.batch.product.name,
+        sku: b.batch.product.sku,
+        rackLocation: b.batch.product.rackLocation,
+        onHand: 0,
+        value: 0n,
+        mrpValue: 0n,
+        nearestExpiry: null,
+        firstStocked: b.batch.createdAt,
+        soldQty: 0,
+        lastSoldAt: null,
+      };
+      r.onHand += Number(qty);
+      r.value += amountPaise(b.batch.purchaseRate, qty);
+      r.mrpValue += amountPaise(b.batch.mrp, qty);
+      if (!r.nearestExpiry || b.batch.expiryDate < r.nearestExpiry) r.nearestExpiry = b.batch.expiryDate;
+      if (b.batch.createdAt < r.firstStocked) r.firstStocked = b.batch.createdAt;
+      byProduct.set(b.batch.productId, r);
+    }
+    for (const s of lastSales) {
+      const r = byProduct.get(productOf.get(s.batchId) ?? '');
+      if (r && s._max.createdAt && (!r.lastSoldAt || s._max.createdAt > r.lastSoldAt)) r.lastSoldAt = s._max.createdAt;
+    }
+    for (const s of windowSales) {
+      const r = byProduct.get(productOf.get(s.batchId) ?? '');
+      if (r) r.soldQty += Math.abs(Number(s._sum.quantity ?? 0));
+    }
+
+    const now = Date.now();
+    const items = [...byProduct.values()]
+      .map((r) => {
+        const daily = r.soldQty / params.days;
+        const coverDays = daily > 0 ? Math.round(r.onHand / daily) : null;
+        const cls = r.soldQty === 0 ? (r.firstStocked < cutoff ? 'DEAD' : 'NEW') : coverDays !== null && coverDays > 180 ? 'SLOW' : 'MOVING';
+        return {
+          productId: r.productId,
+          name: r.name,
+          sku: r.sku,
+          rackLocation: r.rackLocation,
+          onHand: r.onHand,
+          value: major(r.value),
+          mrpValue: major(r.mrpValue),
+          soldQty: r.soldQty,
+          lastSoldAt: r.lastSoldAt,
+          daysSinceSale: r.lastSoldAt ? Math.floor((now - r.lastSoldAt.getTime()) / 86_400_000) : null,
+          coverDays,
+          nearestExpiry: r.nearestExpiry,
+          classification: cls,
+          valuePaise: r.value,
+        };
+      })
+      .filter((r) => r.classification === 'DEAD' || r.classification === 'SLOW')
+      .sort((a, b) => (b.valuePaise > a.valuePaise ? 1 : b.valuePaise < a.valuePaise ? -1 : 0));
+    const sum = (cls: string) => items.filter((i) => i.classification === cls).reduce((s, i) => s + i.valuePaise, 0n);
+    return {
+      days: params.days,
+      cutoff,
+      summary: {
+        deadItems: items.filter((i) => i.classification === 'DEAD').length,
+        deadValue: major(sum('DEAD')),
+        slowItems: items.filter((i) => i.classification === 'SLOW').length,
+        slowValue: major(sum('SLOW')),
+      },
+      items: items.slice(0, 500).map(({ valuePaise: _v, ...rest }) => rest),
+    };
+  }
+
   async stockValuation(request: TenantRequest) {
     const orgId = request.tenantContext.organizationId;
     const [balances, invAccount] = await Promise.all([
@@ -287,6 +385,119 @@ export class ReportsService {
     };
   }
 
+  /** Daily net sales for the last `days` IST days (zero-filled) plus the month's best sellers. */
+  async dashboardTrend(request: TenantRequest, days = 14) {
+    const orgId = request.tenantContext.organizationId;
+    const todayStr = istDay(new Date());
+    const start = new Date(new Date(`${todayStr}T00:00:00+05:30`).getTime() - (days - 1) * 86_400_000);
+    const monthStart = new Date(`${todayStr.slice(0, 8)}01T00:00:00+05:30`);
+    const [invoices, top] = await Promise.all([
+      this.prisma.salesInvoice.findMany({
+        where: { organizationId: orgId, status: { not: 'CANCELLED' }, invoiceDate: { gte: start } },
+        select: { invoiceDate: true, total: true },
+      }),
+      this.prisma.salesInvoiceLine.groupBy({
+        by: ['productId', 'productName'],
+        where: { invoice: { organizationId: orgId, status: { not: 'CANCELLED' }, invoiceDate: { gte: monthStart } } },
+        _sum: { lineTotal: true, quantity: true },
+        orderBy: { _sum: { lineTotal: 'desc' } },
+        take: 5,
+      }),
+    ]);
+    const byDay = new Map<string, { invoices: number; revenue: bigint }>();
+    for (let i = 0; i < days; i++) byDay.set(istDay(new Date(start.getTime() + i * 86_400_000)), { invoices: 0, revenue: 0n });
+    for (const inv of invoices) {
+      const d = byDay.get(istDay(inv.invoiceDate));
+      if (!d) continue;
+      d.invoices += 1;
+      d.revenue += toPaise(inv.total);
+    }
+    return {
+      days: [...byDay.entries()].map(([date, d]) => ({ date, invoices: d.invoices, revenue: major(d.revenue) })),
+      topProducts: top.map((t) => ({
+        productId: t.productId,
+        product: t.productName,
+        quantity: Number(t._sum.quantity ?? 0),
+        revenue: major(t._sum.lineTotal ? toPaise(t._sum.lineTotal) : 0n),
+      })),
+    };
+  }
+
+  /** Counter tenders by method (what the till collected), plus credit extended. */
+  async paymentMix(request: TenantRequest, from?: string, to?: string) {
+    const orgId = request.tenantContext.organizationId;
+    const invoiceDate = range(from, to);
+    const invoices = await this.prisma.salesInvoice.findMany({
+      where: { organizationId: orgId, status: { not: 'CANCELLED' }, ...(invoiceDate ? { invoiceDate } : {}) },
+      select: { total: true, payments: { orderBy: { createdAt: 'asc' }, select: { method: true, amount: true } } },
+    });
+    const mix = new Map<string, { amount: bigint; count: number }>();
+    let grand = 0n;
+    for (const inv of invoices) {
+      const total = toPaise(inv.total);
+      let tendered = 0n;
+      for (const p of inv.payments) {
+        if (tendered >= total) break;
+        const amt = toPaise(p.amount);
+        tendered += amt;
+        grand += amt;
+        const row = mix.get(p.method) ?? { amount: 0n, count: 0 };
+        row.amount += amt;
+        row.count += 1;
+        mix.set(p.method, row);
+      }
+    }
+    return {
+      period: { from: from ?? null, to: to ?? null },
+      total: major(grand),
+      methods: [...mix.entries()]
+        .sort(([, a], [, b]) => (b.amount > a.amount ? 1 : -1))
+        .map(([method, r]) => ({
+          method,
+          amount: major(r.amount),
+          count: r.count,
+          share: grand > 0n ? Number((r.amount * 10_000n) / grand) / 100 : 0,
+        })),
+    };
+  }
+
+  /** Stock value at risk by days-to-expiry bucket, at cost and at MRP. */
+  async expiryValue(request: TenantRequest) {
+    const orgId = request.tenantContext.organizationId;
+    const balances = await this.prisma.inventoryBalance.findMany({
+      where: { organizationId: orgId, quantity: { gt: 0 } },
+      select: { quantity: true, batchId: true, batch: { select: { expiryDate: true, purchaseRate: true, mrp: true } } },
+    });
+    const BUCKETS = [
+      { key: 'EXPIRED', label: 'Expired', max: 0 },
+      { key: 'D0_30', label: '0–30 days', max: 30 },
+      { key: 'D31_60', label: '31–60 days', max: 60 },
+      { key: 'D61_90', label: '61–90 days', max: 90 },
+      { key: 'D91_180', label: '91–180 days', max: 180 },
+    ] as const;
+    const acc = new Map<string, { batches: Set<string>; quantity: number; cost: bigint; mrp: bigint }>(
+      BUCKETS.map((b) => [b.key, { batches: new Set<string>(), quantity: 0, cost: 0n, mrp: 0n }]),
+    );
+    const now = Date.now();
+    for (const b of balances) {
+      const days = Math.ceil((b.batch.expiryDate.getTime() - now) / 86_400_000);
+      const bucket = days < 0 ? BUCKETS[0] : BUCKETS.slice(1).find((x) => days <= x.max);
+      if (!bucket) continue;
+      const row = acc.get(bucket.key)!;
+      const qty = b.quantity.toFixed(3);
+      row.batches.add(b.batchId);
+      row.quantity += Number(b.quantity);
+      row.cost += amountPaise(b.batch.purchaseRate, qty);
+      row.mrp += amountPaise(b.batch.mrp, qty);
+    }
+    const rows = BUCKETS.map((b) => {
+      const r = acc.get(b.key)!;
+      return { key: b.key, label: b.label, batches: r.batches.size, quantity: r.quantity, costValue: major(r.cost), mrpValue: major(r.mrp) };
+    });
+    const sum = (k: 'cost' | 'mrp') => major([...acc.values()].reduce((s, r) => s + r[k], 0n));
+    return { buckets: rows, totalCost: sum('cost'), totalMrp: sum('mrp') };
+  }
+
   // ── Notifications (spec §22) ───────────────────────────────────────────────
 
   /** Generates low-stock, near-expiry and licence notifications (idempotent per day). */
@@ -346,6 +557,14 @@ export class ReportsService {
       this.prisma.appNotification.count({ where }),
       this.prisma.appNotification.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (params.page - 1) * params.pageSize, take: params.pageSize }),
     ]);
+  }
+
+  async markAllNotificationsRead(request: TenantRequest) {
+    const result = await this.prisma.appNotification.updateMany({
+      where: { organizationId: request.tenantContext.organizationId, readAt: null },
+      data: { readAt: new Date() },
+    });
+    return { updated: result.count };
   }
 
   async markNotificationRead(request: TenantRequest, notificationId: string) {

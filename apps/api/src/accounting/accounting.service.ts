@@ -293,6 +293,30 @@ export class AccountingService implements OnModuleInit {
     };
   }
 
+  /** Month-by-month income, expenses and net profit (IST months, max 24). */
+  async profitAndLossTrend(request: TenantRequest, from: string, to: string) {
+    const orgId = request.tenantContext.organizationId;
+    const lines = await this.prisma.journalLine.findMany({
+      where: { entry: { organizationId: orgId, entryDate: this.range(from, to) }, account: { type: { in: ['INCOME', 'EXPENSE'] } } },
+      select: { debit: true, credit: true, account: { select: { type: true } }, entry: { select: { entryDate: true } } },
+    });
+    const months = new Map<string, { income: bigint; expenses: bigint }>();
+    const start = new Date(`${from}T00:00:00Z`);
+    const end = new Date(`${to}T00:00:00Z`);
+    for (let d = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1)); d <= end && months.size < 24; d.setUTCMonth(d.getUTCMonth() + 1)) {
+      months.set(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`, { income: 0n, expenses: 0n });
+    }
+    for (const l of lines) {
+      const m = months.get(this.periodLabel(l.entry.entryDate));
+      if (!m) continue;
+      const d = toPaise(l.debit);
+      const c = toPaise(l.credit);
+      if (l.account.type === 'INCOME') m.income += c - d;
+      else m.expenses += d - c;
+    }
+    return [...months.entries()].map(([month, v]) => ({ month, income: major(v.income), expenses: major(v.expenses), net: major(v.income - v.expenses) }));
+  }
+
   async balanceSheet(request: TenantRequest, asOf?: string) {
     const orgId = request.tenantContext.organizationId;
     const rows = await this.balancesByAccount(orgId, this.range(undefined, asOf));

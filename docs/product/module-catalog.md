@@ -6,11 +6,11 @@ Per-module purpose, data contract, permission model, and UI states. Statuses liv
 
 | Module | Purpose | Key permissions | Screens | States covered |
 |---|---|---|---|---|
-| Auth | Registration, login, sessions, invitations, password flows | public / session | Login, Register, Forgot/Reset password, Accept invitation | field errors, non-revealing credential failure, lockout (423) |
+| Auth | Registration, login, sessions, invitations, password flows, email verification | public / session | Login, Register, Forgot/Reset password, Accept invitation, Verify email | field errors, password strength checklist, show/hide + Caps Lock hint, non-revealing credential failure, lockout (423), rate limit (429), `?next=` return, link-or-code token entry, expired-link states, existing-account invitation, resend cooldown |
 | Dashboard | Live KPIs, setup checklist, alerts, recent invoices, module tiles | organization.read | `/` | loading, error+retry, checklist progress, 60 s refresh |
-| Users / Roles | Invite, assign roles, custom roles | users.*, roles.* | Users, Roles | owner protection, in-use role protection |
-| Branches / Settings | Branches, warehouses, business profile, GST identity | branches.*, organization.settings.manage | Branches, Settings | plan-limit errors, GSTIN/state validation |
-| Configuration | Tax rate versions, standard GST loader | tax.manage | Configuration | Active / Scheduled / Ended rates, end-date action |
+| Users / Roles | Invite, resend/revoke invites, assign roles and branches, suspend; custom roles from templates, permission matrix | users.*, roles.* | Users, Roles | search/status/role/branch filters, seat meter, owner protection, in-use role protection, zero-permission and duplicate-name blocks |
+| Branches / Settings | Branches (edit, default, deactivate, branch GSTIN), warehouses, billing counters; business profile, GST identity, financial year, invoice & print settings | branches.*, organization.settings.manage | Branches, Settings | plan-limit meters, GSTIN checksum/state/PAN checks, GSTIN required for Regular/Composition, unsaved-changes guard |
+| Configuration | Tax rate versions, standard GST loader, category tree, manufacturers | tax.manage, categories.manage | Configuration | slab quick-picks, CGST = SGST / IGST = CGST + SGST, Active / Scheduled / Ended rates, end-date dialog, delete guards |
 | Products | Catalog CRUD, barcodes, GST resolution | products.* | Products (+ edit drawer) | duplicate SKU, "No rate" badge |
 | Vendors | Supplier master, ledger, open invoices | vendors.* | Vendors (+ drawer) | GSTIN mismatch, overdue badges |
 | Customers | Customer master, statement, receipts | customers.*, sales.read | Customers (+ drawer) | credit limit / no limit, outstanding |
@@ -22,9 +22,9 @@ Per-module purpose, data contract, permission model, and UI states. Statuses liv
 | Accounting | Books, statements, journals, expenses, periods | accounting.read/post | Accounting (tabs + GL drawer) | balanced badges, reversal once, locked periods |
 | Compliance | H1 register, GST summaries, licences, integrations | compliance.* | Compliance | date ranges, CSV exports, licence expiry banner |
 | Reports | Sales, stock valuation, aging, alerts | reports.read/export | Reports | CSV exports (audited), alert scan |
-| Audit | Append-only event viewer | audit.read | Audit | permission-denied |
-| Plan & billing | Current plan, trial/renewal dates, usage meters, plan comparison | organization.read | `/billing` | suspended / ended / trial banners, no-workspace state |
-| Platform console | Tenants, subscriptions, suspension, plan limits | platform superadmin | `/platform` | restricted state, search, validated limit editor, suspend confirm |
+| Audit | Append-only event viewer with filters, detail drawer and CSV export | audit.read (+ reports.export) | Audit | event/person/record/date filters, readable labels, IP + device, permission-denied |
+| Plan & billing | Current plan, trial/renewal dates, usage meters, plan comparison, subscription history | organization.read | `/billing` | suspended / ended / trial banners, no-workspace state, history timeline |
+| Platform console | Tenants, subscriptions, suspension, plan limits, usage | platform superadmin | `/platform` | restricted state, search + status/plan/access filters, pagination, plan-mix and status charts, usage history, suspend confirm |
 
 ## API surface
 

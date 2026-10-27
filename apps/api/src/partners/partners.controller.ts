@@ -5,15 +5,15 @@ import {
   paginationQuerySchema,
   customerCreateSchema,
   customerQuerySchema,
+  customerUpdateSchema,
+  partnerTopProductsQuerySchema,
   vendorCreateSchema,
   vendorQuerySchema,
+  vendorUpdateSchema,
 } from '@medicore/validation';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { RequirePermissions, TenantContextGuard, type TenantRequest } from '../rbac/tenant-context.guard.js';
 import { PartnersService } from './partners.service.js';
-
-const vendorUpdateSchema = vendorCreateSchema.partial();
-const customerUpdateSchema = customerCreateSchema.partial();
 
 @ApiTags('partners')
 @UseGuards(TenantContextGuard)
@@ -35,6 +35,8 @@ export class PartnersController {
       pageSize: pagination.pageSize,
       search: filters.search,
       status: filters.status,
+      stateCode: filters.stateCode,
+      withBalances: filters.withBalances,
     });
     return {
       items,
@@ -47,6 +49,16 @@ export class PartnersController {
         hasPreviousPage: pagination.page > 1,
       },
     };
+  }
+
+  @Get('vendors/:vendorId/products')
+  @RequirePermissions('vendors.read', 'purchases.read')
+  vendorProducts(
+    @Param('vendorId') vendorId: string,
+    @Query(new ZodValidationPipe(partnerTopProductsQuerySchema)) query: z.infer<typeof partnerTopProductsQuerySchema>,
+    @Req() req: TenantRequest,
+  ) {
+    return this.partners.vendorProducts(req, vendorId, query.limit);
   }
 
   @Get('vendors/:vendorId')
@@ -89,6 +101,7 @@ export class PartnersController {
       search: filters.search,
       status: filters.status,
       isWholesale: filters.isWholesale,
+      withBalances: filters.withBalances,
     });
     return {
       items,
@@ -101,6 +114,16 @@ export class PartnersController {
         hasPreviousPage: pagination.page > 1,
       },
     };
+  }
+
+  @Get('customers/:customerId/top-products')
+  @RequirePermissions('customers.read', 'sales.read')
+  customerTopProducts(
+    @Param('customerId') customerId: string,
+    @Query(new ZodValidationPipe(partnerTopProductsQuerySchema)) query: z.infer<typeof partnerTopProductsQuerySchema>,
+    @Req() req: TenantRequest,
+  ) {
+    return this.partners.customerTopProducts(req, customerId, query.limit);
   }
 
   @Get('customers/:customerId')

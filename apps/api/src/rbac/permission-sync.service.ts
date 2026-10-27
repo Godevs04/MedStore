@@ -20,6 +20,7 @@ export class PermissionSyncService implements OnModuleInit {
           update: { description: p.description },
         });
       }
+      await this.prisma.rolePermission.deleteMany({ where: { permission: { key: { startsWith: 'platform.' } } } });
       const idByKey = new Map((await this.prisma.permission.findMany({ select: { id: true, key: true } })).map((p) => [p.key, p.id]));
       const roles = await this.prisma.role.findMany({ where: { isSystem: true }, select: { id: true, key: true } });
       for (const role of roles) {

@@ -86,10 +86,16 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   P('reports.export', 'Export reports and data'),
 ] as const;
 
+/** Platform-scope keys can never be granted through tenant roles. */
+export const isPlatformPermission = (key: string): boolean => key.startsWith('platform.');
+
+/** Permissions an organization may assign to its roles. */
+export const TENANT_PERMISSIONS: readonly PermissionDef[] = PERMISSIONS.filter((p) => !isPlatformPermission(p.key));
+
 /** Roles and their explicit permission sets. Owner implicitly gets everything. */
 export const SYSTEM_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   // Organization administrator: every organization-scope permission.
-  ORGANIZATION_ADMIN: PERMISSIONS.map((p) => p.key),
+  ORGANIZATION_ADMIN: TENANT_PERMISSIONS.map((p) => p.key),
   PHARMACIST: [
     'sales.read', 'sales.create', 'sales.void', 'sales.receipts', 'returns.read', 'returns.create',
     'compliance.read', 'compliance.manage', 'purchases.read',

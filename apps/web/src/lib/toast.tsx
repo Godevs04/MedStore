@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useSyncExternalStore } from 'react';
+import { Icon, type IconName } from '@/components/icons';
 
 export type ToastTone = 'success' | 'error' | 'info' | 'warning';
 
@@ -35,11 +36,11 @@ export const toast = {
   },
 };
 
-const TONE: Record<ToastTone, { ring: string; icon: string; iconBg: string }> = {
-  success: { ring: 'border-emerald-200', icon: '✓', iconBg: 'bg-emerald-500' },
-  error: { ring: 'border-red-200', icon: '!', iconBg: 'bg-red-500' },
-  warning: { ring: 'border-amber-200', icon: '!', iconBg: 'bg-amber-500' },
-  info: { ring: 'border-brand-200', icon: 'i', iconBg: 'bg-brand-600' },
+const TONE: Record<ToastTone, { ring: string; icon: IconName; iconBg: string }> = {
+  success: { ring: 'border-emerald-200', icon: 'check', iconBg: 'bg-emerald-500' },
+  error: { ring: 'border-red-200', icon: 'danger', iconBg: 'bg-red-500' },
+  warning: { ring: 'border-amber-200', icon: 'warning', iconBg: 'bg-amber-500' },
+  info: { ring: 'border-brand-200', icon: 'info', iconBg: 'bg-brand-600' },
 };
 
 function ToastCard({ item }: { item: ToastItem }) {
@@ -53,13 +54,15 @@ function ToastCard({ item }: { item: ToastItem }) {
       role={item.tone === 'error' ? 'alert' : 'status'}
       className={`mc-anim-toast pointer-events-auto flex w-80 items-start gap-3 rounded-xl border ${tone.ring} bg-white/95 px-3.5 py-3 shadow-lg shadow-neutral-900/10 backdrop-blur`}
     >
-      <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white ${tone.iconBg}`}>{tone.icon}</span>
+      <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-white ${tone.iconBg}`}>
+        <Icon name={tone.icon} size={12} strokeWidth={2.5} />
+      </span>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-neutral-900">{item.title}</p>
         {item.description ? <p className="mt-0.5 break-words text-xs text-neutral-500">{item.description}</p> : null}
       </div>
       <button aria-label="Dismiss" className="text-neutral-400 transition-colors hover:text-neutral-700" onClick={() => toast.dismiss(item.id)}>
-        ✕
+        <Icon name="close" size={14} />
       </button>
     </div>
   );

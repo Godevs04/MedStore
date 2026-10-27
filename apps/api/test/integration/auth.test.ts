@@ -103,6 +103,14 @@ describe('auth', () => {
 });
 
 describe('tenant isolation', () => {
+  it('gives a new organization a default branch and warehouse ready for stock', async () => {
+    const fresh = await registerOrg();
+    const res = await api<Array<{ isDefault: boolean; warehouses: Array<{ name: string; isDefault: boolean }> }>>({ path: '/api/v1/organizations/branches', user: fresh });
+    expect(res.status).toBe(200);
+    const main = res.body.find((b) => b.isDefault);
+    expect(main?.warehouses.some((w) => w.isDefault)).toBe(true);
+  });
+
   it('prevents cross-tenant access with an unknown organization id', async () => {
     const res = await api({
       path: '/api/v1/organizations/branches',

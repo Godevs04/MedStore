@@ -1,83 +1,101 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { API_URL } from '@/lib/api';
-import { Button, Card, Field, Input } from '@/components/ui';
+import type { z } from 'zod';
+import { forgotPasswordRequestSchema } from '@medicore/validation';
+import { api, ApiClientError } from '@/lib/api';
+import { toast } from '@/lib/toast';
+import { AuthShell, AuthStatus, authLinkClass, useQueryParam } from '@/components/auth';
+import { Icon } from '@/components/icons';
+import { Button, Field, Input } from '@/components/ui';
 
-const schema = z.object({ email: z.string().email() });
-type Form = z.infer<typeof schema>;
+type Form = z.infer<typeof forgotPasswordRequestSchema>;
+const COOLDOWN_SECONDS = 60;
 
 export default function ForgotPasswordPage() {
-  const [sent, setSent] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const prefill = useQueryParam('email');
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
   const {
     register,
     handleSubmit,
+    setValue,
+    getValues,
     formState: { errors, isSubmitting },
-  } = useForm<Form>({ resolver: zodResolver(schema), defaultValues: { email: '' } });
+  } = useForm<Form>({ resolver: zodResolver(forgotPasswordRequestSchema), defaultValues: { email: '' } });
+
+  useEffect(() => {
+    if (prefill.value) setValue('email', prefill.value);
+  }, [prefill.value, setValue]);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  const send = async (email: string) => {
+    try {
+      await api('/auth/password/forgot', { method: 'POST', body: { email: email.trim().toLowerCase() } });
+    } catch (e) {
+      toast.error('Couldn’t send the reset link', e instanceof ApiClientError ? e.message : 'Please try again.');
+      return false;
+    }
+    setSentTo(email.trim().toLowerCase());
+    setCooldown(COOLDOWN_SECONDS);
+    return true;
+  };
 
   const onSubmit = handleSubmit(async (d) => {
-    setError(null);
-    const res = await fetch(`${API_URL}/api/v1/auth/password/forgot`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(d),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-      setError(body?.error?.message ?? 'Request failed');
-      return;
-    }
-    setSent(true);
+    if (await send(d.email)) toast.success('Check your inbox', 'If an account exists, a reset link is on its way.');
   });
 
   return (
-    <div className="mc-auth-backdrop flex min-h-screen items-center justify-center p-6">
-      <div className="w-full max-w-sm space-y-4">
-        <div className="mc-anim-fade-up text-center">
-          <div className="mc-anim-float mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-lg font-bold text-white shadow-lg shadow-brand-600/30">
-            M
+    <AuthShell
+      title="Reset your password"
+      subtitle="We’ll email you a single-use link that’s valid for one hour."
+      footer={
+        <Link className={authLinkClass} href="/login">
+          <span className="inline-flex items-center gap-1">
+            <Icon name="arrowLeft" size={13} /> Back to sign in
+          </span>
+        </Link>
+      }
+    >
+      {sentTo ? (
+        <AuthStatus tone="blue" icon="mail" title="Check your inbox">
+          <p>
+            If an account exists for <span className="font-medium text-neutral-700">{sentTo}</span>, a reset link is on its way. It expires in one hour and works once.
+          </p>
+          <p>Didn’t get it? Check spam, or make sure you used the email you sign in with.</p>
+          {process.env.NODE_ENV !== 'production' ? (
+            <p className="rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-800">Development: email uses the console transport — the reset link is printed in the API log, not delivered.</p>
+          ) : null}
+          <div className="flex justify-center gap-2 pt-1">
+            <Button variant="secondary" disabled={cooldown > 0} onClick={() => void send(getValues('email')).then((ok) => ok && toast.info('Reset link sent again'))}>
+              {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend link'}
+            </Button>
+            <Button variant="ghost" onClick={() => setSentTo(null)}>
+              Use another email
+            </Button>
           </div>
-          <h1 className="mt-2 text-lg font-bold tracking-tight text-neutral-800">Reset your password</h1>
-        </div>
-        <Card className="mc-anim-fade-up" delay={100}>
-          {sent ? (
-            <div className="space-y-3 py-2 text-center">
-              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-lg">✉️</div>
-              <p className="text-sm font-medium text-neutral-700">Check your inbox</p>
-              <p className="text-xs leading-relaxed text-neutral-500">
-                If an account exists for that email, a single-use reset link is on its way. The link expires
-                in one hour.
-              </p>
-              <Link className="inline-block text-xs font-medium text-brand-700 hover:underline" href="/login">
-                Back to sign in
-              </Link>
-            </div>
-          ) : (
-            <form className="space-y-3" onSubmit={onSubmit}>
-              <Field label="Email" error={errors.email?.message}>
-                <Input type="email" autoComplete="email" {...register('email')} />
-              </Field>
-              {error ? <p className="text-xs text-red-600">{error}</p> : null}
-              <Button type="submit" className="w-full" disabled={isSubmitting}>
-                {isSubmitting ? 'Sending…' : 'Send reset link'}
-              </Button>
-              <p className="text-center text-xs text-neutral-500">
-                <Link className="font-medium text-brand-700 hover:underline" href="/login">
-                  Back to sign in
-                </Link>
-              </p>
-            </form>
-          )}
-        </Card>
-        <p className="text-center text-[10px] text-neutral-400">
-          Development note: the console email transport logs the reset token server-side; no SMTP delivery yet.
-        </p>
-      </div>
-    </div>
+        </AuthStatus>
+      ) : (
+        <form className="space-y-4" onSubmit={onSubmit} noValidate>
+          <Field label="Email" error={errors.email?.message}>
+            <Input type="email" inputMode="email" autoComplete="email" autoFocus placeholder="you@pharmacy.in" {...register('email')} />
+          </Field>
+          <Button type="submit" className="w-full py-2" disabled={isSubmitting}>
+            {isSubmitting ? 'Sending…' : 'Send reset link'}
+          </Button>
+          <p className="text-center text-[11px] leading-relaxed text-neutral-400">
+            For your security we never say whether an email is registered.
+          </p>
+        </form>
+      )}
+    </AuthShell>
   );
 }

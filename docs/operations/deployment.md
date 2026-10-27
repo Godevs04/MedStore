@@ -14,7 +14,7 @@
 
 ## Environment configuration
 
-All configuration via env vars validated at boot (`apps/api/src/config/env.ts`): `DATABASE_URL`, `SESSION_SECRET` (≥32 chars), `PORT`, `CORS_ORIGIN`, `SUPERADMIN_EMAILS`, `EMAIL_TRANSPORT`. `.env` is gitignored; `.env.example` documents each.
+All configuration via env vars validated at boot (`apps/api/src/config/env.ts`): `DATABASE_URL`, `SESSION_SECRET` (≥32 chars), `PORT`, `CORS_ORIGIN`, `WEB_APP_URL` (origin for emailed links; defaults to the first `CORS_ORIGIN`), `SUPERADMIN_EMAILS`, `EMAIL_TRANSPORT`. `.env` is gitignored; `.env.example` documents each.
 
 ## Migrations
 

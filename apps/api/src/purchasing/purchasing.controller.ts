@@ -1,7 +1,13 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { paginationQuerySchema } from '@medicore/validation';
+import {
+  paginationQuerySchema,
+  purchaseDuplicateQuerySchema,
+  purchaseListQuerySchema,
+  reorderSuggestionsQuerySchema,
+} from '@medicore/validation';
+import { pageInfo } from '../common/query.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { RequirePermissions, TenantContextGuard, type TenantRequest } from '../rbac/tenant-context.guard.js';
 import { RequireModule } from '../common/subscription-policy.js';
@@ -16,6 +22,9 @@ const poCreateSchema = z.object({
     .min(1)
     .max(200),
 });
+
+type Pagination = z.infer<typeof paginationQuerySchema>;
+type ListQuery = z.infer<typeof purchaseListQuerySchema>;
 
 const poActionSchema = z.object({ action: z.enum(['send', 'confirm', 'cancel']) });
 
@@ -105,12 +114,11 @@ export class PurchasingController {
   @RequirePermissions('purchases.read')
   async listPOs(
     @Req() req: TenantRequest,
-    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
-    @Query('status') status?: string,
-    @Query('vendorId') vendorId?: string,
+    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: Pagination,
+    @Query(new ZodValidationPipe(purchaseListQuerySchema)) filters: ListQuery,
   ) {
-    const [total, items] = await this.purchasing.listPOs(req, { page: pagination.page, pageSize: pagination.pageSize, status, vendorId });
-    return { items, pageInfo: { page: pagination.page, pageSize: pagination.pageSize, totalItems: total, totalPages: Math.max(1, Math.ceil(total / pagination.pageSize)), hasNextPage: pagination.page * pagination.pageSize < total, hasPreviousPage: pagination.page > 1 } };
+    const [total, items] = await this.purchasing.listPOs(req, { ...pagination, ...filters });
+    return { items, pageInfo: pageInfo(pagination, total) };
   }
 
   @Post('purchase-orders/:poId/action')
@@ -134,12 +142,11 @@ export class PurchasingController {
   @RequirePermissions('purchases.read')
   async listGRNs(
     @Req() req: TenantRequest,
-    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
-    @Query('vendorId') vendorId?: string,
-    @Query('uninvoiced') uninvoiced?: string,
+    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: Pagination,
+    @Query(new ZodValidationPipe(purchaseListQuerySchema)) filters: ListQuery,
   ) {
-    const [total, items] = await this.purchasing.listGRNs(req, { page: pagination.page, pageSize: pagination.pageSize, vendorId, uninvoiced: uninvoiced === 'true' });
-    return { items, pageInfo: { page: pagination.page, pageSize: pagination.pageSize, totalItems: total, totalPages: Math.max(1, Math.ceil(total / pagination.pageSize)), hasNextPage: pagination.page * pagination.pageSize < total, hasPreviousPage: pagination.page > 1 } };
+    const [total, items] = await this.purchasing.listGRNs(req, { ...pagination, ...filters });
+    return { items, pageInfo: pageInfo(pagination, total) };
   }
 
   @Post('invoices')
@@ -148,16 +155,33 @@ export class PurchasingController {
     return this.purchasing.createPurchaseInvoice(req, dto);
   }
 
+  @Get('invoices/check-duplicate')
+  @RequirePermissions('purchases.read')
+  checkDuplicateInvoice(@Query(new ZodValidationPipe(purchaseDuplicateQuerySchema)) q: z.infer<typeof purchaseDuplicateQuerySchema>, @Req() req: TenantRequest) {
+    return this.purchasing.checkDuplicateInvoice(req, q.vendorId, q.invoiceNumber);
+  }
+
   @Get('invoices')
   @RequirePermissions('purchases.read')
   async listInvoices(
     @Req() req: TenantRequest,
-    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
-    @Query('status') status?: string,
-    @Query('vendorId') vendorId?: string,
+    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: Pagination,
+    @Query(new ZodValidationPipe(purchaseListQuerySchema)) filters: ListQuery,
   ) {
-    const [total, items] = await this.purchasing.listInvoices(req, { page: pagination.page, pageSize: pagination.pageSize, status, vendorId });
-    return { items, pageInfo: { page: pagination.page, pageSize: pagination.pageSize, totalItems: total, totalPages: Math.max(1, Math.ceil(total / pagination.pageSize)), hasNextPage: pagination.page * pagination.pageSize < total, hasPreviousPage: pagination.page > 1 } };
+    const [total, items] = await this.purchasing.listInvoices(req, { ...pagination, ...filters });
+    return { items, pageInfo: pageInfo(pagination, total) };
+  }
+
+  @Get('summary')
+  @RequirePermissions('purchases.read')
+  summary(@Req() req: TenantRequest) {
+    return this.purchasing.summary(req);
+  }
+
+  @Get('reorder-suggestions')
+  @RequirePermissions('purchases.read')
+  reorderSuggestions(@Query(new ZodValidationPipe(reorderSuggestionsQuerySchema)) q: z.infer<typeof reorderSuggestionsQuerySchema>, @Req() req: TenantRequest) {
+    return this.purchasing.reorderSuggestions(req, q);
   }
 
   @Post('payments')
@@ -170,10 +194,11 @@ export class PurchasingController {
   @RequirePermissions('purchases.read')
   async listPayments(
     @Req() req: TenantRequest,
-    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
+    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: Pagination,
+    @Query(new ZodValidationPipe(purchaseListQuerySchema)) filters: ListQuery,
   ) {
-    const [total, items] = await this.purchasing.listPayments(req, { page: pagination.page, pageSize: pagination.pageSize });
-    return { items, pageInfo: { page: pagination.page, pageSize: pagination.pageSize, totalItems: total, totalPages: Math.max(1, Math.ceil(total / pagination.pageSize)), hasNextPage: pagination.page * pagination.pageSize < total, hasPreviousPage: pagination.page > 1 } };
+    const [total, items] = await this.purchasing.listPayments(req, { ...pagination, ...filters });
+    return { items, pageInfo: pageInfo(pagination, total) };
   }
 
   @Get('vendors/:vendorId/ledger')
@@ -192,9 +217,10 @@ export class PurchasingController {
   @RequirePermissions('purchases.read')
   async listReturns(
     @Req() req: TenantRequest,
-    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
+    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: Pagination,
+    @Query(new ZodValidationPipe(purchaseListQuerySchema)) filters: ListQuery,
   ) {
-    const [total, items] = await this.purchasing.listReturns(req, { page: pagination.page, pageSize: pagination.pageSize });
-    return { items, pageInfo: { page: pagination.page, pageSize: pagination.pageSize, totalItems: total, totalPages: Math.max(1, Math.ceil(total / pagination.pageSize)), hasNextPage: pagination.page * pagination.pageSize < total, hasPreviousPage: pagination.page > 1 } };
+    const [total, items] = await this.purchasing.listReturns(req, { ...pagination, ...filters });
+    return { items, pageInfo: pageInfo(pagination, total) };
   }
 }

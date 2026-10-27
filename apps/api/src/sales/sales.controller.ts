@@ -1,67 +1,22 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { z } from 'zod';
-import { paginationQuerySchema } from '@medicore/validation';
+import type { Response } from 'express';
+import { sendCsv } from '../common/csv.js';
+import type { z } from 'zod';
+import {
+  customerReceiptSchema,
+  heldBillCreateSchema,
+  invoiceCancelSchema,
+  invoiceListQuerySchema,
+  returnListQuerySchema,
+  saleCreateSchema,
+  saleReturnCreateSchema,
+} from '@medicore/validation';
+import { pageInfo } from '../common/query.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { RequirePermissions, TenantContextGuard, type TenantRequest } from '../rbac/tenant-context.guard.js';
 import { RequireModule } from '../common/subscription-policy.js';
 import { SalesService } from './sales.service.js';
-
-const saleLineSchema = z.object({
-  productId: z.string().uuid(),
-  quantity: z.string().regex(/^\d+(\.\d{1,3})?$/),
-  unitPrice: z.string().regex(/^\d+(\.\d{1,4})?$/),
-  discountAmount: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
-  explicitBatchId: z.string().uuid().nullish(),
-});
-
-const saleCreateSchema = z.object({
-  customerId: z.string().uuid().nullish(),
-  walkInName: z.string().trim().max(120).nullish(),
-  warehouseId: z.string().uuid(),
-  lines: z.array(saleLineSchema).min(1).max(100),
-  payments: z
-    .array(
-      z.object({
-        method: z.enum(['CASH', 'UPI', 'CARD', 'CREDIT', 'BANK']),
-        amount: z.string().regex(/^\d+(\.\d{1,2})?$/),
-        reference: z.string().max(120).nullish(),
-      }),
-    )
-    .min(1)
-    .max(10),
-  idempotencyKey: z.string().min(8).max(64).nullish(),
-  prescription: z
-    .object({
-      patientName: z.string().trim().min(1).max(160),
-      prescriberName: z.string().trim().min(1).max(160),
-      prescriberAddress: z.string().trim().min(3).max(300),
-    })
-    .nullish(),
-});
-
-const saleReturnCreateSchema = z.object({
-  invoiceId: z.string().uuid(),
-  reason: z.string().trim().min(3).max(500),
-  refundMethod: z.enum(['CASH', 'UPI', 'CARD', 'BANK']).optional(),
-  lines: z
-    .array(
-      z.object({
-        invoiceLineId: z.string().uuid(),
-        quantity: z.string().regex(/^\d+(\.\d{1,3})?$/),
-        restock: z.boolean(),
-      }),
-    )
-    .min(1)
-    .max(100),
-});
-
-const customerReceiptSchema = z.object({
-  customerId: z.string().uuid(),
-  amount: z.string().regex(/^\d+(\.\d{1,2})?$/),
-  method: z.enum(['CASH', 'UPI', 'CARD', 'BANK']),
-  reference: z.string().max(120).nullish(),
-});
 
 @ApiTags('sales')
 @UseGuards(TenantContextGuard)
@@ -80,31 +35,62 @@ export class SalesController {
 
   @Get('invoices')
   @RequirePermissions('sales.read')
-  async listInvoices(
+  async listInvoices(@Req() req: TenantRequest, @Query(new ZodValidationPipe(invoiceListQuerySchema)) query: z.infer<typeof invoiceListQuerySchema>) {
+    const [total, items] = await this.sales.listInvoices(req, query);
+    return { items, pageInfo: pageInfo(query, total) };
+  }
+
+  @Get('invoices/export')
+  @RequirePermissions('sales.read', 'reports.export')
+  async exportInvoices(
     @Req() req: TenantRequest,
-    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
-    @Query('customerId') customerId?: string,
-    @Query('search') search?: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-    @Query('status') status?: string,
+    @Res() res: Response,
+    @Query(new ZodValidationPipe(invoiceListQuerySchema)) query: z.infer<typeof invoiceListQuerySchema>,
   ) {
-    const [total, items] = await this.sales.listInvoices(req, {
-      page: pagination.page,
-      pageSize: pagination.pageSize,
-      customerId,
-      search,
-      from: from && /^\d{4}-\d{2}-\d{2}$/.test(from) ? from : undefined,
-      to: to && /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : undefined,
-      status: status && ['POSTED', 'PARTIALLY_RETURNED', 'RETURNED', 'CANCELLED'].includes(status) ? status : undefined,
-    });
-    return { items, pageInfo: { page: pagination.page, pageSize: pagination.pageSize, totalItems: total, totalPages: Math.max(1, Math.ceil(total / pagination.pageSize)), hasNextPage: pagination.page * pagination.pageSize < total, hasPreviousPage: pagination.page > 1 } };
+    const { headers, rows } = await this.sales.exportInvoices(req, query);
+    sendCsv(res, `sales-invoices-${query.from ?? 'all'}-${query.to ?? 'today'}.csv`, headers, rows);
+  }
+
+  @Get('invoices/summary')
+  @RequirePermissions('sales.read')
+  invoiceSummary(@Req() req: TenantRequest, @Query(new ZodValidationPipe(invoiceListQuerySchema)) query: z.infer<typeof invoiceListQuerySchema>) {
+    return this.sales.invoiceSummary(req, query);
   }
 
   @Get('invoices/:invoiceId')
   @RequirePermissions('sales.read')
   getInvoice(@Param('invoiceId') invoiceId: string, @Req() req: TenantRequest) {
     return this.sales.getInvoice(req, invoiceId);
+  }
+
+  @Post('invoices/:invoiceId/cancel')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('sales.void')
+  cancelInvoice(
+    @Param('invoiceId') invoiceId: string,
+    @Body(new ZodValidationPipe(invoiceCancelSchema)) dto: z.infer<typeof invoiceCancelSchema>,
+    @Req() req: TenantRequest,
+  ) {
+    return this.sales.cancelInvoice(req, invoiceId, dto.reason);
+  }
+
+  @Get('held-bills')
+  @RequirePermissions('sales.create')
+  listHeldBills(@Req() req: TenantRequest) {
+    return this.sales.listHeldBills(req);
+  }
+
+  @Post('held-bills')
+  @RequirePermissions('sales.create')
+  holdBill(@Body(new ZodValidationPipe(heldBillCreateSchema)) dto: z.infer<typeof heldBillCreateSchema>, @Req() req: TenantRequest) {
+    return this.sales.holdBill(req, dto);
+  }
+
+  @Delete('held-bills/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermissions('sales.create')
+  async deleteHeldBill(@Param('id') id: string, @Req() req: TenantRequest) {
+    await this.sales.deleteHeldBill(req, id);
   }
 
   @RequireModule('returns')
@@ -117,12 +103,21 @@ export class SalesController {
   @RequireModule('returns')
   @Get('returns')
   @RequirePermissions('returns.read')
-  async listReturns(
+  async listReturns(@Req() req: TenantRequest, @Query(new ZodValidationPipe(returnListQuerySchema)) query: z.infer<typeof returnListQuerySchema>) {
+    const [total, items] = await this.sales.listReturns(req, query);
+    return { items, pageInfo: pageInfo(query, total) };
+  }
+
+  @RequireModule('returns')
+  @Get('returns/export')
+  @RequirePermissions('returns.read', 'reports.export')
+  async exportReturns(
     @Req() req: TenantRequest,
-    @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
+    @Res() res: Response,
+    @Query(new ZodValidationPipe(returnListQuerySchema)) query: z.infer<typeof returnListQuerySchema>,
   ) {
-    const [total, items] = await this.sales.listReturns(req, { page: pagination.page, pageSize: pagination.pageSize });
-    return { items, pageInfo: { page: pagination.page, pageSize: pagination.pageSize, totalItems: total, totalPages: Math.max(1, Math.ceil(total / pagination.pageSize)), hasNextPage: pagination.page * pagination.pageSize < total, hasPreviousPage: pagination.page > 1 } };
+    const { headers, rows } = await this.sales.exportReturns(req, query);
+    sendCsv(res, `sales-returns-${query.from ?? 'all'}-${query.to ?? 'today'}.csv`, headers, rows);
   }
 
   @Post('receipts')

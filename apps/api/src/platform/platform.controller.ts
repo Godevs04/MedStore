@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
+import { tenantListQuerySchema } from '@medicore/validation';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { PlatformGuard } from './platform.guard.js';
@@ -56,15 +57,8 @@ export class PlatformController {
   }
 
   @Get('tenants')
-  async listTenants(
-    @Req() req: AuthenticatedRequest,
-    @Query('page') page = '1',
-    @Query('pageSize') pageSize = '25',
-    @Query('search') search?: string,
-  ) {
-    const p = Math.max(1, Math.floor(Number(page)) || 1);
-    const size = Math.min(100, Math.max(1, Math.floor(Number(pageSize)) || 25));
-    return this.platform.listTenants(req, { page: p, pageSize: size, search: search?.trim().slice(0, 100) || undefined });
+  async listTenants(@Req() req: AuthenticatedRequest, @Query(new ZodValidationPipe(tenantListQuerySchema)) query: z.infer<typeof tenantListQuerySchema>) {
+    return this.platform.listTenants(req, { ...query, search: query.search || undefined });
   }
 
   @Post('tenants/:orgId/status')

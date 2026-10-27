@@ -1,188 +1,400 @@
 'use client';
 
+import { Icon } from '@/components/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { adjustmentCreateSchema } from '@medicore/validation';
 import { api, ApiClientError } from '@/lib/api';
-import { useInventoryPicker } from '@/lib/inventory-picker';
-import { Badge, Button, Card, EmptyState, ErrorBanner, ErrorState, Field, Input, Select, Spinner, Table, Tr, PageHeader } from '@/components/ui';
+import { toast } from '@/lib/toast';
+import { ADJUSTMENT_REASON_LABELS, ProductSearch, batchItem, qtyFmt, useBatchOptions, useCan, useWarehouses, type ProductHit } from '@/lib/stock';
+import { BarChart, Combobox, ConfirmDialog, DateRangePicker, FilterChips, KpiGrid, Pagination, QtyInput, useFieldErrors, type DateRange, type PageInfo } from '@/components/kit';
+import { Badge, Button, Card, EmptyState, ErrorState, Field, PageHeader, Select, SkeletonRows, Stat, Table, Td, Textarea, Th, Tr, cn, money } from '@/components/ui';
 
 interface AdjustmentRow {
   id: string;
-  direction: string;
+  direction: 'IN' | 'OUT';
   quantity: string;
   reason: string;
   notes: string | null;
+  warehouseId: string;
   createdAt: string;
-  batch: { batchNumber: string; product: { name: string; sku: string } };
+  actorName: string | null;
+  batch: { id: string; batchNumber: string; purchaseRate: string; product: { name: string; sku: string } };
 }
 
-const REASONS = [
-  'DAMAGE',
-  'BREAKAGE',
-  'EXPIRY_WRITEOFF',
-  'THEFT_LOSS',
-  'COUNT_CORRECTION',
-  'DATA_ENTRY_CORRECTION',
-  'TEMPERATURE_EXCURSION',
-  'CONTAMINATION',
-  'OTHER',
-] as const;
+interface Summary {
+  count: number;
+  inValue: string;
+  outValue: string;
+  netValue: string;
+  byReason: Array<{ reason: string; count: number; inQty: number; outQty: number; inValue: string; outValue: string }>;
+}
 
-export default function AdjustmentsPage() {
-  const queryClient = useQueryClient();
-  const picker = useInventoryPicker();
-  const [batchId, setBatchId] = useState('');
+const OUT_ONLY = new Set(['DAMAGE', 'BREAKAGE', 'EXPIRY_WRITEOFF', 'THEFT_LOSS', 'TEMPERATURE_EXCURSION', 'CONTAMINATION']);
+const REASONS = Object.keys(ADJUSTMENT_REASON_LABELS);
+
+function AdjustForm({ onDone }: { onDone: () => void }) {
+  const warehouses = useWarehouses();
+  const [warehouseId, setWarehouseId] = useState('');
+  const [product, setProduct] = useState<ProductHit | null>(null);
+  const [productKey, setProductKey] = useState(0);
+  const [batchId, setBatchId] = useState<string | null>(null);
   const [direction, setDirection] = useState<'IN' | 'OUT'>('OUT');
   const [quantity, setQuantity] = useState('');
-  const [reason, setReason] = useState<string>('DAMAGE');
+  const [reason, setReason] = useState('DAMAGE');
   const [notes, setNotes] = useState('');
+  const [confirm, setConfirm] = useState(false);
+  const { errors, clear, validate, setServerErrors, setErrors } = useFieldErrors();
+  const batches = useBatchOptions(warehouseId, product?.id ?? '');
+  const batch = batches.options.find((b) => b.id === batchId) ?? null;
 
-  const adjustments = useQuery({
-    queryKey: ['adjustments'],
-    queryFn: () => api<{ items: AdjustmentRow[]; pageInfo: { totalItems: number } }>('/inventory/adjustments?page=1&pageSize=50'),
-    retry: false,
-  });
+  useEffect(() => {
+    if (!warehouseId && warehouses.list.length > 0) setWarehouseId((warehouses.list.find((w) => w.isDefault) ?? warehouses.list[0])!.id);
+  }, [warehouses.list, warehouseId]);
+  useEffect(() => {
+    if (direction === 'IN' && OUT_ONLY.has(reason)) setReason('COUNT_CORRECTION');
+  }, [direction, reason]);
 
-  const selectedBatch = picker.batches.options.find((b) => b.id === batchId) ?? null;
+  const qty = Number(quantity || 0);
+  const after = batch ? batch.onHand + (direction === 'IN' ? qty : -qty) : null;
+  const value = batch ? qty * Number(batch.purchaseRate) : 0;
 
-  const adjust = useMutation({
-    meta: { success: 'Stock adjusted' },
-    mutationFn: () =>
-      api('/inventory/adjustments', {
-        method: 'POST',
-        body: { batchId, warehouseId: picker.warehouseId, direction, quantity, reason, notes: notes || null },
-      }),
+  const save = useMutation({
+    meta: { silent: true, silentError: true },
+    mutationFn: () => api('/inventory/adjustments', { method: 'POST', body: { batchId, warehouseId, direction, quantity, reason, notes: notes.trim() || null } }),
     onSuccess: () => {
+      toast.success('Stock adjusted', `${direction === 'IN' ? '+' : '−'}${qtyFmt(qty)} of ${product?.name ?? ''} · ${batch?.batchNumber ?? ''} (${ADJUSTMENT_REASON_LABELS[reason]})`);
+      setConfirm(false);
       setQuantity('');
       setNotes('');
-      void queryClient.invalidateQueries({ queryKey: ['adjustments'] });
-      void queryClient.invalidateQueries({ queryKey: ['batch-options'] });
-      void queryClient.invalidateQueries({ queryKey: ['batches'] });
-      void queryClient.invalidateQueries({ queryKey: ['ledger'] });
+      setBatchId(null);
+      onDone();
+      void batches.refetch();
+    },
+    onError: (e) => {
+      setConfirm(false);
+      if (e instanceof ApiClientError && setServerErrors(e.details)) toast.error('Please fix the highlighted fields', e.message);
+      else toast.error('Adjustment failed', e instanceof ApiClientError ? e.message : undefined);
     },
   });
 
-  const canSubmit = Boolean(batchId && picker.warehouseId && Number(quantity) > 0) && !adjust.isPending;
+  const review = () => {
+    const extra: Record<string, string> = {};
+    if (!warehouseId) extra.warehouseId = 'Select the warehouse';
+    if (!product) extra.productId = 'Select the product';
+    if (!batchId) extra.batchId = 'Select the batch';
+    if (batch && direction === 'OUT' && qty > batch.onHand) extra.quantity = `Only ${qtyFmt(batch.onHand)} on hand in this batch`;
+    if (direction === 'IN' && OUT_ONLY.has(reason)) extra.reason = 'This reason only applies to stock going out';
+    if (batch && direction === 'IN' && batch.days < 0) extra.batchId = 'Cannot add stock to an expired batch';
+    const ok = validate(adjustmentCreateSchema, { batchId: batchId ?? '', warehouseId, direction, quantity, reason, notes: notes.trim() || null }, extra);
+    if (!ok) {
+      toast.error('Please fix the highlighted fields');
+      return;
+    }
+    setConfirm(true);
+  };
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4">
-      <PageHeader title="Stock adjustments" subtitle="Reason-coded write-offs and corrections, posted to the books at batch cost." />
+    <Card title="New adjustment">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+        <Field label="Warehouse" required hint={warehouses.isSuccess && warehouses.list.length === 0 ? 'No warehouse yet — add one under Branches' : undefined} error={errors.warehouseId} className="md:col-span-3">
+          <Select
+            value={warehouseId}
+            onChange={(e) => {
+              setWarehouseId(e.target.value);
+              setBatchId(null);
+              clear('warehouseId');
+            }}
+          >
+            <option value="">Select…</option>
+            {warehouses.list.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Product" required error={errors.productId} className="md:col-span-5">
+          <ProductSearch
+            key={productKey}
+            value={product?.id ?? null}
+            invalid={Boolean(errors.productId)}
+            onPick={(p) => {
+              setProduct(p);
+              setBatchId(null);
+              clear('productId');
+            }}
+          />
+        </Field>
+        <Field label="Batch" required error={errors.batchId} className="md:col-span-4">
+          <Combobox
+            key={`${warehouseId}-${product?.id ?? ''}`}
+            items={batches.options.map((b) => batchItem(b, { allowExpired: direction === 'OUT', allowBlocked: true, requireStock: direction === 'OUT' }))}
+            value={batchId}
+            onChange={(id) => {
+              setBatchId(id);
+              clear('batchId');
+            }}
+            disabled={!product || !warehouseId}
+            loading={batches.isFetching}
+            placeholder={product ? 'Pick a batch…' : 'Select a product first'}
+            emptyText="No batches of this product in this warehouse"
+            invalid={Boolean(errors.batchId)}
+          />
+        </Field>
 
-      <Card title="New adjustment">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="Warehouse">
-            <Select value={picker.warehouseId} onChange={(e) => { picker.setWarehouseId(e.target.value); setBatchId(''); }}>
-              <option value="">Select warehouse…</option>
-              {picker.warehouses.data?.map((w) => (
-                <option key={w.id} value={w.id}>{w.name}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Product">
-            <Select value={picker.productId} onChange={(e) => { picker.setProductId(e.target.value); setBatchId(''); }} disabled={!picker.warehouseId}>
-              <option value="">Select product…</option>
-              {picker.products.options.map((p) => (
-                <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Batch">
-            <Select value={batchId} onChange={(e) => setBatchId(e.target.value)} disabled={!picker.productId}>
-              <option value="">Select batch…</option>
-              {picker.batches.options.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.batchNumber} · exp {new Date(b.expiryDate).toLocaleDateString()} · {(b.onHand ?? 0)} on hand
+        <Field label="Direction" className="md:col-span-3">
+          <div className="inline-flex w-full rounded-lg bg-neutral-100 p-1" role="radiogroup">
+            {(['OUT', 'IN'] as const).map((d) => (
+              <button
+                key={d}
+                type="button"
+                role="radio"
+                aria-checked={direction === d}
+                onClick={() => {
+                  setDirection(d);
+                  clear('quantity');
+                }}
+                className={cn(
+                  'inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all',
+                  direction === d ? (d === 'OUT' ? 'bg-white text-red-700 shadow-sm' : 'bg-white text-emerald-700 shadow-sm') : 'text-neutral-500',
+                )}
+              >
+                <Icon name={d === 'OUT' ? 'arrowDown' : 'arrowUp'} size={14} strokeWidth={2.25} />
+                {d === 'OUT' ? 'Stock out' : 'Stock in'}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Field label="Quantity" required error={errors.quantity} className="md:col-span-2" hint={batch ? `${qtyFmt(batch.onHand)} on hand` : 'Whole units'}>
+          <QtyInput
+            value={quantity}
+            onChange={(v) => {
+              setQuantity(v);
+              clear('quantity');
+            }}
+            invalid={Boolean(errors.quantity)}
+          />
+        </Field>
+        <Field label="Reason" required error={errors.reason} className="md:col-span-3">
+          <Select
+            value={reason}
+            onChange={(e) => {
+              setReason(e.target.value);
+              clear('reason');
+              clear('notes');
+            }}
+          >
+            {REASONS.filter((r) => direction === 'OUT' || !OUT_ONLY.has(r)).map((r) => (
+              <option key={r} value={r}>
+                {ADJUSTMENT_REASON_LABELS[r]}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label={reason === 'OTHER' ? 'Notes (required)' : 'Notes'} required={reason === 'OTHER'} error={errors.notes} className="md:col-span-4">
+          <Textarea
+            rows={1}
+            value={notes}
+            onChange={(e) => {
+              setNotes(e.target.value);
+              clear('notes');
+            }}
+            placeholder={reason === 'TEMPERATURE_EXCURSION' ? 'Fridge logged 12 °C for 6 h on 14 Oct' : 'What happened?'}
+          />
+        </Field>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+        {batch && qty > 0 ? (
+          <p className="mc-anim-fade-in text-xs text-neutral-600">
+            Balance <span className="font-semibold tabular-nums">{qtyFmt(batch.onHand)}</span> → <span className={cn('font-semibold tabular-nums', after !== null && after < 0 ? 'text-red-600' : 'text-neutral-900')}>{qtyFmt(after ?? 0)}</span> ·{' '}
+            {direction === 'IN' ? 'gain' : 'loss'} of <span className="font-semibold">{money(value)}</span> at cost
+          </p>
+        ) : (
+          <span />
+        )}
+        <div className="flex gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setProduct(null);
+              setProductKey((k) => k + 1);
+              setBatchId(null);
+              setQuantity('');
+              setNotes('');
+              setErrors({});
+            }}
+          >
+            Reset
+          </Button>
+          <Button onClick={review} variant={direction === 'OUT' ? 'danger' : 'primary'}>
+            Review adjustment
+          </Button>
+        </div>
+      </div>
+      <ConfirmDialog
+        open={confirm}
+        tone={direction === 'OUT' ? 'danger' : 'primary'}
+        title={`Post ${direction === 'OUT' ? 'stock-out' : 'stock-in'} adjustment?`}
+        message={
+          <>
+            {direction === 'IN' ? '+' : '−'}
+            {qtyFmt(qty)} units of <b>{product?.name}</b> batch <span className="font-mono">{batch?.batchNumber}</span> for <b>{ADJUSTMENT_REASON_LABELS[reason]}</b>. Value {money(value)} posts to Inventory {direction === 'IN' ? 'gain' : 'loss'}. Adjustments are permanent; correct mistakes with a reverse adjustment.
+          </>
+        }
+        confirmLabel="Post adjustment"
+        busy={save.isPending}
+        onConfirm={() => save.mutate()}
+        onCancel={() => setConfirm(false)}
+      />
+    </Card>
+  );
+}
+
+export default function AdjustmentsPage() {
+  const qc = useQueryClient();
+  const can = useCan();
+  const warehouses = useWarehouses();
+  const [reason, setReason] = useState('');
+  const [direction, setDirection] = useState<'IN' | 'OUT' | ''>('');
+  const [warehouseId, setWarehouseId] = useState('');
+  const [range, setRange] = useState<DateRange>({ from: '', to: '' });
+  const [page, setPage] = useState(1);
+  useEffect(() => setPage(1), [reason, direction, warehouseId, range]);
+
+  const f = new URLSearchParams();
+  if (direction) f.set('direction', direction);
+  if (warehouseId) f.set('warehouseId', warehouseId);
+  if (range.from && (!range.to || range.from <= range.to)) f.set('from', range.from);
+  if (range.to && (!range.from || range.from <= range.to)) f.set('to', range.to);
+  const listQs = new URLSearchParams(f);
+  if (reason) listQs.set('reason', reason);
+
+  const list = useQuery({
+    queryKey: ['adjustments', listQs.toString(), page],
+    queryFn: () => api<{ items: AdjustmentRow[]; pageInfo: PageInfo }>(`/inventory/adjustments?page=${page}&pageSize=25&${listQs.toString()}`),
+    placeholderData: (prev) => prev,
+  });
+  const summary = useQuery({
+    queryKey: ['adjustments-summary', f.toString()],
+    queryFn: () => api<Summary>(`/inventory/adjustments/summary?${f.toString()}`),
+    placeholderData: (prev) => prev,
+  });
+
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['adjustments'] });
+    void qc.invalidateQueries({ queryKey: ['adjustments-summary'] });
+    void qc.invalidateQueries({ queryKey: ['batches'] });
+    void qc.invalidateQueries({ queryKey: ['stock-summary'] });
+  };
+
+  const s = summary.data;
+  const items = list.data?.items ?? [];
+  const topOut = s?.byReason.filter((r) => Number(r.outValue) > 0).sort((a, b) => Number(b.outValue) - Number(a.outValue))[0];
+
+  return (
+    <div className="mx-auto max-w-7xl space-y-4">
+      <PageHeader title="Stock adjustments" subtitle="Damage, breakage, theft, cold-chain loss and corrections — every change is valued at cost, posted to the books and audited." />
+
+      {can('inventory.adjust') ? <AdjustForm onDone={refresh} /> : null}
+
+      {s ? (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <KpiGrid cols={3}>
+            <Stat label="Stock lost" value={money(s.outValue)} hint={topOut ? `Mostly ${ADJUSTMENT_REASON_LABELS[topOut.reason]?.toLowerCase()}` : 'No losses'} tone={Number(s.outValue) > 0 ? 'red' : 'green'} />
+            <Stat label="Stock gained" value={money(s.inValue)} hint="Corrections and finds" tone="green" delay={60} />
+            <Stat label="Net impact" value={money(s.netValue)} hint={`${s.count} adjustment${s.count === 1 ? '' : 's'}`} tone={Number(s.netValue) < 0 ? 'amber' : 'blue'} delay={120} />
+          </KpiGrid>
+          <Card title="Loss by reason (at cost)" className="lg:col-span-2" delay={80}>
+            <BarChart
+              data={s.byReason
+                .filter((r) => Number(r.outValue) > 0)
+                .map((r) => ({ label: ADJUSTMENT_REASON_LABELS[r.reason] ?? r.reason, value: Number(r.outValue), hint: `${ADJUSTMENT_REASON_LABELS[r.reason]} · ${qtyFmt(r.outQty)} units · ${r.count} entries` }))}
+              format={(n) => money(n)}
+              tone="red"
+              height={150}
+            />
+          </Card>
+        </div>
+      ) : null}
+
+      <Card title={`Adjustment history (${list.data?.pageInfo.totalItems ?? 0})`}>
+        <div className="mb-3 space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <FilterChips
+              options={[
+                { id: 'OUT', label: 'Out', icon: 'arrowDown', tone: 'red' },
+                { id: 'IN', label: 'In', icon: 'arrowUp', tone: 'green' },
+              ]}
+              value={direction}
+              onChange={setDirection}
+            />
+            <Select value={reason} onChange={(e) => setReason(e.target.value)} className="w-48" aria-label="Reason">
+              <option value="">All reasons</option>
+              {REASONS.map((r) => (
+                <option key={r} value={r}>
+                  {ADJUSTMENT_REASON_LABELS[r]}
                 </option>
               ))}
             </Select>
-          </Field>
-          <Field label="Direction">
-            <Select value={direction} onChange={(e) => setDirection(e.target.value as 'IN' | 'OUT')}>
-              <option value="OUT">OUT (reduce stock)</option>
-              <option value="IN">IN (add stock)</option>
-            </Select>
-          </Field>
-          <Field label="Quantity">
-            <Input value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="0" inputMode="decimal" />
-          </Field>
-          <Field label="Reason (mandatory)">
-            <Select value={reason} onChange={(e) => setReason(e.target.value)}>
-              {REASONS.map((r) => (
-                <option key={r} value={r}>{r}</option>
+            <Select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className="w-48" aria-label="Warehouse">
+              <option value="">All warehouses</option>
+              {warehouses.list.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.label}
+                </option>
               ))}
             </Select>
-          </Field>
-          <div className="sm:col-span-3">
-            <Field label="Notes (optional)">
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Details for the audit trail" />
-            </Field>
           </div>
+          <DateRangePicker value={range} onChange={setRange} />
         </div>
-        {selectedBatch && direction === 'OUT' && Number(quantity) > (selectedBatch.onHand ?? 0) ? (
-          <div className="mt-3">
-            <ErrorBanner>
-              Quantity {quantity} exceeds on-hand {selectedBatch.onHand ?? 0} — the server will reject this adjustment.
-            </ErrorBanner>
-          </div>
-        ) : null}
-        {adjust.error ? (
-          <div className="mt-3">
-            <ErrorBanner>{adjust.error instanceof ApiClientError ? adjust.error.message : 'Failed to post adjustment'}</ErrorBanner>
-          </div>
-        ) : null}
-        <div className="mt-4">
-          <Button disabled={!canSubmit} onClick={() => adjust.mutate()}>
-            {adjust.isPending ? 'Posting…' : 'Post adjustment'}
-          </Button>
-        </div>
-      </Card>
-
-      <Card title={`Adjustment history (${adjustments.data?.pageInfo.totalItems ?? 0})`}>
-        {adjustments.isLoading ? (
-          <Spinner />
-        ) : adjustments.error ? (
-          <ErrorState
-            message={
-              adjustments.error instanceof ApiClientError && adjustments.error.status === 403
-                ? 'You do not have permission to view adjustments.'
-                : 'Failed to load adjustments.'
-            }
-            retry={() => void adjustments.refetch()}
-          />
-        ) : (adjustments.data?.items.length ?? 0) === 0 ? (
-          <EmptyState title="No adjustments yet" hint="Damage, expiry write-offs and corrections appear here with full audit context." />
+        {list.isLoading ? (
+          <SkeletonRows rows={5} cols={6} />
+        ) : list.error ? (
+          <ErrorState message="Failed to load adjustments." retry={() => void list.refetch()} />
+        ) : items.length === 0 ? (
+          <EmptyState title="No adjustments in this view" hint="Adjustments appear here once posted." />
         ) : (
-          <Table
-            head={
-              <tr>
-                <th className="px-3 py-2">When</th>
-                <th className="px-3 py-2">Product / batch</th>
-                <th className="px-3 py-2">Direction</th>
-                <th className="px-3 py-2">Qty</th>
-                <th className="px-3 py-2">Reason</th>
-              </tr>
-            }
-          >
-            {adjustments.data?.items.map((a) => (
-              <Tr key={a.id}>
-                <td className="whitespace-nowrap px-3 py-2 text-xs text-neutral-500">
-                  {new Date(a.createdAt).toLocaleString()}
-                </td>
-                <td className="px-3 py-2 text-sm">
-                  {a.batch.product.name}
-                  <span className="ml-1.5 font-mono text-xs text-neutral-500">{a.batch.batchNumber}</span>
-                </td>
-                <td className="px-3 py-2">
-                  <Badge tone={a.direction === 'IN' ? 'green' : 'amber'}>{a.direction}</Badge>
-                </td>
-                <td className="px-3 py-2 text-sm font-medium">{Number(a.quantity)}</td>
-                <td className="px-3 py-2 text-xs text-neutral-600">
-                  {a.reason}
-                  {a.notes ? <span className="text-neutral-400"> · {a.notes}</span> : null}
-                </td>
-              </Tr>
-            ))}
-          </Table>
+          <>
+            <Table
+              head={
+                <tr>
+                  <Th>When</Th>
+                  <Th>Product / batch</Th>
+                  <Th>Reason</Th>
+                  <Th right>Qty</Th>
+                  <Th right>Value</Th>
+                  <Th>Warehouse</Th>
+                  <Th>By</Th>
+                </tr>
+              }
+            >
+              {items.map((a) => {
+                const q = Number(a.quantity);
+                return (
+                  <Tr key={a.id}>
+                    <Td className="whitespace-nowrap text-xs text-neutral-500">{new Date(a.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</Td>
+                    <Td>
+                      <div className="font-medium text-neutral-800">{a.batch.product.name}</div>
+                      <div className="font-mono text-xs text-neutral-500">{a.batch.batchNumber}</div>
+                    </Td>
+                    <Td>
+                      <Badge tone={a.direction === 'OUT' ? 'red' : 'green'}>{ADJUSTMENT_REASON_LABELS[a.reason] ?? a.reason}</Badge>
+                      {a.notes ? <div className="mt-0.5 max-w-[240px] truncate text-[11px] text-neutral-500" title={a.notes}>{a.notes}</div> : null}
+                    </Td>
+                    <Td right className={cn('font-semibold', a.direction === 'OUT' ? 'text-red-600' : 'text-emerald-700')}>
+                      {a.direction === 'OUT' ? '−' : '+'}
+                      {qtyFmt(q)}
+                    </Td>
+                    <Td right>{money(q * Number(a.batch.purchaseRate))}</Td>
+                    <Td className="text-xs text-neutral-600">{warehouses.nameOf(a.warehouseId)}</Td>
+                    <Td className="text-xs text-neutral-500">{a.actorName ?? '—'}</Td>
+                  </Tr>
+                );
+              })}
+            </Table>
+            <Pagination info={list.data?.pageInfo} onChange={setPage} label="adjustments" />
+          </>
         )}
       </Card>
     </div>

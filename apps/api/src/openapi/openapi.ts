@@ -92,7 +92,11 @@ function collectRouteFacts(app: INestApplication): Map<string, RouteFacts> {
           permissions: readMetadata<string[]>(PERMISSIONS_KEY, handler, controller),
           module: readMetadata<PlanModule>(MODULE_KEY, handler, controller),
           isPublic: readMetadata<boolean>(IS_PUBLIC_KEY, handler, controller) === true,
-          paginated: querySchemas.includes(paginationQuerySchema),
+          paginated: querySchemas.some((s) => {
+            if (s === paginationQuerySchema) return true;
+            const props = toJsonSchema(s).properties ?? {};
+            return 'page' in props && 'pageSize' in props;
+          }),
         });
       }
     }

@@ -1,11 +1,14 @@
 'use client';
 
+import { Icon } from '@/components/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, ApiClientError } from '@/lib/api';
 import { useCurrentMembership, useSession } from '@/lib/session';
-import { Badge, Button, Card, EmptyState, ErrorBanner, ErrorState, SkeletonRows, Stat, Table, Td, Th, Tr, cn, fmtDate, money } from '@/components/ui';
+import { useState } from 'react';
+import { BarChart, Donut, FilterChips, Meter, Sparkline } from '@/components/kit';
+import { Badge, Button, Card, EmptyState, ErrorState, SkeletonRows, Stat, Table, Td, Th, Tr, cn, fmtDate, money } from '@/components/ui';
 
 interface Checklist {
   steps: Array<{ key: string; label: string; complete: boolean; required?: boolean }>;
@@ -33,13 +36,39 @@ interface Dashboard {
   recentInvoices: Array<{ id: string; invoiceNumber: string; total: string; status: string; invoiceDate: string; party: string }>;
 }
 
+interface Trend {
+  days: Array<{ date: string; invoices: number; revenue: string }>;
+  topProducts: Array<{ productId: string; product: string; quantity: number; revenue: string }>;
+}
+
+interface PaymentMix {
+  total: string;
+  methods: Array<{ method: string; amount: string; count: number; share: number }>;
+}
+
+interface ExpiryValue {
+  buckets: Array<{ key: string; label: string; batches: number; quantity: number; costValue: string; mrpValue: string }>;
+  totalCost: string;
+  totalMrp: string;
+}
+
+interface Aging {
+  receivables: { buckets: Record<string, string>; total: string };
+  payables: { buckets: Record<string, string>; total: string };
+}
+
+const AGING_LABELS: Record<string, string> = { CURRENT: 'Not due', D1_30: '1–30 d', D31_60: '31–60 d', D61_90: '61–90 d', D90_PLUS: '90+ d' };
+const METHOD_LABELS: Record<string, string> = { CASH: 'Cash', UPI: 'UPI', CARD: 'Card', BANK: 'Bank', CREDIT: 'Credit' };
+const compactInr = (n: number) =>
+  n >= 1e7 ? `₹${(n / 1e7).toFixed(1)}Cr` : n >= 1e5 ? `₹${(n / 1e5).toFixed(1)}L` : n >= 1e3 ? `₹${(n / 1e3).toFixed(1)}k` : `₹${Math.round(n)}`;
+
 const MODULES = [
-  { href: '/pos', label: 'POS billing', desc: 'Scan, FEFO batches, split tenders, GST invoice', icon: '⌁', permission: 'sales.create' },
-  { href: '/purchasing', label: 'Purchasing', desc: 'PO → GRN → supplier invoice → payment', icon: '⇣', permission: 'purchases.read' },
-  { href: '/batches', label: 'Batch inventory', desc: 'Batch, expiry, recall and stock ledger', icon: '▦', permission: 'inventory.read' },
-  { href: '/accounting', label: 'Accounting', desc: 'Journals, trial balance, P&L, balance sheet', icon: '∑', permission: 'accounting.read' },
-  { href: '/compliance', label: 'Compliance', desc: 'Schedule H1 register, GST summaries, licences', icon: '⚖', permission: 'compliance.read' },
-  { href: '/reports', label: 'Reports', desc: 'Sales, valuation, aging — CSV export', icon: '▤', permission: 'reports.read' },
+  { href: '/pos', label: 'POS billing', desc: 'Scan, FEFO batches, split tenders, GST invoice', icon: 'pos' as const, permission: 'sales.create' },
+  { href: '/purchasing', label: 'Purchasing', desc: 'PO → GRN → supplier invoice → payment', icon: 'purchasing' as const, permission: 'purchases.read' },
+  { href: '/batches', label: 'Batch inventory', desc: 'Batch, expiry, recall and stock ledger', icon: 'batches' as const, permission: 'inventory.read' },
+  { href: '/accounting', label: 'Accounting', desc: 'Journals, trial balance, P&L, balance sheet', icon: 'accounting' as const, permission: 'accounting.read' },
+  { href: '/compliance', label: 'Compliance', desc: 'Schedule H1 register, GST summaries, licences', icon: 'compliance' as const, permission: 'compliance.read' },
+  { href: '/reports', label: 'Reports', desc: 'Sales, valuation, aging — CSV export', icon: 'reports' as const, permission: 'reports.read' },
 ];
 
 const STEP_LINKS: Record<string, string> = {
@@ -68,6 +97,13 @@ export default function DashboardPage() {
   const checklist = useQuery({ queryKey: ['setup-checklist'], queryFn: () => api<Checklist>('/organizations/setup-checklist'), retry: false, enabled: hasTenant });
   const org = useQuery({ queryKey: ['org-profile'], queryFn: () => api<OrgProfile>('/organizations'), retry: false, enabled: hasTenant });
   const kpis = useQuery({ queryKey: ['dashboard'], queryFn: () => api<Dashboard>('/reports/dashboard'), retry: false, refetchInterval: 60_000, enabled: hasTenant });
+  const [trendDays, setTrendDays] = useState<'7' | '14' | '30'>('14');
+  const trend = useQuery({ queryKey: ['dashboard', 'trend', trendDays], queryFn: () => api<Trend>(`/reports/dashboard/trend?days=${trendDays}`), enabled: hasTenant });
+  const canReports = can('reports.read');
+  const monthFrom = `${new Date().toISOString().slice(0, 8)}01`;
+  const mix = useQuery({ queryKey: ['dashboard', 'payment-mix', monthFrom], queryFn: () => api<PaymentMix>(`/reports/payment-mix?from=${monthFrom}`), enabled: hasTenant && canReports });
+  const expiry = useQuery({ queryKey: ['dashboard', 'expiry-value'], queryFn: () => api<ExpiryValue>('/reports/expiry-value'), enabled: hasTenant && canReports });
+  const aging = useQuery({ queryKey: ['dashboard', 'aging'], queryFn: () => api<Aging>('/reports/aging'), enabled: hasTenant && canReports });
   const completeSetup = useMutation({
     meta: { success: 'Setup complete — you can start billing' },
     mutationFn: () => api<{ setupCompleted: boolean }>('/organizations/setup-complete', { method: 'POST' }),
@@ -120,6 +156,10 @@ export default function DashboardPage() {
   if (org.error) return <ErrorState message="Failed to load organization profile." retry={() => void org.refetch()} />;
 
   const sub = org.data?.subscription;
+  const trendValues = (trend.data?.days ?? []).map((d) => Number(d.revenue));
+  const trendTotal = trendValues.reduce((a, b) => a + b, 0);
+  const topMax = Math.max(1, ...(trend.data?.topProducts ?? []).map((p) => Number(p.revenue)));
+  const expiryMax = Math.max(1, ...(expiry.data?.buckets ?? []).map((b) => Number(b.costValue)));
   const doneCount = checklist.data?.steps.filter((s) => s.complete).length ?? 0;
   const totalSteps = checklist.data?.steps.length ?? 1;
   const progressPct = Math.round((doneCount / totalSteps) * 100);
@@ -152,8 +192,8 @@ export default function DashboardPage() {
             {sub ? (
               <>
                 {sub.planName} plan
-                <Badge tone={sub.status === 'TRIALING' ? 'amber' : 'green'} dot>
-                  {sub.status}
+                <Badge tone={sub.status === 'TRIALING' ? 'amber' : sub.status === 'ACTIVE' ? 'green' : 'red'} dot>
+                  {({ TRIALING: 'Trial', ACTIVE: 'Active', PAST_DUE: 'Payment due', GRACE: 'Grace period', CANCELLED: 'Cancelled', EXPIRED: 'Expired' } as Record<string, string>)[sub.status] ?? sub.status}
                 </Badge>
               </>
             ) : (
@@ -163,22 +203,160 @@ export default function DashboardPage() {
         </div>
         {can('sales.create') ? (
           <Link href="/pos">
-            <Button>⌁ New sale</Button>
+            <Button><Icon name="pos" size={15} /> New sale</Button>
           </Link>
         ) : null}
       </div>
 
-      {kpis.error ? null : (
+      {kpis.error ? (
+        <ErrorState message="Live KPIs could not be loaded." retry={() => void kpis.refetch()} />
+      ) : kpis.isLoading ? (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-          <Stat label="Today's sales" value={k ? money(k.today.revenue) : '…'} hint={k ? `${k.today.invoices} invoices${Number(k.today.returns) ? ` · net of ${money(k.today.returns)} returns` : ''}` : undefined} tone="blue" delay={0} href="/sales-history" />
-          <Stat label="This month" value={k ? money(k.month.revenue) : '…'} hint={k ? `${k.month.invoices} invoices${Number(k.month.returns) ? ` · net of ${money(k.month.returns)} returns` : ''}` : undefined} tone="green" delay={60} href="/reports" />
-          <Stat label="Stock value" value={k ? money(k.stockValue) : '…'} hint="at purchase cost" tone="neutral" delay={120} href="/batches" />
-          <Stat label="Receivables" value={k ? money(k.receivables) : '…'} hint="customer credit" tone="amber" delay={180} href="/customers" />
-          <Stat label="Payables" value={k ? money(k.payables) : '…'} hint="supplier dues" tone="red" delay={240} href="/vendors" />
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="mc-skeleton h-[88px] rounded-xl" style={{ animationDelay: `${i * 80}ms` }} />
+          ))}
         </div>
-      )}
+      ) : k ? (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          <Stat
+            label="Today's sales"
+            value={money(k.today.revenue)}
+            hint={`${k.today.invoices} invoices${Number(k.today.returns) ? ` · net of ${money(k.today.returns)} returns` : ''}`}
+            tone="blue"
+            delay={0}
+            href="/sales-history"
+            footer={trendValues.length > 1 ? <Sparkline values={trendValues} className="h-8" /> : null}
+          />
+          <Stat label="This month" value={money(k.month.revenue)} hint={`${k.month.invoices} invoices${Number(k.month.returns) ? ` · net of ${money(k.month.returns)} returns` : ''}`} tone="green" delay={60} href="/reports" />
+          <Stat label="Stock value" value={money(k.stockValue)} hint="at purchase cost" tone="neutral" delay={120} href="/batches" />
+          <Stat label="Receivables" value={money(k.receivables)} hint="customer credit" tone="amber" delay={180} href="/customers" />
+          <Stat label="Payables" value={money(k.payables)} hint="supplier dues" tone="red" delay={240} href="/vendors" />
+        </div>
+      ) : null}
 
-      {checklist.data && !checklist.data.setupCompletedAt ? (
+      <div className="grid gap-5 lg:grid-cols-5">
+        <Card
+          title="Sales trend"
+          className="lg:col-span-3"
+          delay={120}
+          actions={
+            <FilterChips
+              allLabel={null}
+              value={trendDays}
+              onChange={(v) => v && setTrendDays(v)}
+              options={[
+                { id: '7', label: '7 days' },
+                { id: '14', label: '14 days' },
+                { id: '30', label: '30 days' },
+              ]}
+            />
+          }
+        >
+          {trend.isLoading ? (
+            <div className="mc-skeleton h-[180px] rounded-lg" />
+          ) : trend.error ? (
+            <ErrorState message="Trend unavailable." retry={() => void trend.refetch()} />
+          ) : (
+            <>
+              <BarChart
+                format={compactInr}
+                data={(trend.data?.days ?? []).map((d) => ({
+                  label: new Date(`${d.date}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
+                  value: Number(d.revenue),
+                  hint: `${fmtDate(d.date)} · ${d.invoices} invoice${d.invoices === 1 ? '' : 's'}`,
+                }))}
+              />
+              <p className="mt-2 text-xs text-neutral-500">
+                {money(trendTotal)} over {trendDays} days · average {money(trendTotal / Number(trendDays))} a day
+              </p>
+            </>
+          )}
+        </Card>
+        <Card title="Top sellers this month" className="lg:col-span-2" delay={180}>
+          {trend.isLoading ? (
+            <SkeletonRows rows={5} cols={2} />
+          ) : !trend.data?.topProducts.length ? (
+            <p className="py-8 text-center text-sm text-neutral-500">No sales this month yet.</p>
+          ) : (
+            <ol className="mc-stagger space-y-3">
+              {trend.data.topProducts.map((p, i) => (
+                <li key={p.productId}>
+                  <div className="mb-1 flex items-baseline justify-between gap-2 text-sm">
+                    <span className="truncate">
+                      <span className="mr-1.5 text-xs font-semibold text-neutral-400">{i + 1}</span>
+                      {p.product}
+                    </span>
+                    <span className="shrink-0 font-medium tabular-nums">{money(p.revenue)}</span>
+                  </div>
+                  <Meter value={(Number(p.revenue) / topMax) * 100} tone={i === 0 ? 'green' : 'brand'} />
+                  <p className="mt-0.5 text-[11px] text-neutral-400">{p.quantity.toLocaleString('en-IN')} units</p>
+                </li>
+              ))}
+            </ol>
+          )}
+        </Card>
+      </div>
+
+      {canReports ? (
+        <div className="grid gap-5 lg:grid-cols-3">
+          <Card title="Payment mix · this month" delay={200}>
+            {mix.isLoading ? (
+              <div className="mc-skeleton h-32 rounded-lg" />
+            ) : mix.error ? (
+              <ErrorState message="Payment mix unavailable." retry={() => void mix.refetch()} />
+            ) : (
+              <Donut
+                format={compactInr}
+                centerLabel="collected"
+                data={(mix.data?.methods ?? []).map((m) => ({ label: METHOD_LABELS[m.method] ?? m.method, value: Number(m.amount) }))}
+              />
+            )}
+          </Card>
+          <Card title="Expiry value at risk" delay={240} actions={<Link href="/expiry" className="text-xs font-medium text-brand-700 inline-flex items-center gap-0.5 hover:underline">Expiry dashboard <Icon name="arrowRight" size={12} /></Link>}>
+            {expiry.isLoading ? (
+              <SkeletonRows rows={5} cols={2} />
+            ) : expiry.error ? (
+              <ErrorState message="Expiry values unavailable." retry={() => void expiry.refetch()} />
+            ) : (
+              <ul className="mc-stagger space-y-2.5">
+                {(expiry.data?.buckets ?? []).map((b) => (
+                  <li key={b.key}>
+                    <div className="mb-1 flex items-baseline justify-between text-xs">
+                      <span className={cn('font-medium', b.key === 'EXPIRED' ? 'text-red-700' : b.key === 'D0_30' ? 'text-amber-700' : 'text-neutral-600')}>
+                        {b.label}
+                        <span className="ml-1 font-normal text-neutral-400">· {b.batches} batch{b.batches === 1 ? '' : 'es'}</span>
+                      </span>
+                      <span className="tabular-nums text-neutral-800">{money(b.costValue)}</span>
+                    </div>
+                    <Meter value={(Number(b.costValue) / expiryMax) * 100} tone={b.key === 'EXPIRED' ? 'red' : b.key === 'D0_30' ? 'amber' : 'brand'} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+          <Card title="Receivable aging" delay={280} actions={<Link href="/reports" className="text-xs font-medium text-brand-700 inline-flex items-center gap-0.5 hover:underline">Reports <Icon name="arrowRight" size={12} /></Link>}>
+            {aging.isLoading ? (
+              <SkeletonRows rows={5} cols={2} />
+            ) : aging.error ? (
+              <ErrorState message="Aging unavailable." retry={() => void aging.refetch()} />
+            ) : Number(aging.data?.receivables.total ?? 0) === 0 ? (
+              <p className="py-8 text-center text-sm text-neutral-500">No customer credit outstanding.</p>
+            ) : (
+              <>
+                <BarChart
+                  height={150}
+                  tone="amber"
+                  format={compactInr}
+                  data={Object.entries(aging.data!.receivables.buckets).map(([key, v]) => ({ label: AGING_LABELS[key] ?? key, value: Number(v) }))}
+                />
+                <p className="mt-2 text-xs text-neutral-500">Total outstanding {money(aging.data!.receivables.total)}</p>
+              </>
+            )}
+          </Card>
+        </div>
+      ) : null}
+
+      {checklist.data && !checklist.data.setupCompletedAt && can('organization.settings.manage') ? (
         <Card
           title="Setup checklist"
           delay={120}
@@ -229,16 +407,11 @@ export default function DashboardPage() {
               </Button>
             ) : null}
           </div>
-          {completeSetup.error ? (
-            <div className="mt-2">
-              <ErrorBanner>{completeSetup.error instanceof ApiClientError ? completeSetup.error.message : 'Failed to complete setup'}</ErrorBanner>
-            </div>
-          ) : null}
         </Card>
       ) : null}
 
       <div className="grid gap-5 lg:grid-cols-5">
-        <Card title="Recent invoices" className="lg:col-span-3" delay={180} actions={<Link href="/sales-history" className="text-xs font-medium text-brand-700 hover:underline">View all →</Link>}>
+        <Card title="Recent invoices" className="lg:col-span-3" delay={180} actions={<Link href="/sales-history" className="text-xs font-medium text-brand-700 inline-flex items-center gap-0.5 hover:underline">View all <Icon name="arrowRight" size={12} /></Link>}>
           {kpis.isLoading ? (
             <SkeletonRows rows={4} cols={4} />
           ) : !k || k.recentInvoices.length === 0 ? (
@@ -263,7 +436,9 @@ export default function DashboardPage() {
             <SkeletonRows rows={3} cols={2} />
           ) : alerts.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-6 text-center">
-              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-lg text-emerald-600 ring-1 ring-emerald-100">✓</span>
+              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
+                <Icon name="checkCircle" size={20} />
+              </span>
               <p className="text-sm text-neutral-600">All clear — no expiry, stock or purchasing alerts.</p>
             </div>
           ) : (
@@ -296,7 +471,9 @@ export default function DashboardPage() {
               href={m.href}
               className="group flex items-start gap-3 rounded-xl border border-neutral-200/80 bg-gradient-to-br from-white to-neutral-50/60 px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md"
             >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-base text-brand-700 ring-1 ring-brand-100 transition-transform group-hover:scale-110">{m.icon}</span>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700 ring-1 ring-brand-100 transition-transform group-hover:scale-110">
+                <Icon name={m.icon} size={18} />
+              </span>
               <span>
                 <span className="flex items-center gap-1.5 text-sm font-semibold text-neutral-800 group-hover:text-brand-700">
                   {m.label}

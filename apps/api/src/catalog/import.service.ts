@@ -5,7 +5,9 @@ import {
   vendorCreateSchema,
   customerCreateSchema,
   INDIAN_STATE_CODES,
+  gstinIssues,
   gstinStateCode,
+  priceLadderIssues,
 } from '@medicore/validation';
 import { PrismaService } from '../prisma/prisma.module.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -126,6 +128,20 @@ export class ImportService {
         return;
       }
       const data = parsed.data as Record<string, unknown>;
+
+      const ruleIssues =
+        type === 'products'
+          ? priceLadderIssues({
+              mrp: data.mrp as string | null,
+              sellingPrice: data.sellingPrice as string | null,
+              purchasePrice: data.purchasePrice as string | null,
+            })
+          : gstinIssues({ gstin: data.gstin as string | null, pan: data.pan as string | null });
+      if (ruleIssues.length > 0) {
+        errorRows += 1;
+        results.push({ row: rowNumber, status: 'ERROR', errors: ruleIssues });
+        return;
+      }
 
       // State-code consistency for GSTIN rows.
       const gstin = data.gstin as string | null | undefined;

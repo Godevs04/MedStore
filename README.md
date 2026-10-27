@@ -23,7 +23,7 @@ pnpm --filter @medicore/web dev                                          # Web o
 # 4. Verify
 pnpm lint                                                      # ESLint (type-aware) for API, packages, web; zero warnings allowed
 pnpm typecheck
-pnpm --filter @medicore/api build && pnpm test:integration     # 77 integration tests vs medicore_test (runs dist/main.js)
+pnpm --filter @medicore/api build && pnpm test:integration     # 169 integration tests (15 files) vs medicore_test (runs dist/main.js)
 pnpm --filter @medicore/api exec tsx scripts/e2e-journey.ts   # 47-step business journey → e2e-results.json
 pnpm --filter @medicore/web build                              # production build
 # while `next dev` is running, build into a separate folder:
@@ -34,11 +34,23 @@ To use the platform console, set `SUPERADMIN_EMAILS` before seeding (or flag an 
 
 ## API reference
 
-With the API running, open **http://localhost:3001/api/docs** for the interactive [Scalar](https://scalar.com) reference. It covers all 135 endpoints, grouped by module, each with a summary, description, required permissions and plan module, tenant headers, request body and query schemas, examples, business error codes and response shapes. You can "Try it" in the browser after signing in through `POST /auth/login`. The raw OpenAPI 3 document is served at `/api/openapi.json`, and `pnpm --filter @medicore/api openapi:export` writes it to `docs/api/openapi.json`.
+With the API running, open **http://localhost:3001/api/docs** for the interactive [Scalar](https://scalar.com) reference. It covers all 184 operations, grouped by module, each with a summary, description, required permissions and plan module, tenant headers, request body and query schemas, examples, business error codes and response shapes. You can "Try it" in the browser after signing in through `POST /auth/login`. The raw OpenAPI 3 document is served at `/api/openapi.json`, and `pnpm --filter @medicore/api openapi:export` writes it to `docs/api/openapi.json`.
 
 Request schemas come straight from the Zod validation pipes, so the docs always match what the server validates. Summaries and descriptions live in `apps/api/src/openapi/operation-docs.ts`. The API refuses to start if a route is missing there, if an entry has no route, or if an example fails its schema.
 
 Register the first organization at `http://localhost:3000/register`, then on the dashboard checklist: fill the business profile (Settings), add a warehouse (Branches), and click **Load standard GST rates** in Configuration. Sales are blocked for any HSN without an effective rate.
+
+## Accounts, invitations and email
+
+- Emails (password reset, invitations, email verification) contain links to the web app built from `WEB_APP_URL` (defaults to the first `CORS_ORIGIN`). With `EMAIL_TRANSPORT=console` they are printed in the API log — copy the link from there during development.
+- `/accept-invitation?token=…` previews the workspace and role (`GET /auth/invitations/:token`). New invitees set a name and password; people who already have a MediCore account confirm with their **current** password, which an invitation never overwrites.
+- `/verify-email?token=…` confirms an address; signed-in users with an unverified email see a banner with **Send verification link** (`POST /auth/email/verify/resend`).
+- `/login?next=/path` returns users to the page they were on; a deliberate sign-out always lands on plain `/login`.
+- Login, register, forgot/reset password, email verification and invitation acceptance are rate limited (20 requests per minute per IP and route).
+
+## UI conventions
+
+Every form validates with the shared Zod schemas in `@medicore/validation` and shows errors under the field; outcomes are reported with toasts (no duplicate banners). Indian rules are enforced on both sides: GSTIN format, check digit, state code and PAN cross-checks; CGST = SGST and IGST = CGST + SGST on tax slabs; GSTIN required for Regular and Composition taxpayers; April–March financial year by default; Drugs & Cosmetics Rules licence printing. Lists use debounced search, filter chips with counts, sortable columns and pagination; destructive actions go through a confirm dialog.
 
 ## Layout
 

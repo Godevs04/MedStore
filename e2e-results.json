@@ -1,11 +1,11 @@
 {
-  "runAt": "2026-10-27T09:37:53.230Z",
+  "runAt": "2026-10-27T12:25:35.109Z",
   "results": [
     {
       "id": "E2E-01",
       "scenario": "Register organization with founder auto-login",
       "expected": "201 with userId + organizationId + slug",
-      "actual": "201 {\"userId\":\"32dbcfb0-27b2-4971-9288-228f951275ad\",\"organizationId\":\"4f343f8c-d830",
+      "actual": "201 {\"userId\":\"53b659d1-b298-4fa7-9e64-ff068bcc231f\",\"organizationId\":\"af07f52d-afd5",
       "status": "PASS",
       "evidence": "slug=e2e-pharma-pvt-ltd"
     },
@@ -13,7 +13,7 @@
       "id": "E2E-02",
       "scenario": "Login returns session for the founder",
       "expected": "200 with userId",
-      "actual": "200 userId=32dbcfb0-27b2-4971-9288-228f951275ad",
+      "actual": "200 userId=53b659d1-b298-4fa7-9e64-ff068bcc231f",
       "status": "PASS"
     },
     {
@@ -41,7 +41,7 @@
       "id": "E2E-06b",
       "scenario": "Save business profile (address, GST registration with GSTIN)",
       "expected": "200 with updated organization",
-      "actual": "200 city=Pune gstin=27E2EPA1234F1Z5",
+      "actual": "200 city=Pune gstin=27AAPFU0939F1ZV",
       "status": "PASS"
     },
     {

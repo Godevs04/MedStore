@@ -1,34 +1,36 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import {
   adjustmentCreateSchema,
+  adjustmentListQuerySchema,
+  adjustmentSummaryQuerySchema,
   allocateBatchesRequestSchema,
   batchCreateSchema,
   batchQuerySchema,
+  batchStatusUpdateSchema,
+  countCancelSchema,
   countCreateSchema,
+  countListQuerySchema,
+  countSheetQuerySchema,
   expiryDashboardQuerySchema,
+  expiryWriteoffSchema,
+  ledgerQuerySchema,
   paginationQuerySchema,
   recallCreateSchema,
+  recallListQuerySchema,
+  recallResolveSchema,
+  stockSummaryQuerySchema,
+  transferCancelSchema,
   transferCreateSchema,
+  transferListQuerySchema,
   transferReceiveSchema,
 } from '@medicore/validation';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { sendCsv } from '../common/csv.js';
 import { RequirePermissions, TenantContextGuard, type TenantRequest } from '../rbac/tenant-context.guard.js';
 import { InventoryService } from './inventory.service.js';
-
-const batchUpdateStatusSchema = z.object({
-  status: z.enum(['SALEABLE', 'QUARANTINED', 'DAMAGED', 'EXPIRED_BLOCKED']),
-  reason: z.string().trim().min(3).max(500),
-});
-
-const recallResolveSchema = z.object({
-  resolutionNotes: z.string().trim().min(3).max(1000),
-});
-
-const transferCancelSchema = z.object({
-  reason: z.string().trim().min(3).max(500),
-});
 
 @ApiTags('inventory')
 @UseGuards(TenantContextGuard)
@@ -57,10 +59,13 @@ export class InventoryController {
     const { total, items } = await this.inventory.listBatches(req, {
       page: pagination.page,
       pageSize: pagination.pageSize,
+      batchId: filters.batchId,
       productId: filters.productId,
       warehouseId: filters.warehouseId,
       status: filters.status,
       search: filters.search,
+      expiryAfter: filters.expiryAfter,
+      expiryBefore: filters.expiryBefore,
     });
     return {
       items,
@@ -79,7 +84,7 @@ export class InventoryController {
   @RequirePermissions('inventory.recall')
   setBatchStatus(
     @Param('batchId') batchId: string,
-    @Body(new ZodValidationPipe(batchUpdateStatusSchema)) dto: z.infer<typeof batchUpdateStatusSchema>,
+    @Body(new ZodValidationPipe(batchStatusUpdateSchema)) dto: z.infer<typeof batchStatusUpdateSchema>,
     @Req() req: TenantRequest,
   ) {
     return this.inventory.setBatchStatus(req, batchId, dto.status, dto.reason);
@@ -103,6 +108,15 @@ export class InventoryController {
     return { allocations };
   }
 
+  @Get('stock-summary')
+  @RequirePermissions('inventory.read')
+  stockSummary(
+    @Req() req: TenantRequest,
+    @Query(new ZodValidationPipe(stockSummaryQuerySchema)) query: z.infer<typeof stockSummaryQuerySchema>,
+  ) {
+    return this.inventory.stockSummary(req, query);
+  }
+
   // ── Operations lists ───────────────────────────────────────────────────────
 
   @Get('transfers')
@@ -110,12 +124,29 @@ export class InventoryController {
   async listTransfers(
     @Req() req: TenantRequest,
     @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
+    @Query(new ZodValidationPipe(transferListQuerySchema)) filters: z.infer<typeof transferListQuerySchema>,
   ) {
     const [total, items] = await this.inventory.listTransfers(req, {
       page: pagination.page,
       pageSize: pagination.pageSize,
+      ...filters,
     });
     return { items, pageInfo: listPageInfo(pagination, total) };
+  }
+
+  @Get('transfers/:transferId')
+  @RequirePermissions('inventory.read')
+  getTransfer(@Param('transferId') transferId: string, @Req() req: TenantRequest) {
+    return this.inventory.getTransfer(req, transferId);
+  }
+
+  @Get('counts/sheet')
+  @RequirePermissions('inventory.count')
+  countSheet(
+    @Req() req: TenantRequest,
+    @Query(new ZodValidationPipe(countSheetQuerySchema)) query: z.infer<typeof countSheetQuerySchema>,
+  ) {
+    return this.inventory.countSheet(req, query);
   }
 
   @Get('counts')
@@ -123,12 +154,23 @@ export class InventoryController {
   async listCounts(
     @Req() req: TenantRequest,
     @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
+    @Query(new ZodValidationPipe(countListQuerySchema)) filters: z.infer<typeof countListQuerySchema>,
   ) {
     const [total, items] = await this.inventory.listCounts(req, {
       page: pagination.page,
       pageSize: pagination.pageSize,
+      ...filters,
     });
     return { items, pageInfo: listPageInfo(pagination, total) };
+  }
+
+  @Get('adjustments/summary')
+  @RequirePermissions('inventory.read')
+  adjustmentSummary(
+    @Req() req: TenantRequest,
+    @Query(new ZodValidationPipe(adjustmentSummaryQuerySchema)) query: z.infer<typeof adjustmentSummaryQuerySchema>,
+  ) {
+    return this.inventory.adjustmentSummary(req, query);
   }
 
   @Get('adjustments')
@@ -136,10 +178,12 @@ export class InventoryController {
   async listAdjustments(
     @Req() req: TenantRequest,
     @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
+    @Query(new ZodValidationPipe(adjustmentListQuerySchema)) filters: z.infer<typeof adjustmentListQuerySchema>,
   ) {
     const [total, items] = await this.inventory.listAdjustments(req, {
       page: pagination.page,
       pageSize: pagination.pageSize,
+      ...filters,
     });
     return { items, pageInfo: listPageInfo(pagination, total) };
   }
@@ -149,10 +193,12 @@ export class InventoryController {
   async listRecalls(
     @Req() req: TenantRequest,
     @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
+    @Query(new ZodValidationPipe(recallListQuerySchema)) filters: z.infer<typeof recallListQuerySchema>,
   ) {
     const [total, items] = await this.inventory.listRecalls(req, {
       page: pagination.page,
       pageSize: pagination.pageSize,
+      status: filters.status,
     });
     return { items, pageInfo: listPageInfo(pagination, total) };
   }
@@ -168,19 +214,38 @@ export class InventoryController {
     return this.inventory.expiryDashboard(req, { warehouseId: query.warehouseId, customDays: query.customDays });
   }
 
+  @Post('expiry/bulk-writeoff')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('inventory.adjust')
+  bulkExpiryWriteoff(
+    @Body(new ZodValidationPipe(expiryWriteoffSchema)) dto: z.infer<typeof expiryWriteoffSchema>,
+    @Req() req: TenantRequest,
+  ) {
+    return this.inventory.bulkExpiryWriteoff(req, dto);
+  }
+
+  @Get('ledger/export')
+  @RequirePermissions('inventory.read', 'reports.export')
+  async exportLedger(
+    @Req() req: TenantRequest,
+    @Res() res: Response,
+    @Query(new ZodValidationPipe(ledgerQuerySchema)) filters: z.infer<typeof ledgerQuerySchema>,
+  ) {
+    const { headers, rows } = await this.inventory.exportLedger(req, filters);
+    sendCsv(res, `stock-ledger-${filters.from ?? 'all'}-${filters.to ?? 'today'}.csv`, headers, rows);
+  }
+
   @Get('ledger')
   @RequirePermissions('inventory.read')
   async stockLedger(
     @Req() req: TenantRequest,
     @Query(new ZodValidationPipe(paginationQuerySchema)) pagination: z.infer<typeof paginationQuerySchema>,
-    @Query() filters: { batchId?: string; warehouseId?: string; productId?: string },
+    @Query(new ZodValidationPipe(ledgerQuerySchema)) filters: z.infer<typeof ledgerQuerySchema>,
   ) {
     const { total, items } = await this.inventory.stockLedger(req, {
       page: pagination.page,
       pageSize: pagination.pageSize,
-      batchId: filters.batchId,
-      warehouseId: filters.warehouseId,
-      productId: filters.productId,
+      ...filters,
     });
     return {
       items,
@@ -254,6 +319,17 @@ export class InventoryController {
     return this.inventory.postCount(req, countId);
   }
 
+  @Post('counts/:countId/cancel')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('inventory.count')
+  cancelCount(
+    @Param('countId') countId: string,
+    @Body(new ZodValidationPipe(countCancelSchema)) dto: z.infer<typeof countCancelSchema>,
+    @Req() req: TenantRequest,
+  ) {
+    return this.inventory.cancelCount(req, countId, dto.reason);
+  }
+
   // ── Recalls ────────────────────────────────────────────────────────────────
 
   @Post('recalls')
@@ -279,7 +355,7 @@ export class InventoryController {
 
   @Get('reconcile')
   @RequirePermissions('inventory.read')
-  reconcile(@Req() req: TenantRequest, @Query() query: { warehouseId?: string }) {
+  reconcile(@Req() req: TenantRequest, @Query(new ZodValidationPipe(stockSummaryQuerySchema)) query: z.infer<typeof stockSummaryQuerySchema>) {
     return this.inventory.reconcile(req, query.warehouseId);
   }
 }

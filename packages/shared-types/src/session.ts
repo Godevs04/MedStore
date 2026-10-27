@@ -6,6 +6,7 @@ export interface SessionUser {
   id: string;
   email: string;
   fullName: string;
+  emailVerified: boolean;
   isPlatformSuperadmin: boolean;
   memberships: Array<{
     organizationId: string;

@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/icons';
 import Link from 'next/link';
 import { useEffect, useRef, useState, type DragEvent, type ReactNode, type RefObject } from 'react';
 import { Button, cn } from '@/components/ui';
@@ -50,7 +51,7 @@ export function Stepper({ steps, current }: { steps: string[]; current: number }
                 )}
               >
                 {state === 'active' ? <span className="mc-anim-ripple absolute inset-0 rounded-full ring-2 ring-brand-400" /> : null}
-                {state === 'done' ? '✓' : i + 1}
+                {state === 'done' ? <Icon name="check" size={14} strokeWidth={2.75} /> : i + 1}
               </span>
               <span className={cn('hidden whitespace-nowrap text-xs font-medium transition-colors duration-500 sm:inline', state === 'todo' ? 'text-neutral-400' : 'text-neutral-800')}>
                 {label}
@@ -111,19 +112,19 @@ export function TypeCard({
       <span className="relative flex items-start justify-between gap-2">
         <span
           className={cn(
-            'flex h-9 w-9 items-center justify-center rounded-lg text-base transition-colors duration-300',
+            'flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-300',
             selected ? 'bg-brand-600 text-white' : 'bg-neutral-100 text-neutral-600 group-hover:bg-brand-50 group-hover:text-brand-700',
           )}
         >
-          {spec.icon}
+          <Icon name={spec.icon} size={18} />
         </span>
         <span
           className={cn(
-            'flex h-5 w-5 items-center justify-center rounded-full border text-[10px] transition-all duration-300',
+            'flex h-5 w-5 items-center justify-center rounded-full border transition-all duration-300',
             selected ? 'mc-anim-pop border-brand-600 bg-brand-600 text-white' : 'border-neutral-300 text-transparent',
           )}
         >
-          ✓
+          <Icon name="check" size={11} strokeWidth={3} />
         </span>
       </span>
       <span className="relative mt-3 block text-sm font-semibold text-neutral-900">{spec.title}</span>
@@ -181,7 +182,7 @@ export function Dropzone({
           Replace
         </Button>
         <Button variant="ghost" aria-label="Remove file" onClick={onClear}>
-          ✕
+          <Icon name="close" size={14} />
         </Button>
         <HiddenInput inputRef={inputRef} onFile={onFile} />
       </div>
@@ -219,11 +220,11 @@ export function Dropzone({
       <span className={cn('pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(20,184,166,0.12),transparent_60%)] transition-opacity duration-500', dragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')} />
       <span
         className={cn(
-          'relative flex h-12 w-12 items-center justify-center rounded-full bg-white text-xl text-brand-600 shadow-sm ring-1 ring-neutral-200 transition-transform duration-300',
+          'relative flex h-12 w-12 items-center justify-center rounded-full bg-white text-brand-600 shadow-sm ring-1 ring-neutral-200 transition-transform duration-300',
           dragging ? 'mc-anim-bob scale-110' : 'group-hover:-translate-y-0.5',
         )}
       >
-        ⇪
+        <Icon name="upload" size={22} />
       </span>
       <span className="relative text-sm font-medium text-neutral-800">{dragging ? 'Release to upload' : 'Drag & drop your CSV here'}</span>
       <span className="relative text-xs text-neutral-500">
@@ -319,7 +320,7 @@ export function SuccessPanel({
           href={spec.listHref}
           className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-b from-brand-500 to-brand-600 px-3.5 py-1.5 text-sm font-medium text-white shadow-sm shadow-brand-600/25 transition-all hover:shadow-md active:scale-[0.98]"
         >
-          View {spec.title.toLowerCase()} →
+          View {spec.title.toLowerCase()} <Icon name="arrowRight" size={13} />
         </Link>
         <Button variant="secondary" onClick={onAgain}>
           Import another file

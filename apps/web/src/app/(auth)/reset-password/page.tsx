@@ -1,85 +1,116 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { passwordSchema } from '@medicore/validation';
-import { API_URL } from '@/lib/api';
-import { Button, Card, Field, Input } from '@/components/ui';
+import { api, ApiClientError } from '@/lib/api';
+import { toast } from '@/lib/toast';
+import { AuthShell, AuthStatus, PasswordChecklist, PasswordInput, authLinkClass, useQueryParam } from '@/components/auth';
+import { Icon } from '@/components/icons';
+import { Button, Field, Input } from '@/components/ui';
 
-const schema = z.object({ token: z.string().min(10), password: passwordSchema });
+const schema = z
+  .object({
+    token: z.string().trim().min(32, 'Paste the full link or code from the email').max(600, 'That doesn’t look like a reset link — paste it again'),
+    password: passwordSchema,
+    confirm: z.string(),
+  })
+  .refine((v) => v.password === v.confirm, { path: ['confirm'], message: 'Passwords don’t match' });
 type Form = z.infer<typeof schema>;
+
+/** Accepts either the raw token or the full emailed link. */
+function extractToken(input: string): string {
+  const trimmed = input.trim();
+  try {
+    return new URL(trimmed).searchParams.get('token') ?? trimmed;
+  } catch {
+    return trimmed;
+  }
+}
 
 export default function ResetPasswordPage() {
   const router = useRouter();
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const tokenParam = useQueryParam('token');
+  const [expired, setExpired] = useState(false);
   const {
     register,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors, isSubmitting },
-  } = useForm<Form>({ resolver: zodResolver(schema), defaultValues: { token: '', password: '' } });
+  } = useForm<Form>({ resolver: zodResolver(schema), defaultValues: { token: '', password: '', confirm: '' } });
+  const password = watch('password');
+  const fromLink = Boolean(tokenParam.value);
+
+  useEffect(() => {
+    if (tokenParam.value) setValue('token', tokenParam.value);
+  }, [tokenParam.value, setValue]);
 
   const onSubmit = handleSubmit(async (d) => {
-    setError(null);
-    const res = await fetch(`${API_URL}/api/v1/auth/password/reset`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(d),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-      setError(body?.error?.message ?? 'Reset failed');
+    try {
+      await api('/auth/password/reset', { method: 'POST', body: { token: extractToken(d.token), password: d.password } });
+    } catch (e) {
+      if (e instanceof ApiClientError && e.code === 'VALIDATION_ERROR' && /invalid|expired/i.test(e.message)) {
+        setExpired(true);
+        toast.error('Reset link expired', 'Request a new link to continue.');
+        return;
+      }
+      toast.error('Password not updated', e instanceof ApiClientError ? e.message : 'Please try again.');
       return;
     }
-    setDone(true);
-    setTimeout(() => router.replace('/login'), 1800);
+    toast.success('Password updated', 'Sign in with your new password.');
+    router.replace('/login?reset=1');
   });
 
   return (
-    <div className="mc-auth-backdrop flex min-h-screen items-center justify-center p-6">
-      <div className="w-full max-w-sm space-y-4">
-        <div className="mc-anim-fade-up text-center">
-          <div className="mc-anim-float mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-lg font-bold text-white shadow-lg shadow-brand-600/30">
-            M
-          </div>
-          <h1 className="mt-2 text-lg font-bold tracking-tight text-neutral-800">Set a new password</h1>
+    <AuthShell
+      title="Set a new password"
+      subtitle="Choose a password you haven’t used for MediCore before. Every signed-in device will be signed out."
+      footer={
+        <Link className={authLinkClass} href="/login">
+          <span className="inline-flex items-center gap-1">
+            <Icon name="arrowLeft" size={13} /> Back to sign in
+          </span>
+        </Link>
+      }
+    >
+      {!tokenParam.ready ? (
+        <div className="space-y-3" aria-busy="true">
+          <div className="mc-skeleton h-9 w-full" />
+          <div className="mc-skeleton h-9 w-full" />
         </div>
-        <Card className="mc-anim-fade-up" delay={100}>
-          {done ? (
-            <div className="space-y-2 py-2 text-center">
-              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-lg">✓</div>
-              <p className="text-sm font-medium text-neutral-700">Password updated</p>
-              <p className="text-xs text-neutral-500">All previous sessions were revoked. Redirecting to sign in…</p>
-            </div>
+      ) : expired ? (
+        <AuthStatus tone="red" icon="danger" title="This reset link has expired or was already used">
+          <p>Reset links work once and last one hour. Request a fresh one — it only takes a moment.</p>
+          <Link className={`inline-block pt-1 ${authLinkClass}`} href="/forgot-password">
+            Send me a new link
+          </Link>
+        </AuthStatus>
+      ) : (
+        <form className="space-y-4" onSubmit={onSubmit} noValidate>
+          {fromLink ? (
+            <p className="rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-800">Reset link detected — just choose your new password.</p>
           ) : (
-            <form className="space-y-3" onSubmit={onSubmit}>
-              <Field label="Reset token" error={errors.token?.message}>
-                <Input placeholder="Paste the token from the email" {...register('token')} />
-              </Field>
-              <Field label="New password" error={errors.password?.message}>
-                <Input type="password" autoComplete="new-password" {...register('password')} />
-              </Field>
-              {error ? (
-                <p className="mc-anim-scale-in rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
-                  {error}
-                </p>
-              ) : null}
-              <Button type="submit" className="w-full" disabled={isSubmitting}>
-                {isSubmitting ? 'Updating…' : 'Update password'}
-              </Button>
-              <p className="text-center text-xs text-neutral-500">
-                <Link className="font-medium text-brand-700 hover:underline" href="/login">
-                  Back to sign in
-                </Link>
-              </p>
-            </form>
+            <Field label="Reset link or code" error={errors.token?.message} hint="Paste the link from the reset email">
+              <Input autoComplete="off" spellCheck={false} {...register('token')} />
+            </Field>
           )}
-        </Card>
-      </div>
-    </div>
+          <Field label="New password" error={errors.password?.message}>
+            <PasswordInput autoComplete="new-password" autoFocus={fromLink} {...register('password')} />
+            <PasswordChecklist value={password ?? ''} />
+          </Field>
+          <Field label="Confirm new password" error={errors.confirm?.message}>
+            <PasswordInput autoComplete="new-password" {...register('confirm')} />
+          </Field>
+          <Button type="submit" className="w-full py-2" disabled={isSubmitting}>
+            {isSubmitting ? 'Updating…' : 'Update password'}
+          </Button>
+        </form>
+      )}
+    </AuthShell>
   );
 }

@@ -3,7 +3,8 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.module.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { TenantRequest } from '../rbac/tenant-context.guard.js';
-import { Conflict, NotFound } from '../common/app-exception.js';
+import { priceLadderIssues, type NumericLike } from '@medicore/validation';
+import { Conflict, NotFound, ValidationFailed } from '../common/app-exception.js';
 
 export const STANDARD_GST_EFFECTIVE_FROM = '2025-09-22';
 
@@ -53,22 +54,125 @@ export class CatalogService {
     });
   }
 
+  private async assertCategoryName(organizationId: string, name: string, exceptId?: string) {
+    const clash = await this.prisma.productCategory.findFirst({ where: { organizationId, name: { equals: name, mode: 'insensitive' }, NOT: exceptId ? { id: exceptId } : undefined } });
+    if (clash) throw Conflict('DUPLICATE_ENTITY', `A category called "${clash.name}" already exists`);
+  }
+
+  /** Parents must exist in this organization and must not create a loop. */
+  private async assertCategoryParent(organizationId: string, parentId: string | null | undefined, selfId?: string) {
+    if (!parentId) return;
+    if (parentId === selfId) throw ValidationFailed([{ field: 'parentId', message: 'A category cannot be its own parent' }]);
+    const all = await this.prisma.productCategory.findMany({ where: { organizationId }, select: { id: true, parentId: true } });
+    const parentOf = new Map(all.map((c) => [c.id, c.parentId]));
+    if (!parentOf.has(parentId)) throw NotFound('Parent category not found');
+    for (let cursor: string | null | undefined = parentId, hops = 0; cursor && hops < 50; cursor = parentOf.get(cursor), hops++) {
+      if (cursor === selfId) throw ValidationFailed([{ field: 'parentId', message: 'That parent sits under this category — pick another' }]);
+    }
+  }
+
   async createCategory(request: TenantRequest, data: { name: string; parentId?: string | null; description?: string | null }) {
+    const organizationId = request.tenantContext.organizationId;
+    await this.assertCategoryName(organizationId, data.name);
+    await this.assertCategoryParent(organizationId, data.parentId);
     const category = await this.prisma.productCategory.create({
-      data: { organizationId: request.tenantContext.organizationId, name: data.name, parentId: data.parentId ?? null, description: data.description ?? null },
+      data: { organizationId, name: data.name, parentId: data.parentId ?? null, description: data.description ?? null },
+    });
+    await this.audit.record({
+      event: 'PRODUCT_CREATED',
+      organizationId,
+      actorUserId: request.principal.userId,
+      entityType: 'ProductCategory',
+      entityId: category.id,
+      details: { name: category.name, parentId: category.parentId },
     });
     return category;
+  }
+
+  async updateCategory(request: TenantRequest, id: string, data: { name?: string; parentId?: string | null; description?: string | null }) {
+    const organizationId = request.tenantContext.organizationId;
+    const existing = await this.prisma.productCategory.findFirst({ where: { id, organizationId } });
+    if (!existing) throw NotFound('Category not found');
+    if (data.name) await this.assertCategoryName(organizationId, data.name, id);
+    if ('parentId' in data) await this.assertCategoryParent(organizationId, data.parentId, id);
+    const updated = await this.prisma.productCategory.update({ where: { id }, data });
+    await this.audit.record({
+      event: 'PRODUCT_UPDATED',
+      organizationId,
+      actorUserId: request.principal.userId,
+      entityType: 'ProductCategory',
+      entityId: id,
+      details: { fields: Object.keys(data) },
+    });
+    return updated;
+  }
+
+  async deleteCategory(request: TenantRequest, id: string): Promise<void> {
+    const organizationId = request.tenantContext.organizationId;
+    const existing = await this.prisma.productCategory.findFirst({ where: { id, organizationId }, include: { _count: { select: { products: true, children: true } } } });
+    if (!existing) throw NotFound('Category not found');
+    if (existing._count.children > 0) throw Conflict('STATE_TRANSITION_INVALID', `Move or delete the ${existing._count.children} sub-categor${existing._count.children === 1 ? 'y' : 'ies'} first`);
+    if (existing._count.products > 0) throw Conflict('STATE_TRANSITION_INVALID', `${existing._count.products} product${existing._count.products === 1 ? ' uses' : 's use'} this category — reassign them first`);
+    await this.prisma.productCategory.delete({ where: { id } });
+    await this.audit.record({
+      event: 'PRODUCT_UPDATED',
+      organizationId,
+      actorUserId: request.principal.userId,
+      entityType: 'ProductCategory',
+      entityId: id,
+      details: { action: 'DELETED', name: existing.name },
+    });
   }
 
   listManufacturers(request: TenantRequest) {
     return this.prisma.manufacturer.findMany({
       where: { organizationId: request.tenantContext.organizationId },
+      include: { _count: { select: { products: true } } },
       orderBy: { name: 'asc' },
     });
   }
 
+  private async assertManufacturerName(organizationId: string, name: string, exceptId?: string) {
+    const clash = await this.prisma.manufacturer.findFirst({ where: { organizationId, name: { equals: name, mode: 'insensitive' }, NOT: exceptId ? { id: exceptId } : undefined } });
+    if (clash) throw Conflict('DUPLICATE_ENTITY', `A manufacturer called "${clash.name}" already exists`);
+  }
+
+  async updateManufacturer(request: TenantRequest, id: string, data: { name?: string; contactEmail?: string | null; contactPhone?: string | null; notes?: string | null }) {
+    const organizationId = request.tenantContext.organizationId;
+    const existing = await this.prisma.manufacturer.findFirst({ where: { id, organizationId } });
+    if (!existing) throw NotFound('Manufacturer not found');
+    if (data.name) await this.assertManufacturerName(organizationId, data.name, id);
+    const updated = await this.prisma.manufacturer.update({ where: { id }, data });
+    await this.audit.record({
+      event: 'PRODUCT_UPDATED',
+      organizationId,
+      actorUserId: request.principal.userId,
+      entityType: 'Manufacturer',
+      entityId: id,
+      details: { fields: Object.keys(data) },
+    });
+    return updated;
+  }
+
+  async deleteManufacturer(request: TenantRequest, id: string): Promise<void> {
+    const organizationId = request.tenantContext.organizationId;
+    const existing = await this.prisma.manufacturer.findFirst({ where: { id, organizationId }, include: { _count: { select: { products: true } } } });
+    if (!existing) throw NotFound('Manufacturer not found');
+    if (existing._count.products > 0) throw Conflict('STATE_TRANSITION_INVALID', `${existing._count.products} product${existing._count.products === 1 ? ' is' : 's are'} linked to this manufacturer — reassign them first`);
+    await this.prisma.manufacturer.delete({ where: { id } });
+    await this.audit.record({
+      event: 'PRODUCT_UPDATED',
+      organizationId,
+      actorUserId: request.principal.userId,
+      entityType: 'Manufacturer',
+      entityId: id,
+      details: { action: 'DELETED', name: existing.name },
+    });
+  }
+
   async createManufacturer(request: TenantRequest, data: { name: string; contactEmail?: string | null; contactPhone?: string | null; notes?: string | null }) {
-    return this.prisma.manufacturer.create({
+    await this.assertManufacturerName(request.tenantContext.organizationId, data.name);
+    const manufacturer = await this.prisma.manufacturer.create({
       data: {
         organizationId: request.tenantContext.organizationId,
         name: data.name,
@@ -77,6 +181,15 @@ export class CatalogService {
         notes: data.notes ?? null,
       },
     });
+    await this.audit.record({
+      event: 'PRODUCT_CREATED',
+      organizationId: manufacturer.organizationId,
+      actorUserId: request.principal.userId,
+      entityType: 'Manufacturer',
+      entityId: manufacturer.id,
+      details: { name: manufacturer.name },
+    });
+    return manufacturer;
   }
 
   // ── Tax rate versions ──────────────────────────────────────────────────────
@@ -196,7 +309,18 @@ export class CatalogService {
 
   async listProducts(
     request: TenantRequest,
-    params: PaginatedParams & { search?: string; categoryId?: string; status?: string; sortBy?: string; sortDirection?: 'asc' | 'desc' },
+    params: PaginatedParams & {
+      search?: string;
+      categoryId?: string;
+      status?: string;
+      prescriptionClass?: string;
+      manufacturerId?: string;
+      stockWarehouseId?: string;
+      withStock?: boolean;
+      ids?: string[];
+      sortBy?: string;
+      sortDirection?: 'asc' | 'desc';
+    },
   ) {
     const orgId = request.tenantContext.organizationId;
     const where: Prisma.ProductWhereInput = { organizationId: orgId };
@@ -210,6 +334,9 @@ export class CatalogService {
     }
     if (params.categoryId) where.categoryId = params.categoryId;
     if (params.status) where.status = params.status as Prisma.EnumProductStatusFilter['equals'];
+    if (params.prescriptionClass) where.prescriptionClass = params.prescriptionClass as Prisma.ProductWhereInput['prescriptionClass'];
+    if (params.manufacturerId) where.manufacturerId = params.manufacturerId;
+    if (params.ids?.length) where.id = { in: params.ids };
 
     const sortable = new Set(['name', 'sku', 'mrp', 'sellingPrice', 'createdAt', 'status']);
     const sortBy = params.sortBy && sortable.has(params.sortBy) ? params.sortBy : 'createdAt';
@@ -239,14 +366,77 @@ export class CatalogService {
       : [];
     const rateByHsn = new Map<string, (typeof activeRates)[number]>();
     for (const r of activeRates) if (!rateByHsn.has(r.hsnCode)) rateByHsn.set(r.hsnCode, r);
+    const stock =
+      params.stockWarehouseId || params.withStock ? await this.saleableOnHand(orgId, items.map((p) => p.id), params.stockWarehouseId) : null;
     return {
       total,
       items: items.map((p) => {
         const pinned = p.taxRateVersionId ? activeRates.find((r) => r.id === p.taxRateVersionId) : undefined;
         const rate = pinned ?? (p.hsnCode ? rateByHsn.get(p.hsnCode) : undefined);
-        return { ...p, taxResolved: Boolean(rate), gstPercent: rate?.igstPercent?.toString() ?? null };
+        return {
+          ...p,
+          taxResolved: Boolean(rate),
+          gstPercent: rate?.igstPercent?.toString() ?? null,
+          ...(stock ? { onHand: stock.get(p.id) ?? 0 } : {}),
+        };
       }),
     };
+  }
+
+  /** Saleable, unexpired quantity per product (optionally in one warehouse). */
+  private async saleableOnHand(orgId: string, productIds: string[], warehouseId?: string): Promise<Map<string, number>> {
+    if (productIds.length === 0) return new Map();
+    const rows = await this.prisma.inventoryBalance.findMany({
+      where: {
+        organizationId: orgId,
+        quantity: { gt: 0 },
+        ...(warehouseId ? { warehouseId } : {}),
+        batch: { productId: { in: productIds }, status: 'SALEABLE', expiryDate: { gte: new Date() } },
+      },
+      select: { quantity: true, batch: { select: { productId: true } } },
+    });
+    const out = new Map<string, number>();
+    for (const r of rows) out.set(r.batch.productId, (out.get(r.batch.productId) ?? 0) + Number(r.quantity));
+    return out;
+  }
+
+  /**
+   * Generic substitutes: other active products with the same generic name
+   * (case-insensitive), same strength first, then those with stock.
+   */
+  async substitutes(request: TenantRequest, productId: string, warehouseId?: string) {
+    const orgId = request.tenantContext.organizationId;
+    const product = await this.prisma.product.findFirst({ where: { id: productId, organizationId: orgId } });
+    if (!product) throw NotFound('Product not found');
+    if (!product.genericName?.trim()) return { generic: null, items: [] };
+    const candidates = await this.prisma.product.findMany({
+      where: { organizationId: orgId, status: 'ACTIVE', id: { not: product.id }, genericName: { equals: product.genericName.trim(), mode: 'insensitive' } },
+      select: {
+        id: true,
+        name: true,
+        sku: true,
+        strength: true,
+        dosageForm: true,
+        mrp: true,
+        sellingPrice: true,
+        prescriptionClass: true,
+        manufacturer: { select: { name: true } },
+      },
+      take: 30,
+    });
+    const stock = await this.saleableOnHand(orgId, candidates.map((c) => c.id), warehouseId);
+    const sameStrength = (s: string | null) => (s ?? '').replace(/\s+/g, '').toLowerCase() === (product.strength ?? '').replace(/\s+/g, '').toLowerCase();
+    const items = candidates
+      .map((c) => ({
+        ...c,
+        mrp: c.mrp?.toFixed(2) ?? null,
+        sellingPrice: c.sellingPrice?.toFixed(2) ?? null,
+        manufacturer: c.manufacturer?.name ?? null,
+        onHand: stock.get(c.id) ?? 0,
+        sameStrength: sameStrength(c.strength),
+      }))
+      .sort((a, b) => Number(b.sameStrength) - Number(a.sameStrength) || Number(b.onHand > 0) - Number(a.onHand > 0) || Number(a.sellingPrice ?? a.mrp ?? 0) - Number(b.sellingPrice ?? b.mrp ?? 0));
+    return { generic: product.genericName, strength: product.strength, items };
   }
 
   async getProduct(request: TenantRequest, productId: string) {
@@ -279,6 +469,13 @@ export class CatalogService {
   async createProduct(request: TenantRequest, data: CreateProductInput) {
     const orgId = request.tenantContext.organizationId;
     const { barcodes, ...productData } = data;
+    const priceIssues = priceLadderIssues({
+      mrp: productData.mrp,
+      sellingPrice: productData.sellingPrice,
+      purchasePrice: productData.purchasePrice,
+      tradePrice: productData.tradePrice,
+    });
+    if (priceIssues.length > 0) throw ValidationFailed(priceIssues);
     const existing = await this.prisma.product.findUnique({
       where: { organizationId_sku: { organizationId: orgId, sku: productData.sku } },
     });
@@ -315,6 +512,24 @@ export class CatalogService {
       where: { id: productId, organizationId: orgId },
     });
     if (!existing) throw NotFound('Product not found');
+    const merged = (key: 'mrp' | 'sellingPrice' | 'purchasePrice' | 'tradePrice') =>
+      key in productData ? (productData[key] as NumericLike) : existing[key];
+    const priceIssues = priceLadderIssues({
+      mrp: merged('mrp'),
+      sellingPrice: merged('sellingPrice'),
+      purchasePrice: merged('purchasePrice'),
+      tradePrice: merged('tradePrice'),
+    });
+    if (priceIssues.length > 0) throw ValidationFailed(priceIssues);
+
+    const changes: Record<string, { from: unknown; to: unknown }> = {};
+    for (const [key, to] of Object.entries(productData)) {
+      const raw: unknown = existing[key as keyof typeof existing];
+      const from = raw === null || raw === undefined ? null : raw instanceof Date ? raw.toISOString() : typeof raw === 'object' ? (raw as Prisma.Decimal).toString() : raw;
+      const next = to === undefined ? null : to;
+      if (from === next || (from !== null && next !== null && Number(from) === Number(next) && typeof next !== 'boolean')) continue;
+      changes[key] = { from, to: next };
+    }
 
     await this.prisma.$transaction(async (tx) => {
       const updated = await tx.product.update({
@@ -335,7 +550,7 @@ export class CatalogService {
           productId,
           actorUserId: request.principal.userId,
           changeType: 'UPDATED',
-          details: { fields: Object.keys(productData) },
+          details: { fields: Object.keys(changes), changes, ...(barcodes ? { barcodes } : {}) } as Prisma.InputJsonValue,
         },
       });
       return updated;
@@ -373,6 +588,54 @@ export class CatalogService {
       entityId: productId,
     });
     return { deactivated: true };
+  }
+
+  async reactivateProduct(request: TenantRequest, productId: string) {
+    const orgId = request.tenantContext.organizationId;
+    const existing = await this.prisma.product.findFirst({ where: { id: productId, organizationId: orgId } });
+    if (!existing) throw NotFound('Product not found');
+    if (existing.status === 'ACTIVE') throw Conflict('STATE_TRANSITION_INVALID', 'Product is already active');
+    await this.prisma.$transaction([
+      this.prisma.product.update({ where: { id: productId }, data: { status: 'ACTIVE' } }),
+      this.prisma.productChangeHistory.create({
+        data: { productId, actorUserId: request.principal.userId, changeType: 'REACTIVATED' },
+      }),
+    ]);
+    await this.audit.record({
+      event: 'PRODUCT_REACTIVATED',
+      organizationId: orgId,
+      actorUserId: request.principal.userId,
+      entityType: 'Product',
+      entityId: productId,
+    });
+    return { reactivated: true };
+  }
+
+  /** Change history with the acting user's name, newest first. */
+  async productHistory(request: TenantRequest, productId: string) {
+    const orgId = request.tenantContext.organizationId;
+    const product = await this.prisma.product.findFirst({ where: { id: productId, organizationId: orgId }, select: { id: true } });
+    if (!product) throw NotFound('Product not found');
+    const rows = await this.prisma.productChangeHistory.findMany({
+      where: { productId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    const actorIds = [...new Set(rows.map((r) => r.actorUserId).filter((id): id is string => Boolean(id)))];
+    const users = actorIds.length
+      ? await this.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, fullName: true } })
+      : [];
+    const names = new Map(users.map((u) => [u.id, u.fullName]));
+    return {
+      items: rows.map((r) => ({
+        id: r.id,
+        changeType: r.changeType,
+        details: r.details,
+        createdAt: r.createdAt,
+        actorUserId: r.actorUserId,
+        actorName: r.actorUserId ? (names.get(r.actorUserId) ?? null) : null,
+      })),
+    };
   }
 
   /** Duplicate-detection helper for import flows and manual creation. */

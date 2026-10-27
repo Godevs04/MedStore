@@ -186,6 +186,7 @@ model Branch {
   stateCode        String?
   pinCode          String?
   phone            String?
+  gstin            String?
   isBillingEnabled Boolean  @default(true)
   isDefault        Boolean  @default(false)
   isActive         Boolean  @default(true)
@@ -621,6 +622,11 @@ model Vendor {
   creditLimit         Decimal  @default(0) @db.Decimal(18, 2)
   openingBalance      Decimal  @default(0) @db.Decimal(18, 2)
   status              VendorStatus @default(ACTIVE)
+  /// Supplier's wholesale drug licence (Form 20B/21B) — verified before purchase.
+  drugLicenceNumber   String?
+  drugLicenceExpiry   DateTime? @db.Date
+  bankAccount         String?
+  ifsc                String?
   notes               String?
   createdByUserId     String?
   createdAt           DateTime @default(now()) @db.Timestamptz(6)
@@ -694,6 +700,7 @@ enum MovementType {
   RECALL_OUT
   QUARANTINE_IN
   QUARANTINE_RELEASE
+  SALE_CANCELLED_IN
 }
 
 enum TransferStatus {
@@ -1142,6 +1149,9 @@ model SalesInvoice {
   journalEntryId String?
   createdById    String
   createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  cancelledAt    DateTime? @db.Timestamptz(6)
+  cancelledById  String?
+  cancelReason   String?
 
   lines     SalesInvoiceLine[]
   payments  SalesPayment[]
@@ -1339,6 +1349,9 @@ model PrescriptionRecord {
   patientName    String
   prescriberName String
   prescriberAddress String
+  /// State medical council registration number of the prescriber.
+  prescriberRegNo String?
+  patientPhone   String?
   drugName       String
   quantity       Decimal  @db.Decimal(14, 3)
   dispensedAt    DateTime @db.Timestamptz(6)
@@ -1384,4 +1397,21 @@ model AppNotification {
 
   @@index([organizationId, createdAt])
   @@index([organizationId, readAt])
+}
+
+/// POS bill parked by a cashier to serve another customer; restored later.
+model HeldBill {
+  id             String   @id @default(uuid())
+  organizationId String
+  branchId       String?
+  label          String
+  customerId     String?
+  /// Cart snapshot (lines, customer, payments) as captured by the POS.
+  payload        Json
+  itemCount      Int
+  total          Decimal  @db.Decimal(18, 2)
+  createdById    String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([organizationId, createdAt])
 }

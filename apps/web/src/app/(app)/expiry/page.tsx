@@ -1,129 +1,346 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { Icon } from '@/components/icons';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
 import { api, ApiClientError } from '@/lib/api';
-import { Badge, Card, ErrorState, Select, Spinner, Table } from '@/components/ui';
+import { toast } from '@/lib/toast';
+import { BATCH_STATUS_LABEL, BATCH_STATUS_TONE, qtyFmt, saveCsv, useCan, useWarehouses } from '@/lib/stock';
+import { ConfirmDialog, ExpiryPill, KpiGrid, SearchInput, useDebouncedValue } from '@/components/kit';
+import { Badge, Button, Card, EmptyState, ErrorState, PageHeader, Select, SkeletonRows, Stat, Table, Td, Th, Tr, cn, fmtDate, money, todayIso } from '@/components/ui';
 
 interface ExpiryRow {
   batchId: string;
+  productId: string;
   productName: string;
   sku: string;
   batchNumber: string;
+  warehouseId: string;
   expiryDate: string;
   daysToExpiry: number;
-  bucket: string;
+  bucket: Bucket;
   quantity: number;
   status: string;
+  purchaseRate: string;
+  mrp: string;
+  valueAtCost: string;
+  valueAtMrp: string;
 }
 
-const BUCKET_TONES: Record<string, 'red' | 'amber' | 'neutral' | 'green' | 'blue'> = {
-  EXPIRED: 'red',
-  DAYS_30: 'red',
-  DAYS_60: 'amber',
-  DAYS_90: 'amber',
-  CUSTOM: 'blue',
-  OK: 'green',
-};
+type Bucket = 'EXPIRED' | 'DAYS_30' | 'DAYS_60' | 'DAYS_90' | 'CUSTOM' | 'OK';
+
+interface Dashboard {
+  buckets: Record<Bucket, number>;
+  bucketValues: Record<Bucket, { cost: string; mrp: string }>;
+  valueAtRisk: { cost: string; mrp: string };
+  customDays: number;
+  rows: ExpiryRow[];
+}
+
+const BUCKETS: Array<{ id: Bucket; label: string; tone: 'red' | 'amber' | 'blue' | 'green'; ring: string }> = [
+  { id: 'EXPIRED', label: 'Expired', tone: 'red', ring: 'ring-red-300 bg-red-50/60' },
+  { id: 'DAYS_30', label: '≤ 30 days', tone: 'red', ring: 'ring-red-200 bg-red-50/30' },
+  { id: 'DAYS_60', label: '31–60 days', tone: 'amber', ring: 'ring-amber-200 bg-amber-50/40' },
+  { id: 'DAYS_90', label: '61–90 days', tone: 'amber', ring: 'ring-amber-200 bg-amber-50/20' },
+  { id: 'CUSTOM', label: 'Custom', tone: 'blue', ring: 'ring-brand-200 bg-brand-50/40' },
+  { id: 'OK', label: 'Healthy', tone: 'green', ring: 'ring-emerald-200 bg-emerald-50/30' },
+];
+
+const writeOffEligible = (r: ExpiryRow) => r.daysToExpiry <= 30 || r.status !== 'SALEABLE';
 
 export default function ExpiryPage() {
+  const qc = useQueryClient();
+  const can = useCan();
+  const warehouses = useWarehouses();
   const [warehouseId, setWarehouseId] = useState('');
+  const [customDays, setCustomDays] = useState(180);
+  const dDays = useDebouncedValue(customDays, 300);
+  const [bucket, setBucket] = useState<Bucket | ''>('');
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [writeOff, setWriteOff] = useState<ExpiryRow[] | null>(null);
+  const [block, setBlock] = useState<ExpiryRow | null>(null);
+
+  const qs = new URLSearchParams({ customDays: String(dDays) });
+  if (warehouseId) qs.set('warehouseId', warehouseId);
   const dashboard = useQuery({
-    queryKey: ['expiry-dashboard', warehouseId],
-    queryFn: () =>
-      api<{ buckets: Record<string, number>; rows: ExpiryRow[] }>(
-        `/inventory/expiry-dashboard${warehouseId ? `?warehouseId=${warehouseId}` : ''}`,
-      ),
-    retry: false,
+    queryKey: ['expiry-dashboard', qs.toString()],
+    queryFn: () => api<Dashboard>(`/inventory/expiry-dashboard?${qs.toString()}`),
+    placeholderData: (prev) => prev,
   });
 
-  const warehouses = useQuery({
-    queryKey: ['warehouses'],
-    queryFn: async () => {
-      const branches = await api<Array<{ id: string; name: string; warehouses: Array<{ id: string; name: string }> }>>(
-        '/organizations/branches',
-      );
-      return branches.flatMap((b) => b.warehouses.map((w) => ({ ...w, branch: b.name })));
+  useEffect(() => setSelected(new Set()), [bucket, warehouseId]);
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (dashboard.data?.rows ?? []).filter(
+      (r) => (!bucket || r.bucket === bucket) && (!q || r.productName.toLowerCase().includes(q) || r.batchNumber.toLowerCase().includes(q) || r.sku.toLowerCase().includes(q)),
+    );
+  }, [dashboard.data, bucket, search]);
+  const selectedRows = rows.filter((r) => selected.has(r.batchId));
+  const eligibleRows = rows.filter(writeOffEligible);
+
+  const refresh = () => {
+    setSelected(new Set());
+    void qc.invalidateQueries({ queryKey: ['expiry-dashboard'] });
+    void qc.invalidateQueries({ queryKey: ['stock-summary'] });
+    void qc.invalidateQueries({ queryKey: ['batches'] });
+  };
+
+  const doWriteOff = useMutation({
+    meta: { silent: true },
+    mutationFn: ({ batchIds, notes }: { batchIds: string[]; notes: string }) =>
+      api<{ batches: number; quantity: number; value: string; skipped: string[] }>('/inventory/expiry/bulk-writeoff', {
+        method: 'POST',
+        body: { batchIds, notes, ...(warehouseId ? { warehouseId } : {}) },
+      }),
+    onSuccess: (r) => {
+      toast.success('Stock written off', `${r.batches} batch(es) · ${qtyFmt(r.quantity)} units · ${money(r.value)} at cost. Keep the destruction record for the Drug Inspector.`);
+      if (r.skipped.length) toast.info('Some batches had no stock', r.skipped.join(', '));
+      setWriteOff(null);
+      refresh();
     },
-    retry: false,
+  });
+  const doBlock = useMutation({
+    meta: { silent: true },
+    mutationFn: ({ row, reason }: { row: ExpiryRow; reason: string }) => api(`/inventory/batches/${row.batchId}/status`, { method: 'PUT', body: { status: 'EXPIRED_BLOCKED', reason } }),
+    onSuccess: (_, { row }) => {
+      toast.success('Batch blocked from sale', `${row.productName} · ${row.batchNumber}`);
+      setBlock(null);
+      refresh();
+    },
   });
 
+  const exportCsv = () => {
+    if (rows.length === 0) {
+      toast.warning('Nothing to export');
+      return;
+    }
+    saveCsv(
+      `expiry-${bucket || 'all'}-${todayIso()}.csv`,
+      ['Product', 'SKU', 'Batch', 'Warehouse', 'Expiry', 'Days', 'Quantity', 'Cost value', 'MRP value', 'Status'],
+      rows.map((r) => [r.productName, r.sku, r.batchNumber, warehouses.nameOf(r.warehouseId), r.expiryDate.slice(0, 10), r.daysToExpiry, r.quantity, r.valueAtCost, r.valueAtMrp, r.status]),
+    );
+    toast.success('Export ready', `${rows.length} rows`);
+  };
+
+  const toggle = (id: string) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  const d = dashboard.data;
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
-      <div className="mc-anim-fade-up flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-neutral-900">Expiry dashboard</h1>
-          <p className="mt-0.5 text-sm text-neutral-500">Batches on hand bucketed by days to expiry — act before they block sales.</p>
-        </div>
-        <Select className="w-56" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} aria-label="Warehouse">
-          <option value="">All warehouses</option>
-          {warehouses.data?.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-            </option>
-          ))}
-        </Select>
-      </div>
+    <div className="mx-auto max-w-7xl space-y-4">
+      <PageHeader
+        title="Expiry dashboard"
+        subtitle="Stock on hand by days to expiry. Expired drugs must be segregated and destroyed — never sold (Drugs Rules 65(17))."
+        actions={
+          <>
+            <Select className="w-56" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} aria-label="Warehouse">
+              <option value="">All warehouses</option>
+              {warehouses.list.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.label}
+                </option>
+              ))}
+            </Select>
+            <Button variant="secondary" onClick={exportCsv}>
+              <Icon name="download" size={14} /> Export CSV
+            </Button>
+          </>
+        }
+      />
 
       {dashboard.isLoading ? (
-        <Spinner />
+        <SkeletonRows rows={6} cols={6} />
       ) : dashboard.error ? (
         <ErrorState
-          message={
-            dashboard.error instanceof ApiClientError && dashboard.error.status === 403
-              ? 'You do not have permission to view inventory.'
-              : 'Failed to load expiry dashboard.'
-          }
+          message={dashboard.error instanceof ApiClientError && dashboard.error.status === 403 ? 'You do not have permission to view inventory.' : 'Failed to load expiry dashboard.'}
           retry={() => void dashboard.refetch()}
         />
-      ) : (
+      ) : d ? (
         <>
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
-            {Object.entries(dashboard.data?.buckets ?? {}).map(([bucket, count]) => (
-              <Card key={bucket}>
-                <div className="text-center">
-                  <div className="text-2xl font-semibold">{count}</div>
-                  <Badge tone={BUCKET_TONES[bucket] ?? 'neutral'}>{bucket.replace('DAYS_', '')}</Badge>
-                </div>
-              </Card>
-            ))}
+          <KpiGrid cols={3}>
+            <Stat label="Value at risk (cost)" value={money(d.valueAtRisk.cost)} hint="Expired + expiring within 90 days" tone={Number(d.valueAtRisk.cost) > 0 ? 'red' : 'green'} />
+            <Stat label="Value at risk (MRP)" value={money(d.valueAtRisk.mrp)} hint="Potential sales lost if not sold or returned" tone="amber" delay={60} />
+            <Stat label="Expired, still in stock" value={money(d.bucketValues.EXPIRED.cost)} hint={`${d.buckets.EXPIRED} batches — write off or return to supplier`} tone={d.buckets.EXPIRED > 0 ? 'red' : 'green'} delay={120} />
+          </KpiGrid>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {BUCKETS.map((b, i) => {
+              const on = bucket === b.id;
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => setBucket(on ? '' : b.id)}
+                  className={cn(
+                    'mc-anim-fade-up rounded-xl bg-white px-3 py-3 text-left shadow-sm ring-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md',
+                    on ? `${b.ring} ring-2` : 'ring-neutral-200',
+                  )}
+                  style={{ animationDelay: `${i * 50}ms` }}
+                  aria-pressed={on}
+                >
+                  <div className="flex items-center justify-between">
+                    <Badge tone={b.tone}>{b.id === 'CUSTOM' ? `91–${d.customDays} days` : b.label}</Badge>
+                    {on ? <span className="text-[10px] font-semibold text-brand-700">FILTERED</span> : null}
+                  </div>
+                  <p className="mt-2 text-2xl font-semibold tabular-nums text-neutral-900">{d.buckets[b.id]}</p>
+                  <p className="text-[11px] text-neutral-500">
+                    {money(d.bucketValues[b.id].cost)} cost · {money(d.bucketValues[b.id].mrp)} MRP
+                  </p>
+                </button>
+              );
+            })}
           </div>
 
-          <Card title="Batches by expiry">
-            <Table
-              head={
-                <tr>
-                  <th className="px-3 py-2">Product</th>
-                  <th className="px-3 py-2">Batch</th>
-                  <th className="px-3 py-2">Expiry</th>
-                  <th className="px-3 py-2">Days</th>
-                  <th className="px-3 py-2">Qty</th>
-                  <th className="px-3 py-2">Bucket</th>
-                </tr>
-              }
-            >
-              {dashboard.data?.rows.map((r) => (
-                <tr key={r.batchId} className="hover:bg-neutral-50">
-                  <td className="px-3 py-2">
-                    <div className="font-medium text-neutral-800">{r.productName}</div>
-                    <div className="font-mono text-xs text-neutral-500">{r.sku}</div>
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs">{r.batchNumber}</td>
-                  <td className="px-3 py-2 text-sm">{new Date(r.expiryDate).toLocaleDateString()}</td>
-                  <td className="px-3 py-2 text-sm">{r.daysToExpiry}</td>
-                  <td className="px-3 py-2 text-sm">{r.quantity}</td>
-                  <td className="px-3 py-2">
-                    <Badge tone={BUCKET_TONES[r.bucket] ?? 'neutral'}>{r.bucket}</Badge>
-                  </td>
-                </tr>
-              ))}
-            </Table>
-            {(dashboard.data?.rows.length ?? 0) === 0 ? (
-              <p className="py-8 text-center text-sm text-neutral-500">No stock on hand.</p>
+          <Card
+            title={`Batches${bucket ? ` · ${BUCKETS.find((b) => b.id === bucket)?.label}` : ''} (${rows.length})`}
+            actions={
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-2 text-xs text-neutral-600">
+                  Custom window
+                  <input type="range" min={91} max={365} step={1} value={customDays} onChange={(e) => setCustomDays(Number(e.target.value))} className="accent-brand-600" aria-label="Custom days" />
+                  <span className="w-14 tabular-nums font-medium">{customDays} days</span>
+                </label>
+                <SearchInput value={search} onChange={setSearch} placeholder="Product, batch or SKU…" className="w-56" />
+              </div>
+            }
+          >
+            {selectedRows.length > 0 ? (
+              <div className="mc-anim-fade-in mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-red-50 px-3 py-2 ring-1 ring-red-200">
+                <span className="text-xs font-medium text-red-800">
+                  {selectedRows.length} selected · {qtyFmt(selectedRows.reduce((s, r) => s + r.quantity, 0))} units · {money(selectedRows.reduce((s, r) => s + Number(r.valueAtCost), 0))} at cost
+                </span>
+                <div className="flex gap-2">
+                  <Button variant="ghost" onClick={() => setSelected(new Set())}>
+                    Clear
+                  </Button>
+                  {can('inventory.adjust') ? (
+                    <Button variant="danger" onClick={() => setWriteOff(selectedRows)}>
+                      Write off selected
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
             ) : null}
+            {rows.length === 0 ? (
+              <EmptyState title={bucket || search ? 'No batches in this view' : 'No stock on hand'} hint={bucket ? 'Pick another bucket or clear the filter.' : undefined} />
+            ) : (
+              <Table
+                head={
+                  <tr>
+                    <Th>
+                      {can('inventory.adjust') && eligibleRows.length > 0 ? (
+                        <input
+                          type="checkbox"
+                          aria-label="Select all eligible"
+                          checked={eligibleRows.every((r) => selected.has(r.batchId))}
+                          onChange={(e) => setSelected(e.target.checked ? new Set(eligibleRows.map((r) => r.batchId)) : new Set())}
+                          className="h-4 w-4 rounded border-neutral-300"
+                        />
+                      ) : null}
+                    </Th>
+                    <Th>Product / batch</Th>
+                    <Th>Expiry</Th>
+                    <Th right>Qty</Th>
+                    <Th right>Cost value</Th>
+                    <Th right>MRP value</Th>
+                    <Th>Status</Th>
+                    <Th />
+                  </tr>
+                }
+              >
+                {rows.map((r) => {
+                  const eligible = writeOffEligible(r);
+                  return (
+                    <Tr key={`${r.batchId}`} className={cn(selected.has(r.batchId) && 'bg-red-50/50')}>
+                      <Td>
+                        {can('inventory.adjust') ? (
+                          <input
+                            type="checkbox"
+                            disabled={!eligible}
+                            title={eligible ? 'Select for write-off' : 'Saleable stock more than 30 days from expiry cannot be written off'}
+                            checked={selected.has(r.batchId)}
+                            onChange={() => toggle(r.batchId)}
+                            className="h-4 w-4 rounded border-neutral-300 disabled:opacity-30"
+                            aria-label={`Select ${r.batchNumber}`}
+                          />
+                        ) : null}
+                      </Td>
+                      <Td>
+                        <div className="font-medium text-neutral-800">{r.productName}</div>
+                        <div className="text-xs text-neutral-500">
+                          <span className="font-mono">{r.batchNumber}</span> · {r.sku}
+                          {!warehouseId ? ` · ${warehouses.nameOf(r.warehouseId)}` : ''}
+                        </div>
+                      </Td>
+                      <Td>
+                        <div className="text-xs text-neutral-600">{fmtDate(r.expiryDate)}</div>
+                        <ExpiryPill days={r.daysToExpiry} />
+                      </Td>
+                      <Td right className="font-medium">
+                        {qtyFmt(r.quantity)}
+                      </Td>
+                      <Td right>{money(r.valueAtCost)}</Td>
+                      <Td right className="text-neutral-500">
+                        {money(r.valueAtMrp)}
+                      </Td>
+                      <Td>
+                        <Badge tone={BATCH_STATUS_TONE[r.status] ?? 'neutral'}>{BATCH_STATUS_LABEL[r.status] ?? r.status}</Badge>
+                      </Td>
+                      <Td className="whitespace-nowrap text-right">
+                        {r.status === 'SALEABLE' && r.daysToExpiry < 0 && can('inventory.recall') ? (
+                          <Button variant="ghost" onClick={() => setBlock(r)}>
+                            Block
+                          </Button>
+                        ) : null}
+                        {eligible && can('inventory.adjust') ? (
+                          <Button variant="secondary" onClick={() => setWriteOff([r])}>
+                            Write off
+                          </Button>
+                        ) : null}
+                      </Td>
+                    </Tr>
+                  );
+                })}
+              </Table>
+            )}
           </Card>
         </>
-      )}
+      ) : null}
+
+      <ConfirmDialog
+        open={Boolean(writeOff)}
+        tone="danger"
+        title={`Write off ${writeOff?.length ?? 0} batch(es)?`}
+        message={
+          writeOff ? (
+            <>
+              {qtyFmt(writeOff.reduce((s, r) => s + r.quantity, 0))} units worth {money(writeOff.reduce((s, r) => s + Number(r.valueAtCost), 0))} at cost will be removed{warehouseId ? ' from this warehouse' : ''} as <b>Expiry write-off</b> and the batches blocked from sale. This posts to Inventory loss and cannot be undone.
+            </>
+          ) : undefined
+        }
+        reason={{ label: 'Destruction / disposal note', minLength: 3, placeholder: 'Handed to authorised bio-medical waste agency, challan BMW/0412' }}
+        confirmLabel="Write off"
+        busy={doWriteOff.isPending}
+        onConfirm={(notes) => writeOff && doWriteOff.mutate({ batchIds: writeOff.map((r) => r.batchId), notes })}
+        onCancel={() => setWriteOff(null)}
+      />
+      <ConfirmDialog
+        open={Boolean(block)}
+        title={`Block ${block?.batchNumber ?? ''} from sale?`}
+        message="Expired stock is already excluded from FEFO billing; blocking also flags it for segregation until it is written off or returned."
+        reason={{ label: 'Reason', minLength: 3, placeholder: 'Expired — moved to the segregated expiry shelf' }}
+        confirmLabel="Block batch"
+        busy={doBlock.isPending}
+        onConfirm={(reason) => block && doBlock.mutate({ row: block, reason })}
+        onCancel={() => setBlock(null)}
+      />
     </div>
   );
 }

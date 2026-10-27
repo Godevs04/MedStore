@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/icons';
 import { useMutation } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { api, ApiClientError } from '@/lib/api';
@@ -183,7 +184,7 @@ export default function ImportPage() {
         subtitle="Bulk-load products, vendors and customers from CSV. Every row is validated on the server before anything is saved."
         actions={
           <Button variant="secondary" onClick={() => downloadCsv(`medicore-${type}-template.csv`, templateCsv(spec))}>
-            ⤓ {spec.title} template
+            <Icon name="download" size={14} /> {spec.title} template
           </Button>
         }
       />
@@ -227,7 +228,7 @@ export default function ImportPage() {
                 aria-expanded={guideOpen}
               >
                 {guideOpen ? 'Hide column guide' : 'Column guide'}
-                <span className={cn('ml-1 inline-block transition-transform duration-300', guideOpen && 'rotate-180')}>▾</span>
+                <Icon name="chevronDown" size={13} className={cn('ml-1 transition-transform duration-300', guideOpen && 'rotate-180')} />
               </button>
             }
           >
@@ -316,12 +317,12 @@ export default function ImportPage() {
                   <div className="mc-stagger flex flex-wrap gap-1.5">
                     {columns.missingRequired.map((c) => (
                       <Chip key={c.key} tone="red" title="Required column is missing">
-                        ✕ {c.key}
+                        <Icon name="close" size={11} strokeWidth={2.5} /> {c.key}
                       </Chip>
                     ))}
                     {columns.recognized.map((c) => (
                       <Chip key={c.key} tone="green" title={c.label}>
-                        ✓ {c.key}
+                        <Icon name="check" size={13} strokeWidth={2.5} /> {c.key}
                       </Chip>
                     ))}
                     {columns.unknown.map((h) => (
@@ -534,7 +535,7 @@ export default function ImportPage() {
                 <div className="flex flex-wrap gap-2">
                   {preview.errorRows + preview.duplicateRows > 0 ? (
                     <Button variant="secondary" onClick={downloadErrorReport}>
-                      ⤓ Issue report
+                      <Icon name="download" size={14} /> Issue report
                     </Button>
                   ) : null}
                   {confirming ? (

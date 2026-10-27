@@ -1,9 +1,11 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { PLAN_KEYS } from '@medicore/validation';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { BarChart, ConfirmDialog, Donut, FilterChips, Pagination, SearchInput, useDebouncedValue, type PageInfo } from '@/components/kit';
 import {
   Badge,
   Button,
@@ -73,8 +75,51 @@ function statusBadge(t: TenantRow) {
   return <Badge tone={tone} dot>{t.subscription.status.toLowerCase()} · {t.subscription.daysLeft}d</Badge>;
 }
 
+interface TenantUsage {
+  plan: string | null;
+  subscriptionStatus: string | null;
+  usage: Array<{ metric: string; periodStart: string; value: number }>;
+  auditEvents: number;
+}
+const METRIC_LABEL: Record<string, string> = { INVOICES: 'Invoices', invoices: 'Invoices', USERS: 'Users', STORAGE_MB: 'Storage (MB)' };
+const metricLabel = (m: string) => METRIC_LABEL[m] ?? m.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+
+function UsagePanel({ tenantId }: { tenantId: string }) {
+  const usage = useQuery({ queryKey: ['platform', 'usage', tenantId], queryFn: () => api<TenantUsage>(`/platform/tenants/${tenantId}/usage`) });
+  const byMetric = useMemo(() => {
+    const map = new Map<string, Array<{ label: string; value: number }>>();
+    for (const u of [...(usage.data?.usage ?? [])].reverse()) {
+      const list = map.get(u.metric) ?? [];
+      list.push({ label: new Date(u.periodStart).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }), value: u.value });
+      map.set(u.metric, list);
+    }
+    return [...map.entries()];
+  }, [usage.data]);
+  return (
+    <Card title="Usage history" actions={usage.data ? <span className="text-xs text-neutral-500">{usage.data.auditEvents.toLocaleString('en-IN')} audit events</span> : undefined}>
+      {usage.isLoading ? (
+        <SkeletonRows rows={3} cols={2} />
+      ) : usage.error ? (
+        <ErrorState message="Failed to load usage." retry={() => void usage.refetch()} />
+      ) : byMetric.length === 0 ? (
+        <p className="text-sm text-neutral-500">No metered usage recorded yet.</p>
+      ) : (
+        <div className="space-y-4">
+          {byMetric.map(([metric, data]) => (
+            <div key={metric}>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">{metricLabel(metric)}</p>
+              <BarChart data={data} height={120} />
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function TenantDrawer({ tenant, plans, onClose }: { tenant: TenantRow; plans: Plan[]; onClose: () => void }) {
   const qc = useQueryClient();
+  const [confirmSuspend, setConfirmSuspend] = useState(false);
   const [planKey, setPlanKey] = useState(tenant.subscription?.planKey ?? 'STARTER');
   const [status, setStatus] = useState<(typeof STATUSES)[number]>('ACTIVE');
   const [periodDays, setPeriodDays] = useState('30');
@@ -93,10 +138,12 @@ function TenantDrawer({ tenant, plans, onClose }: { tenant: TenantRow; plans: Pl
     meta: { success: tenant.suspended ? 'Tenant reactivated' : 'Tenant suspended — sessions revoked' },
     mutationFn: () => api(`/platform/tenants/${tenant.id}/status`, { method: 'POST', body: { suspended: !tenant.suspended } }),
     onSuccess: () => {
+      setConfirmSuspend(false);
       refresh();
       onClose();
     },
   });
+  const endsPreview = daysValid ? new Date(Date.now() + days * 86_400_000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
   return (
     <Drawer open onClose={onClose} title={tenant.name} subtitle={`${tenant.slug} · joined ${fmtDate(tenant.createdAt)}`}>
       <div className="grid grid-cols-3 gap-3">
@@ -124,7 +171,7 @@ function TenantDrawer({ tenant, plans, onClose }: { tenant: TenantRow; plans: Pl
               ))}
             </Select>
           </Field>
-          <Field label="Period (days)" error={periodDays && !daysValid ? '1 – 1095 days' : undefined}>
+          <Field label="Period (days)" error={!daysValid ? 'Enter 1 – 1095 days' : undefined} hint={endsPreview ? `Ends ${endsPreview}` : undefined}>
             <Input inputMode="numeric" value={periodDays} onChange={(e) => setPeriodDays(e.target.value.replace(/\D/g, ''))} />
           </Field>
         </div>
@@ -148,13 +195,22 @@ function TenantDrawer({ tenant, plans, onClose }: { tenant: TenantRow; plans: Pl
         <Button
           variant={tenant.suspended ? 'primary' : 'danger'}
           disabled={suspend.isPending}
-          onClick={() => {
-            if (tenant.suspended || window.confirm(`Suspend ${tenant.name}? All members will be signed out.`)) suspend.mutate();
-          }}
+          onClick={() => (tenant.suspended ? suspend.mutate() : setConfirmSuspend(true))}
         >
           {tenant.suspended ? 'Reactivate' : 'Suspend tenant'}
         </Button>
       </Card>
+      <UsagePanel tenantId={tenant.id} />
+      <ConfirmDialog
+        open={confirmSuspend}
+        title={`Suspend ${tenant.name}?`}
+        message={`All ${tenant.memberships} member${tenant.memberships === 1 ? '' : 's'} will be signed out immediately and blocked until you reactivate the workspace. No records are deleted.`}
+        confirmLabel="Suspend tenant"
+        tone="danger"
+        busy={suspend.isPending}
+        onCancel={() => setConfirmSuspend(false)}
+        onConfirm={() => suspend.mutate()}
+      />
     </Drawer>
   );
 }
@@ -225,14 +281,30 @@ export default function PlatformPage() {
   const { user } = useSession();
   const [tab, setTab] = useState<'tenants' | 'plans'>('tenants');
   const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<(typeof STATUSES)[number] | ''>('');
+  const [planKey, setPlanKey] = useState('');
+  const [suspended, setSuspended] = useState<'' | 'true' | 'false'>('');
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<TenantRow | null>(null);
+  const debounced = useDebouncedValue(search.trim(), 300);
   const allowed = Boolean(user?.isPlatformSuperadmin);
+  const qs = useMemo(() => {
+    const p = new URLSearchParams({ pageSize: '20' });
+    if (debounced) p.set('search', debounced);
+    if (status) p.set('status', status);
+    if (planKey) p.set('planKey', planKey);
+    if (suspended) p.set('suspended', suspended);
+    return p.toString();
+  }, [debounced, status, planKey, suspended]);
+  useEffect(() => setPage(1), [qs]);
   const overview = useQuery({ queryKey: ['platform', 'overview'], queryFn: () => api<Overview>('/platform/overview'), enabled: allowed });
   const tenants = useQuery({
-    queryKey: ['platform', 'tenants', search],
-    queryFn: () => api<{ items: TenantRow[]; pageInfo: { totalItems: number } }>(`/platform/tenants?page=1&pageSize=100${search ? `&search=${encodeURIComponent(search)}` : ''}`),
+    queryKey: ['platform', 'tenants', qs, page],
+    queryFn: () => api<{ items: TenantRow[]; pageInfo: PageInfo }>(`/platform/tenants?${qs}&page=${page}`),
     enabled: allowed,
+    placeholderData: (prev) => prev,
   });
+  const filtered = Boolean(debounced || status || planKey || suspended);
   const plans = useQuery({ queryKey: ['platform', 'plans'], queryFn: () => api<Plan[]>('/platform/plans'), enabled: allowed });
 
   if (!allowed) {
@@ -255,17 +327,55 @@ export default function PlatformPage() {
         <Stat label="Paying" value={o?.byStatus.find((s) => s.status === 'ACTIVE')?.count ?? 0} hint={`${o?.byStatus.find((s) => s.status === 'TRIALING')?.count ?? 0} on trial`} delay={150} />
         <Stat label="Suspended" value={o?.suspended ?? '…'} tone={o?.suspended ? 'red' : 'neutral'} delay={200} />
       </div>
+      {o && (o.byPlan.length || o.byStatus.length) ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Card title="Plan mix">
+            <BarChart data={[...o.byPlan].sort((a, b) => b.count - a.count).map((p) => ({ label: p.plan, value: p.count, hint: `${p.count} tenant${p.count === 1 ? '' : 's'}` }))} height={160} />
+          </Card>
+          <Card title="Subscription status">
+            <Donut data={o.byStatus.map((s) => ({ label: s.status.replace('_', ' ').toLowerCase(), value: s.count }))} centerLabel="tenants" />
+          </Card>
+        </div>
+      ) : null}
       <Tabs value={tab} onChange={setTab} tabs={[{ id: 'tenants', label: 'Tenants', count: tenants.data?.pageInfo.totalItems }, { id: 'plans', label: 'Plans & limits' }]} />
 
       {tab === 'tenants' ? (
-        <Card title="Tenants" actions={<Input className="w-64" placeholder="Search organization…" value={search} onChange={(e) => setSearch(e.target.value)} />}>
+        <Card>
+          <div className="mb-3 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <SearchInput value={search} onChange={setSearch} placeholder="Search name, slug or GSTIN…" className="min-w-[220px] flex-1" />
+              <Select className="w-44" value={planKey} onChange={(e) => setPlanKey(e.target.value)} aria-label="Plan">
+                <option value="">All plans</option>
+                {(plans.data?.map((p) => [p.key, p.name] as const) ?? PLAN_KEYS.map((k) => [k, k] as const)).map(([k, n]) => (
+                  <option key={k} value={k}>{n}</option>
+                ))}
+              </Select>
+              <Select className="w-40" value={suspended} onChange={(e) => setSuspended(e.target.value as typeof suspended)} aria-label="Access">
+                <option value="">Any access</option>
+                <option value="false">Active access</option>
+                <option value="true">Suspended</option>
+              </Select>
+            </div>
+            <FilterChips
+              options={STATUSES.map((s) => ({
+                id: s,
+                label: s.replace('_', ' ').toLowerCase(),
+                count: o?.byStatus.find((b) => b.status === s)?.count ?? 0,
+                tone: s === 'ACTIVE' ? 'green' : s === 'TRIALING' ? 'blue' : s === 'CANCELLED' || s === 'EXPIRED' ? 'red' : 'amber',
+              }))}
+              value={status}
+              onChange={setStatus}
+              allLabel="All statuses"
+            />
+          </div>
           {tenants.isLoading ? (
             <SkeletonRows rows={6} cols={6} />
           ) : tenants.error ? (
             <ErrorState message="Failed to load tenants." retry={() => void tenants.refetch()} />
           ) : (tenants.data?.items.length ?? 0) === 0 ? (
-            <EmptyState title="No tenants match" />
+            <EmptyState title={filtered ? 'No tenants match' : 'No tenants yet'} hint={filtered ? 'Try clearing a filter.' : undefined} />
           ) : (
+            <>
             <Table head={<tr><Th>Organization</Th><Th>Plan</Th><Th>Status</Th><Th right>Users</Th><Th right>Branches</Th><Th right>Invoices</Th><Th>Joined</Th></tr>}>
               {tenants.data?.items.map((t) => (
                 <Tr key={t.id} onClick={() => setSelected(t)}>
@@ -282,6 +392,10 @@ export default function PlatformPage() {
                 </Tr>
               ))}
             </Table>
+            <div className="mt-3">
+              <Pagination info={tenants.data?.pageInfo} onChange={setPage} label="tenants" />
+            </div>
+            </>
           )}
         </Card>
       ) : (

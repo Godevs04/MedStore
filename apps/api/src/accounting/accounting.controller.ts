@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { paginationQuerySchema } from '@medicore/validation';
+import { asOfQuerySchema, dateRangeQuerySchema, financialYearOf, paginationQuerySchema } from '@medicore/validation';
+import { sendCsv } from '../common/csv.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { RequirePermissions, TenantContextGuard, type TenantRequest } from '../rbac/tenant-context.guard.js';
 import { RequireModule } from '../common/subscription-policy.js';
@@ -35,6 +37,8 @@ const periodLockSchema = z.object({
   periodLabel: z.string().regex(/^\d{4}-\d{2}$/),
   locked: z.boolean(),
 });
+
+type DateRange = z.infer<typeof dateRangeQuerySchema>;
 
 @ApiTags('accounting')
 @UseGuards(TenantContextGuard)
@@ -90,14 +94,51 @@ export class AccountingController {
 
   @Get('profit-and-loss')
   @RequirePermissions('accounting.read')
-  profitAndLoss(@Req() req: TenantRequest, @Query('from') from?: string, @Query('to') to?: string) {
-    return this.accounting.profitAndLoss(req, optionalDate(from), optionalDate(to));
+  profitAndLoss(@Req() req: TenantRequest, @Query(new ZodValidationPipe(dateRangeQuerySchema)) q: DateRange) {
+    return this.accounting.profitAndLoss(req, q.from, q.to);
+  }
+
+  @Get('profit-and-loss/trend')
+  @RequirePermissions('accounting.read')
+  profitAndLossTrend(@Req() req: TenantRequest, @Query(new ZodValidationPipe(dateRangeQuerySchema)) q: DateRange) {
+    const fy = financialYearOf(new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10));
+    return this.accounting.profitAndLossTrend(req, q.from ?? fy.from, q.to ?? fy.to);
+  }
+
+  @Get('profit-and-loss/export')
+  @RequirePermissions('accounting.read', 'reports.export')
+  async profitAndLossExport(@Req() req: TenantRequest, @Res() res: Response, @Query(new ZodValidationPipe(dateRangeQuerySchema)) q: DateRange) {
+    const p = await this.accounting.profitAndLoss(req, q.from, q.to);
+    sendCsv(res, `profit-and-loss-${q.from ?? 'all'}-${q.to ?? 'today'}.csv`, ['Section', 'Code', 'Account', 'Amount'], [
+      ...p.income.map((r) => ['Income', r.code, r.name, r.amount]),
+      ['Income', '', 'Total income', p.totalIncome],
+      ...p.expenses.map((r) => ['Expenses', r.code, r.name, r.amount]),
+      ['Expenses', '', 'Total expenses', p.totalExpenses],
+      ['Summary', '', 'Net sales', p.netSales],
+      ['Summary', '', 'Gross profit', p.grossProfit],
+      ['Summary', '', 'Net profit', p.netProfit],
+    ]);
   }
 
   @Get('balance-sheet')
   @RequirePermissions('accounting.read')
-  balanceSheet(@Req() req: TenantRequest, @Query('asOf') asOf?: string) {
-    return this.accounting.balanceSheet(req, optionalDate(asOf));
+  balanceSheet(@Req() req: TenantRequest, @Query(new ZodValidationPipe(asOfQuerySchema)) q: z.infer<typeof asOfQuerySchema>) {
+    return this.accounting.balanceSheet(req, q.asOf);
+  }
+
+  @Get('balance-sheet/export')
+  @RequirePermissions('accounting.read', 'reports.export')
+  async balanceSheetExport(@Req() req: TenantRequest, @Res() res: Response, @Query(new ZodValidationPipe(asOfQuerySchema)) q: z.infer<typeof asOfQuerySchema>) {
+    const b = await this.accounting.balanceSheet(req, q.asOf);
+    sendCsv(res, `balance-sheet-${q.asOf ?? 'today'}.csv`, ['Section', 'Code', 'Account', 'Amount'], [
+      ...b.assets.map((r) => ['Assets', r.code, r.name, r.amount]),
+      ['Assets', '', 'Total assets', b.totalAssets],
+      ...b.liabilities.map((r) => ['Liabilities', r.code, r.name, r.amount]),
+      ['Liabilities', '', 'Total liabilities', b.totalLiabilities],
+      ...b.equity.map((r) => ['Equity', r.code, r.name, r.amount]),
+      ['Equity', '', 'Retained earnings (current)', b.retainedEarnings],
+      ['Equity', '', 'Total equity', b.totalEquity],
+    ]);
   }
 
   @Get('periods')

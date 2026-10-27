@@ -1,3 +1,5 @@
+import type { IconName } from '@/components/icons';
+
 export type ImportType = 'products' | 'vendors' | 'customers';
 
 export interface ColumnSpec {
@@ -12,7 +14,7 @@ export interface ImportSpec {
   type: ImportType;
   title: string;
   singular: string;
-  icon: string;
+  icon: IconName;
   blurb: string;
   permission: string;
   listHref: string;
@@ -28,7 +30,7 @@ export const IMPORT_SPECS: Record<ImportType, ImportSpec> = {
     type: 'products',
     title: 'Products',
     singular: 'Product',
-    icon: '✚',
+    icon: 'products',
     blurb: 'Medicines and retail items with HSN, prices, schedule and barcodes.',
     permission: 'products.import',
     listHref: '/products',
@@ -56,7 +58,7 @@ export const IMPORT_SPECS: Record<ImportType, ImportSpec> = {
     type: 'vendors',
     title: 'Vendors',
     singular: 'Vendor',
-    icon: '⇄',
+    icon: 'vendors',
     blurb: 'Suppliers and distributors with GSTIN, address and credit terms.',
     permission: 'vendors.import',
     listHref: '/vendors',
@@ -82,7 +84,7 @@ export const IMPORT_SPECS: Record<ImportType, ImportSpec> = {
     type: 'customers',
     title: 'Customers',
     singular: 'Customer',
-    icon: '☺',
+    icon: 'customers',
     blurb: 'Retail patients, clinics and wholesale buyers with credit limits.',
     permission: 'customers.import',
     listHref: '/customers',

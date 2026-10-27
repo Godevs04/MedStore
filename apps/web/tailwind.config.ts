@@ -4,6 +4,7 @@ const config: Config = {
   content: ['./src/**/*.{ts,tsx}'],
   theme: {
     extend: {
+      ringWidth: { 3: '3px' },
       colors: {
         // Restrained teal accent per spec §24.
         brand: {

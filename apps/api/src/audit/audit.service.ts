@@ -2,6 +2,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type { AuditEvent } from '@medicore/shared-types';
 import { PrismaService } from '../prisma/prisma.module.js';
+import { dateRangeFilter } from '../common/query.js';
+
+export interface AuditFilters {
+  event?: string;
+  actorUserId?: string;
+  entityType?: string;
+  entityId?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+}
 
 export interface AuditEntry {
   event: AuditEvent;
@@ -54,12 +65,75 @@ export class AuditService {
     }
   }
 
-  async listForOrganization(organizationId: string, params: { page: number; pageSize: number }) {
-    const { page, pageSize } = params;
-    const [total, rows] = await this.prisma.$transaction([
-      this.prisma.auditLog.count({ where: { organizationId } }),
+  private whereFor(organizationId: string, filters: AuditFilters): Prisma.AuditLogWhereInput {
+    const where: Prisma.AuditLogWhereInput = { organizationId };
+    if (filters.event) where.event = filters.event;
+    if (filters.actorUserId) where.actorUserId = filters.actorUserId;
+    if (filters.entityType) where.entityType = filters.entityType;
+    if (filters.entityId) where.entityId = filters.entityId;
+    const createdAt = dateRangeFilter(filters.from, filters.to);
+    if (createdAt) where.createdAt = createdAt;
+    if (filters.search) {
+      where.OR = [
+        { event: { contains: filters.search, mode: 'insensitive' } },
+        { actorEmail: { contains: filters.search, mode: 'insensitive' } },
+        { entityType: { contains: filters.search, mode: 'insensitive' } },
+        { entityId: { contains: filters.search, mode: 'insensitive' } },
+      ];
+    }
+    return where;
+  }
+
+  /** Distinct events and actors seen in this organization, for filter pickers. */
+  async filterOptions(organizationId: string) {
+    const [events, entityTypes, actors] = await Promise.all([
+      this.prisma.auditLog.findMany({ where: { organizationId }, distinct: ['event'], select: { event: true }, orderBy: { event: 'asc' } }),
       this.prisma.auditLog.findMany({
-        where: { organizationId },
+        where: { organizationId, entityType: { not: null } },
+        distinct: ['entityType'],
+        select: { entityType: true },
+        orderBy: { entityType: 'asc' },
+      }),
+      this.prisma.auditLog.findMany({
+        where: { organizationId, actorUserId: { not: null } },
+        distinct: ['actorUserId'],
+        select: { actorUserId: true, actorEmail: true },
+      }),
+    ]);
+    return {
+      events: events.map((e) => e.event),
+      entityTypes: entityTypes.map((e) => e.entityType as string),
+      actors: actors.map((a) => ({ userId: a.actorUserId as string, email: a.actorEmail })),
+    };
+  }
+
+  async exportForOrganization(organizationId: string, filters: AuditFilters) {
+    const rows = await this.prisma.auditLog.findMany({
+      where: this.whereFor(organizationId, filters),
+      orderBy: { createdAt: 'desc' },
+      take: 10_000,
+    });
+    return {
+      headers: ['When', 'Event', 'Actor', 'Entity type', 'Entity id', 'IP address', 'Details'],
+      rows: rows.map((r) => [
+        r.createdAt.toISOString(),
+        r.event,
+        r.actorEmail ?? r.actorUserId ?? 'system',
+        r.entityType ?? '',
+        r.entityId ?? '',
+        r.ipAddress ?? '',
+        r.details ? JSON.stringify(r.details) : '',
+      ]),
+    };
+  }
+
+  async listForOrganization(organizationId: string, params: { page: number; pageSize: number } & AuditFilters) {
+    const { page, pageSize } = params;
+    const where = this.whereFor(organizationId, params);
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.auditLog.count({ where }),
+      this.prisma.auditLog.findMany({
+        where,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
