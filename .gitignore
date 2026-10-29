@@ -35,3 +35,5 @@ packages/api/node_modules/.prisma/
 *.swp
 
 # local postgres data lives outside the repo (~/medicore-pgdata)
+.cursor/*
+.claude/*
