@@ -1,5 +1,5 @@
 # Production stack for the internal VM (uses the shared homelab-postgres, database `medicore`). Everything is bound to 127.0.0.1;
-# Cloudflare Tunnel is the only way in. Secrets live in deploy/.env (not committed).
+# Cloudflare Tunnel is the only way in. Secrets live in .env next to this file (not committed).
 name: medicore
 services:
   api:
@@ -16,6 +16,7 @@ services:
       EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-console}
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}

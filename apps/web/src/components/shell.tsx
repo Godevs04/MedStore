@@ -16,6 +16,7 @@ import { IconButton, Select, cn } from './ui';
 
 export interface SubscriptionSummary {
   suspended: boolean;
+  payments?: { enabled: boolean; mode: 'test' | 'live' | null };
   subscription: {
     status: string;
     planKey: string;
