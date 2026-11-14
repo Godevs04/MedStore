@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import Razorpay from 'razorpay';
-import { priceFor, type BillingInterval, type PaidPlanKey } from '@medicore/shared-types';
+import { BILLING_INTERVALS, isPaidPlanKey, priceFor, type BillingInterval, type PaidPlanKey } from '@medicore/shared-types';
 import { loadEnv } from '../config/env.js';
 import { PrismaService } from '../prisma/prisma.module.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -48,6 +48,13 @@ export class BillingService {
     };
   }
 
+  /** 'test' for rzp_test_ keys, 'live' for rzp_live_ keys, null when payment is not configured. */
+  static mode(): 'test' | 'live' | null {
+    const keyId = loadEnv().RAZORPAY_KEY_ID;
+    if (!keyId || !loadEnv().RAZORPAY_KEY_SECRET) return null;
+    return keyId.startsWith('rzp_live_') ? 'live' : 'test';
+  }
+
   /** Maps gateway failures to our envelope. A 401 from Razorpay is a server config problem, not the user's session. */
   private gatewayFailure(action: string, error: unknown): AppException {
     const e = error as GatewayError;
@@ -85,6 +92,7 @@ export class BillingService {
         planKey: dto.planKey,
         planName: plan.name,
         interval: dto.interval,
+        mode: BillingService.mode(),
         breakdown: { basePaise: price.basePaise, gstPaise: price.gstPaise, totalPaise: price.totalPaise },
         prefill: { name: request.principal.fullName, email: request.principal.email },
       };
@@ -110,10 +118,10 @@ export class BillingService {
     let order: { id: string; amount: number | string; notes?: Record<string, unknown> | unknown[] };
     let payment: { id: string; order_id: string; amount: number | string; status: string };
     try {
-      order = (await client.orders.fetch(dto.razorpay_order_id)) as typeof order;
-      payment = (await client.payments.fetch(dto.razorpay_payment_id)) as typeof payment;
+      order = (await client.orders.fetch(dto.razorpay_order_id));
+      payment = (await client.payments.fetch(dto.razorpay_payment_id));
       if (payment.status === 'authorized') {
-        payment = (await client.payments.capture(dto.razorpay_payment_id, Number(payment.amount), 'INR')) as typeof payment;
+        payment = (await client.payments.capture(dto.razorpay_payment_id, Number(payment.amount), 'INR'));
       }
     } catch (error) {
       throw this.gatewayFailure('payment lookup', error);
@@ -128,19 +136,83 @@ export class BillingService {
     if (payment.status !== 'captured') {
       throw new AppException('STATE_TRANSITION_INVALID', `Payment is ${payment.status}, not captured. No plan change was made.`, HttpStatus.CONFLICT);
     }
-    const planKey = notes.planKey as PaidPlanKey;
-    const interval = notes.interval as BillingInterval;
-    const expectedTotal = priceFor(planKey, interval).totalPaise;
-    if (Number(order.amount) !== expectedTotal) {
-      throw new AppException('VALIDATION_ERROR', 'Paid amount does not match the plan price. Contact support.', HttpStatus.BAD_REQUEST);
+    const applied = await this.applyPayment({ order, paymentId: dto.razorpay_payment_id, actorUserId: request.principal.userId });
+    if (!applied) throw new AppException('VALIDATION_ERROR', 'This order is not a plan payment. No plan change was made.', HttpStatus.BAD_REQUEST);
+    return { paid: true, planKey: applied.planKey, status: applied.status, currentPeriodEnd: applied.currentPeriodEnd };
+  }
+
+  /**
+   * Handles a Razorpay webhook. The raw body is authenticated with the webhook secret,
+   * then the captured payment is applied through the same idempotent path as the browser
+   * confirmation, so a payment is never applied twice, and a payment whose browser tab was
+   * closed still activates the plan.
+   */
+  async handleWebhook(rawBody: Buffer | undefined, signature: string | undefined): Promise<{ received: true; applied?: boolean; ignored?: string }> {
+    const env = loadEnv();
+    const secret = env.RAZORPAY_WEBHOOK_SECRET;
+    if (!secret) throw new AppException('SERVICE_UNAVAILABLE', 'Webhook is not configured.', HttpStatus.SERVICE_UNAVAILABLE);
+    if (!rawBody || !signature) throw new AppException('VALIDATION_ERROR', 'Missing webhook signature.', HttpStatus.BAD_REQUEST);
+    const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
+    const a = Buffer.from(expected);
+    const b = Buffer.from(signature);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      this.logger.warn('Webhook rejected: bad signature');
+      throw new AppException('VALIDATION_ERROR', 'Invalid webhook signature.', HttpStatus.BAD_REQUEST);
     }
 
-    // 3. Activate once per payment id (advisory lock + event marker make retries and double-clicks safe).
-    const plan = await this.prisma.subscriptionPlan.findUnique({ where: { key: planKey } });
-    if (!plan) throw NotFound('Plan not found');
-    const marker = `razorpay:${dto.razorpay_payment_id}`;
-    const months = interval === 'ANNUAL' ? 12 : 1;
+    let event: { event?: string; payload?: { payment?: { entity?: { id?: string; order_id?: string; status?: string; amount?: number } } } };
+    try {
+      event = JSON.parse(rawBody.toString('utf8')) as typeof event;
+    } catch {
+      throw new AppException('VALIDATION_ERROR', 'Webhook body is not valid JSON.', HttpStatus.BAD_REQUEST);
+    }
+    if (event.event === 'payment.failed') {
+      this.logger.warn(`Razorpay reported payment.failed for order ${event.payload?.payment?.entity?.order_id ?? 'unknown'}`);
+      return { received: true, ignored: event.event };
+    }
+    if (event.event !== 'payment.captured' && event.event !== 'order.paid') return { received: true, ignored: event.event ?? 'unknown' };
 
+    const entity = event.payload?.payment?.entity;
+    if (!entity?.id || !entity.order_id || entity.status !== 'captured') return { received: true, ignored: 'not a captured payment' };
+
+    const { client } = this.gateway();
+    let order: { id: string; amount: number | string; notes?: Record<string, unknown> | unknown[] };
+    try {
+      order = (await client.orders.fetch(entity.order_id));
+    } catch (error) {
+      throw this.gatewayFailure('webhook order lookup', error); // 500 makes Razorpay retry
+    }
+    if (Number(order.amount) !== Number(entity.amount)) return { received: true, ignored: 'amount mismatch' };
+    const applied = await this.applyPayment({ order, paymentId: entity.id, actorUserId: null });
+    return applied ? { received: true, applied: !applied.alreadyApplied } : { received: true, ignored: 'not a plan payment' };
+  }
+
+  /**
+   * Activates or extends the plan for a captured payment, exactly once per payment id.
+   * Returns null when the order is not one of ours (no workspace or plan in its notes).
+   */
+  private async applyPayment(args: {
+    order: { id: string; amount: number | string; notes?: Record<string, unknown> | unknown[] };
+    paymentId: string;
+    actorUserId: string | null;
+  }) {
+    const { order, paymentId, actorUserId } = args;
+    const notes = (Array.isArray(order.notes) ? {} : (order.notes ?? {})) as Record<string, string>;
+    const organizationId = notes.organizationId;
+    const planKey = notes.planKey as PaidPlanKey;
+    const interval = notes.interval as BillingInterval;
+    if (!organizationId || !isPaidPlanKey(planKey) || !(BILLING_INTERVALS as readonly string[]).includes(interval)) return null;
+    if (Number(order.amount) !== priceFor(planKey, interval).totalPaise) {
+      throw new AppException('VALIDATION_ERROR', 'Paid amount does not match the plan price. Contact support.', HttpStatus.BAD_REQUEST);
+    }
+    const [org, plan] = await Promise.all([
+      this.prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true } }),
+      this.prisma.subscriptionPlan.findUnique({ where: { key: planKey } }),
+    ]);
+    if (!org || !plan) return null;
+
+    const marker = `razorpay:${paymentId}`;
+    const months = interval === 'ANNUAL' ? 12 : 1;
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${marker}))`;
       const current = await tx.subscription.findUnique({ where: { organizationId } });
@@ -163,8 +235,8 @@ export class BillingService {
           eventType: current && current.planId !== plan.id ? 'PLAN_CHANGED' : 'PERIOD_UPDATED',
           fromPlanId: current?.planId ?? null,
           toPlanId: plan.id,
-          actorUserId: request.principal.userId,
-          notes: `${marker} · ${interval.toLowerCase()} · order ${dto.razorpay_order_id} · ₹${(Number(order.amount) / 100).toFixed(2)} incl. GST`,
+          actorUserId,
+          notes: `${marker} · ${interval.toLowerCase()} · order ${order.id} · ₹${(Number(order.amount) / 100).toFixed(2)} incl. GST`,
         },
       });
       return { sub, alreadyApplied: false };
@@ -174,12 +246,12 @@ export class BillingService {
       await this.audit.record({
         event: 'SETTINGS_UPDATED',
         organizationId,
-        actorUserId: request.principal.userId,
+        actorUserId,
         entityType: 'Subscription',
         entityId: result.sub.id,
-        details: { event: 'SUBSCRIPTION_PAID', planKey, interval, paymentId: dto.razorpay_payment_id, orderId: dto.razorpay_order_id, amountPaise: Number(order.amount) },
+        details: { event: 'SUBSCRIPTION_PAID', planKey, interval, paymentId, orderId: order.id, amountPaise: Number(order.amount) },
       });
     }
-    return { paid: true, planKey, status: result.sub.status, currentPeriodEnd: result.sub.currentPeriodEnd };
+    return { planKey, status: result.sub.status, currentPeriodEnd: result.sub.currentPeriodEnd, alreadyApplied: result.alreadyApplied };
   }
 }

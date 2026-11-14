@@ -20,6 +20,8 @@ const envSchema = z.object({
   /** Razorpay credentials; online plan payment is disabled (503) when unset. */
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
+  /** Secret set on the Razorpay webhook; the webhook endpoint returns 503 when unset. */
+  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
   SMTP_URL: z.string().optional(),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),

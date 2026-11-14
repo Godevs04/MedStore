@@ -343,6 +343,13 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     returns: 'Whether the payment was applied, the plan, status and new period end.',
     example: { razorpay_order_id: 'order_Abc123', razorpay_payment_id: 'pay_Abc123', razorpay_signature: 'f0e1d2c3b4a5968778695a4b3c2d1e0f' },
   },
+  'BillingWebhook.receive': {
+    summary: 'Razorpay webhook',
+    description:
+      'Receives Razorpay events. The `X-Razorpay-Signature` header (HMAC-SHA256 of the raw body with the webhook secret) is verified before anything is read. `payment.captured` and `order.paid` activate the plan exactly once per payment id, even when the browser confirmation also ran; other events are acknowledged and ignored. Returns 200 for anything authentic so Razorpay stops retrying, 400 for a bad signature and 500 when a retry is needed.',
+    returns: 'Acknowledgement with whether the plan was applied.',
+    bodyDescription: 'The Razorpay event JSON exactly as delivered; the signature covers the raw bytes.',
+  },
   'Organizations.subscriptionEvents': {
     summary: 'Subscription history',
     description: 'Plan changes and period renewals recorded on this workspace’s subscription, newest first.',

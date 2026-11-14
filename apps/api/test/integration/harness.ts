@@ -101,6 +101,10 @@ export async function bootTestServer(): Promise<void> {
           PORT: '3101',
           DATABASE_URL: 'postgresql://medicore@localhost:5433/medicore_test',
           SESSION_SECRET: 'test-session-secret-0123456789abcdef0123456789abcdef',
+          // Dummy gateway credentials: tests never reach Razorpay, they exercise validation and signatures.
+          RAZORPAY_KEY_ID: 'rzp_test_dummy',
+          RAZORPAY_KEY_SECRET: 'dummy_key_secret',
+          RAZORPAY_WEBHOOK_SECRET: 'dummy_webhook_secret',
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       },

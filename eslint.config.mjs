@@ -5,7 +5,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/.next/**', '**/.next-build/**', 'apps/web/**', '**/coverage/**', '**/*.d.ts'],
+    ignores: ['**/dist/**', '**/node_modules/**', '**/.next/**', '**/.next-build/**', '.claude/**', '.cursor/**', '.zcode/**', 'apps/web/**', '**/coverage/**', '**/*.d.ts'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,

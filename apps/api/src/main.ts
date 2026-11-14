@@ -18,8 +18,8 @@ async function bootstrap(): Promise<void> {
   const env = loadEnv();
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    // Keep raw body for future webhook signature verification.
-    rawBody: false,
+    // Raw body is needed to verify the Razorpay webhook signature.
+    rawBody: true,
   });
 
   // The API reference page loads Scalar from its CDN, so it gets a relaxed CSP; every API route keeps the strict default.
