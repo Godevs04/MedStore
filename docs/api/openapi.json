@@ -2607,6 +2607,35 @@
         }
       }
     },
+    "/api/v1/billing/webhook": {
+      "post": {
+        "operationId": "BillingWebhook.receive",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Acknowledgement with whether the plan was applied."
+          }
+        },
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Razorpay webhook",
+        "description": "Receives Razorpay events. The `X-Razorpay-Signature` header (HMAC-SHA256 of the raw body with the webhook secret) is verified before anything is read. `payment.captured` and `order.paid` activate the plan exactly once per payment id, even when the browser confirmation also ran; other events are acknowledged and ignored. Returns 200 for anything authentic so Razorpay stops retrying, 400 for a bad signature and 500 when a retry is needed.\n\n**Access:** public — no session required.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "description": "The Razorpay event JSON exactly as delivered; the signature covers the raw bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/catalog/categories": {
       "get": {
         "operationId": "Catalog.listCategories",

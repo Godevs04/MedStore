@@ -169,12 +169,18 @@ export default function BillingPage() {
   }
   if (q.isLoading) return <div className="max-w-6xl"><SkeletonRows rows={6} cols={3} /></div>;
   if (q.error || !q.data) return <div className="max-w-6xl"><ErrorState message="Failed to load your subscription." retry={() => void q.refetch()} /></div>;
-  const { subscription: sub, usage, plans, suspended } = q.data;
+  const { subscription: sub, usage, plans, suspended, payments } = q.data;
   const eventList = events.data ?? [];
 
   return (
     <div className="max-w-6xl space-y-6">
       <PageHeader title="Plan & billing" subtitle="Your MediCore subscription, what it includes and how much of it you are using." />
+      {payments?.mode === 'test' ? (
+        <div className="flex items-start gap-2.5 rounded-lg border border-warning/30 bg-warning/10 px-3.5 py-2.5 text-[13px] text-ink" role="status">
+          <Icon name="info" size={15} className="mt-0.5 shrink-0 text-warning" />
+          <span><strong className="font-semibold">Payments are in test mode.</strong> No real money is charged. Use Razorpay’s test card or UPI details to try the flow.</span>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-1">
@@ -287,7 +293,7 @@ export default function BillingPage() {
                       className="w-full"
                       variant={current ? 'secondary' : 'primary'}
                       size="sm"
-                      disabled={payment.paying !== null || payment.verifying || suspended}
+                      disabled={payment.paying !== null || payment.verifying || suspended || payments?.enabled === false}
                       onClick={() => void payment.pay(p.key as PaidPlanKey, interval)}
                     >
                       {payment.paying === p.key ? 'Opening payment…' : current ? 'Renew' : `Upgrade to ${p.name}`}

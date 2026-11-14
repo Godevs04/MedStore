@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { SYSTEM_ROLE_PERMISSIONS, TENANT_PERMISSIONS } from '../rbac/permission-catalog.js';
 import type { TenantRequest } from '../rbac/tenant-context.guard.js';
+import { BillingService } from '../billing/billing.service.js';
 import { PrismaService } from '../prisma/prisma.module.js';
 import { AuditService } from '../audit/audit.service.js';
 import { GSTIN_REQUIRED_FOR, gstinIssues, type FieldIssue } from '@medicore/validation';
@@ -71,6 +72,7 @@ export class OrganizationsService {
     const access = subscription ? subscriptionAccess(subscription) : null;
     return {
       suspended: (settings?.settings as Record<string, unknown> | null)?.suspended === true,
+      payments: { enabled: BillingService.mode() !== null, mode: BillingService.mode() },
       subscription: subscription
         ? {
             status: subscription.status,

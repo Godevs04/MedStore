@@ -15,6 +15,7 @@ out/
 .env.local
 .env.*.local
 !.env.example
+tunnel.env
 
 # test & coverage
 coverage/
