@@ -45,7 +45,7 @@ export function Logo({ collapsed, inverse, size = 'md', className }: { collapsed
         <span className="min-w-0 leading-none">
           <span className={cn('block font-bold tracking-[-0.03em]', size === 'lg' ? 'text-[22px]' : 'text-[17px]')}>
             <span className={inverse ? 'text-white' : 'text-brand-deep'}>Medi</span>
-            <span className={inverse ? 'text-brand-300' : 'text-accent'}>Core</span>
+            <span className={inverse ? 'text-brand-300' : 'text-teal-ink'}>Core</span>
           </span>
           <span className={cn('mt-1 block text-[9px] font-medium uppercase tracking-[0.28em]', inverse ? 'text-white/75' : 'text-muted')}>Pharmacy ERP</span>
         </span>

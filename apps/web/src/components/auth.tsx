@@ -60,7 +60,7 @@ export function AuthShell({ title, subtitle, children, footer, wide }: { title: 
   return (
     <div className="flex min-h-screen bg-canvas">
       <AuthAside />
-      <div className="flex flex-1 items-center justify-center p-6">
+      <main className="flex flex-1 items-center justify-center p-6">
         <div className={cn('w-full space-y-5', wide ? 'max-w-md' : 'max-w-sm')}>
           <div className="mc-anim-fade-in flex justify-center lg:hidden">
             <Logo size="lg" />
@@ -72,7 +72,7 @@ export function AuthShell({ title, subtitle, children, footer, wide }: { title: 
           </section>
           {footer ? <div className="text-center text-xs text-muted">{footer}</div> : null}
         </div>
-      </div>
+      </main>
     </div>
   );
 }
