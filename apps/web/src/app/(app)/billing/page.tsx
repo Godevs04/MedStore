@@ -1,11 +1,15 @@
 'use client';
 
 import { Icon, type IconName } from '@/components/icons';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { BILLING_INTERVALS, SUBSCRIPTION_GST_PERCENT, isPaidPlanKey, priceFor, type BillingInterval, type PaidPlanKey } from '@medicore/shared-types';
+import { api, describeError } from '@/lib/api';
+import { loadRazorpay, openRazorpay, type RazorpaySuccess } from '@/lib/razorpay';
+import { toast } from '@/lib/toast';
 import { useSession } from '@/lib/session';
 import type { SubscriptionSummary } from '@/components/shell';
-import { Badge, Card, EmptyState, ErrorState, PageHeader, SkeletonRows, Stat, cn, fmtDate, StatusBadge, MetricGroup } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, ErrorState, PageHeader, SkeletonRows, Stat, cn, fmtDate, StatusBadge, MetricGroup } from '@/components/ui';
 
 const MODULE_LABELS: Record<string, string> = {
   catalog: 'Product catalog',
@@ -25,6 +29,67 @@ const STATUS_TONE: Record<string, 'green' | 'blue' | 'amber' | 'red' | 'neutral'
   EXPIRED: 'red',
 };
 const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL;
+const inr = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+
+interface CheckoutOrder {
+  orderId: string;
+  amount: number;
+  currency: string;
+  keyId: string;
+  planName: string;
+  interval: BillingInterval;
+  prefill: { name?: string; email?: string };
+}
+
+/** Creates the order on the server, opens Razorpay Checkout, then has the server verify the signature. */
+function usePlanPayment() {
+  const qc = useQueryClient();
+  const [paying, setPaying] = useState<string | null>(null);
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['subscription'] });
+    void qc.invalidateQueries({ queryKey: ['subscription-events'] });
+  };
+  const verify = useMutation({
+    mutationFn: (r: RazorpaySuccess) => api<{ paid: boolean; planKey: string; currentPeriodEnd: string }>('/organizations/subscription/verify', { method: 'POST', body: r }),
+    onSuccess: (res) => {
+      toast.success('Payment received', `Your plan is active until ${fmtDate(res.currentPeriodEnd)}.`);
+      refresh();
+    },
+    onSettled: () => setPaying(null),
+    onError: (e) => {
+      const d = describeError(e, 'Payment verification failed');
+      toast.error(d.title, `${d.message} If money was deducted, it will not be lost: contact support with your payment id.`);
+    },
+  });
+
+  async function pay(planKey: PaidPlanKey, interval: BillingInterval) {
+    setPaying(planKey);
+    try {
+      const order = await api<CheckoutOrder>('/organizations/subscription/checkout', { method: 'POST', body: { planKey, interval } });
+      await loadRazorpay();
+      openRazorpay(
+        {
+          key: order.keyId,
+          amount: order.amount,
+          currency: order.currency,
+          name: 'MediCore',
+          description: `${order.planName} plan · ${order.interval === 'ANNUAL' ? 'yearly' : 'monthly'} (incl. GST)`,
+          order_id: order.orderId,
+          prefill: order.prefill,
+          theme: { color: '#123B3A' },
+          handler: (response) => verify.mutate(response),
+          modal: { ondismiss: () => { setPaying(null); toast.info('Payment cancelled', 'No money was charged.'); } },
+        },
+        (failure) => toast.error('Payment failed', failure.error.description ?? 'The payment could not be completed. Please try again.'),
+      );
+    } catch (e) {
+      const d = describeError(e, 'Could not start the payment');
+      toast.error(d.title, d.message);
+      setPaying(null);
+    }
+  }
+  return { pay, paying, verifying: verify.isPending };
+}
 
 interface SubscriptionEvent {
   id: string;
@@ -87,6 +152,8 @@ export default function BillingPage() {
     queryFn: () => api<SubscriptionSummary>('/organizations/subscription'),
     enabled: Boolean(tenant?.organizationId),
   });
+  const [interval, setInterval] = useState<BillingInterval>('ANNUAL');
+  const payment = usePlanPayment();
   const events = useQuery({
     queryKey: ['subscription-events', tenant?.organizationId],
     queryFn: () => api<SubscriptionEvent[]>('/organizations/subscription/events'),
@@ -167,7 +234,23 @@ export default function BillingPage() {
         <Stat label="Days remaining" value={sub ? sub.daysLeft : '—'} tone={sub && sub.daysLeft <= 7 ? 'amber' : 'green'} />
       </MetricGroup>
 
-      <Card title="Compare plans">
+      <Card
+        title="Compare plans"
+        actions={
+          <div className="inline-flex rounded-md border border-line p-0.5 text-xs" role="group" aria-label="Billing cycle">
+            {BILLING_INTERVALS.map((i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setInterval(i)}
+                className={cn('rounded px-2.5 py-1 font-medium transition-colors', interval === i ? 'bg-primary text-white' : 'text-muted hover:text-ink')}
+              >
+                {i === 'MONTHLY' ? 'Monthly' : 'Yearly · 2 months free'}
+              </button>
+            ))}
+          </div>
+        }
+      >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {[...plans].sort((a, b) => planRank(a.key) - planRank(b.key)).map((p) => {
             const current = p.key === sub?.planKey;
@@ -185,6 +268,12 @@ export default function BillingPage() {
                   {current ? <Badge tone="blue">Current</Badge> : null}
                 </div>
                 {p.description ? <p className="mt-1 text-xs text-muted">{p.description}</p> : null}
+                {isPaidPlanKey(p.key) ? (
+                  <p className="mt-3">
+                    <span className="num text-metric font-[550]">{inr(priceFor(p.key, interval).basePaise)}</span>
+                    <span className="text-xs text-muted"> / {interval === 'ANNUAL' ? 'year' : 'month'} + GST</span>
+                  </p>
+                ) : null}
                 <ul className="mt-3 space-y-1.5 text-xs text-neutral-700">
                   <li><Icon name="check" size={13} strokeWidth={2.5} /> {fmtCount(p.limits.monthlyInvoiceLimit, 'invoice', 'invoices')} / month</li>
                   <li><Icon name="check" size={13} strokeWidth={2.5} /> {fmtCount(p.limits.maxUsers, 'user', 'users')}</li>
@@ -193,14 +282,24 @@ export default function BillingPage() {
                   <li>{p.limits.apiAccess ? <><Icon name="check" size={13} strokeWidth={2.5} /> API access</> : <span className="text-faint"><Icon name="close" size={13} /> No API access</span>}</li>
                 </ul>
                 <div className="mt-auto pt-4">
-                  {current ? (
+                  {isPaidPlanKey(p.key) ? (
+                    <Button
+                      className="w-full"
+                      variant={current ? 'secondary' : 'primary'}
+                      size="sm"
+                      disabled={payment.paying !== null || payment.verifying || suspended}
+                      onClick={() => void payment.pay(p.key as PaidPlanKey, interval)}
+                    >
+                      {payment.paying === p.key ? 'Opening payment…' : current ? 'Renew' : `Upgrade to ${p.name}`}
+                    </Button>
+                  ) : current ? (
                     <span className="block text-center text-xs font-medium text-teal-ink">You are on this plan</span>
                   ) : SUPPORT_EMAIL ? (
                     <a
                       className="flex h-control-sm items-center justify-center rounded-md border border-line px-3 text-xs font-semibold text-teal-ink transition-colors hover:bg-mint"
                       href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`Switch to ${p.name}`)}`}
                     >
-                      Request {p.name}
+                      Contact us
                     </a>
                   ) : null}
                 </div>
@@ -209,7 +308,7 @@ export default function BillingPage() {
           })}
         </div>
         <p className="mt-4 text-xs text-muted">
-          Online payment is not connected yet. Plan changes and renewals are activated by your MediCore platform administrator, and every change is recorded in the audit log.
+          Prices exclude {SUBSCRIPTION_GST_PERCENT}% GST, which is added at checkout. Payments are processed securely by Razorpay; your plan activates as soon as the payment is verified, and every change is recorded in the audit log. Enterprise is arranged with our team.
         </p>
       </Card>
 

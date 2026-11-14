@@ -17,6 +17,9 @@ const envSchema = z.object({
   SUPERADMIN_EMAILS: z.string().default(''),
   /** When true, "email" delivery is logged to console (dev); never a claim of delivery. */
   EMAIL_TRANSPORT: z.enum(['console', 'smtp']).default('console'),
+  /** Razorpay credentials; online plan payment is disabled (503) when unset. */
+  RAZORPAY_KEY_ID: z.string().optional(),
+  RAZORPAY_KEY_SECRET: z.string().optional(),
   SMTP_URL: z.string().optional(),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
