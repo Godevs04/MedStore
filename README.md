@@ -60,6 +60,7 @@ Every form validates with the shared Zod schemas in `@medicore/validation` and s
 - `packages/validation` — Zod schemas shared by API and web forms
 - `docs/` — architecture, product, compliance research (sourced), operations, testing
 - `DECISIONS.md` — decision log with rationale
+- [docs/operations/deployment.md](docs/operations/deployment.md) — production deploy, environment files, CI/CD and Razorpay go-live
 
 ## Non-negotiables enforced in code
 
