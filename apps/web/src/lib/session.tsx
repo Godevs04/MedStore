@@ -162,7 +162,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     if (isLoading || user) return;
     const deliberate = window.sessionStorage.getItem(SIGNED_OUT_KEY) !== null;
     window.sessionStorage.removeItem(SIGNED_OUT_KEY);
-    router.replace(!deliberate && pathname && pathname !== '/' ? `/login?next=${encodeURIComponent(pathname)}` : '/login');
+    router.replace(!deliberate && pathname && pathname !== '/dashboard' ? `/login?next=${encodeURIComponent(pathname)}` : '/login');
   }, [isLoading, user, router, pathname]);
   if (isLoading) {
     return (

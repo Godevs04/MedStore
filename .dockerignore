@@ -1,0 +1,14 @@
+**/node_modules
+.pnpm-store
+.git
+**/dist
+**/.next
+**/.next-build
+**/*.tsbuildinfo
+.env
+**/.env
+docs
+.claude
+.cursor
+.zcode
+e2e-results.json

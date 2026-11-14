@@ -250,7 +250,7 @@ function SidebarNav({
 
 function Brand({ collapsed }: { collapsed: boolean }) {
   return (
-    <Link href="/" className={cn('flex h-14 shrink-0 items-center border-b border-line', collapsed ? 'justify-center px-2' : 'px-4')} aria-label="MediCore home">
+    <Link href="/dashboard" className={cn('flex h-14 shrink-0 items-center border-b border-line', collapsed ? 'justify-center px-2' : 'px-4')} aria-label="MediCore home">
       <Logo collapsed={collapsed} />
     </Link>
   );
@@ -323,7 +323,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     [canSee],
   );
   const flatItems = useMemo(() => groups.flatMap((g) => g.items), [groups]);
-  const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`));
+  const isActive = (href: string) => (pathname === href || pathname.startsWith(`${href}/`));
 
   const switchOrg = (organizationId: string) => {
     const m = user?.memberships.find((x) => x.organizationId === organizationId);

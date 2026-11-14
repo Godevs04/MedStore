@@ -1,0 +1,47 @@
+# Production stack for the internal VM. Everything is bound to 127.0.0.1;
+# Cloudflare Tunnel is the only way in. Secrets live in deploy/.env (not committed).
+name: medicore
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: medicore
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: medicore
+    volumes:
+      - medicore-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medicore -d medicore"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: { context: ., target: api }
+    restart: unless-stopped
+    depends_on: { db: { condition: service_healthy } }
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://medicore:${DB_PASSWORD}@db:5432/medicore
+      SESSION_SECRET: ${SESSION_SECRET}
+      CORS_ORIGIN: ${WEB_ORIGIN}
+      WEB_APP_URL: ${WEB_ORIGIN}
+      SUPERADMIN_EMAILS: ${SUPERADMIN_EMAILS:-}
+      EMAIL_TRANSPORT: console
+    ports: ["127.0.0.1:3101:3001"]
+
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        NEXT_PUBLIC_API_URL: ${API_ORIGIN}
+        NEXT_PUBLIC_SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
+    restart: unless-stopped
+    depends_on: [api]
+    ports: ["127.0.0.1:3100:3000"]
+
+volumes:
+  medicore-pgdata:
