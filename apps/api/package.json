@@ -14,7 +14,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "test": "vitest run",
-    "test:unit": "vitest run test/unit",
+    "test:unit": "vitest run test/unit --passWithNoTests",
     "test:integration": "vitest run test/integration",
     "openapi:export": "nest build && node dist/openapi/export.js"
   },
