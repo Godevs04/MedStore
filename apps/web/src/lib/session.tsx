@@ -75,7 +75,29 @@ function createQueryClient() {
   });
 }
 
-export function Providers({ children }: { children: ReactNode }) {
+const SESSION_HINT_KEY = 'medicore.hasSession';
+const readHint = (): boolean => {
+  try {
+    return window.localStorage.getItem(SESSION_HINT_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+const writeHint = (on: boolean): void => {
+  try {
+    if (on) window.localStorage.setItem(SESSION_HINT_KEY, '1');
+    else window.localStorage.removeItem(SESSION_HINT_KEY);
+  } catch {
+    // storage unavailable: the hint is only an optimisation
+  }
+};
+
+/**
+ * `probe="always"` asks the API who is signed in on mount (the application).
+ * `probe="hint"` only asks when this browser has signed in before, so a first-time
+ * visitor on the sign-in or register page does not trigger a 401.
+ */
+export function Providers({ children, probe = 'always' }: { children: ReactNode; probe?: 'always' | 'hint' }) {
   const [queryClient] = useState(createQueryClient);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -86,6 +108,7 @@ export function Providers({ children }: { children: ReactNode }) {
     api<SessionUser>('/auth/me')
       .then((u) => {
         setUser(u);
+        writeHint(true);
         // Restore or initialize tenant selection.
         const stored = getStoredTenant();
         const membership =
@@ -109,11 +132,20 @@ export function Providers({ children }: { children: ReactNode }) {
           if (stored) void queryClient.resetQueries();
         }
       })
-      .catch(() => setUser(null))
+      .catch(() => {
+        setUser(null);
+        writeHint(false);
+      })
       .finally(() => setIsLoading(false));
   }, [queryClient]);
 
-  useEffect(loadSession, [loadSession]);
+  useEffect(() => {
+    if (probe === 'hint' && !readHint()) {
+      setIsLoading(false);
+      return;
+    }
+    loadSession();
+  }, [loadSession, probe]);
 
   useEffect(() => {
     const onUnauthorized = () => {
