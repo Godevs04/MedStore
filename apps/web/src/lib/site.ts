@@ -1,7 +1,7 @@
 /** Canonical public origin of the marketing site. Override with NEXT_PUBLIC_SITE_URL for other environments. */
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? 'https://medicore.teamgodevs.in').replace(/\/$/, '');
 export const SITE_NAME = 'MediCore';
-export const PARENT_NAME = 'Godevs';
+export const PARENT_NAME = 'TeamGoDevs';
 export const PARENT_URL = 'https://teamgodevs.in';
 export const SITE_TITLE = 'MediCore by Godevs: Pharmacy ERP & GST Billing for India';
 export const SITE_DESCRIPTION =
