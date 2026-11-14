@@ -9,7 +9,6 @@ const config: Config = {
       ringWidth: { 3: '3px' },
       fontFamily: {
         sans: ['"Inter Variable"', 'Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Noto Sans', 'sans-serif'],
-        display: ['"Fraunces Variable"', 'Georgia', 'Cambria', 'serif'],
       },
       fontSize: {
         '2xs': ['0.6875rem', { lineHeight: '1rem' }],
