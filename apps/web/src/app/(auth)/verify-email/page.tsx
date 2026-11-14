@@ -54,7 +54,7 @@ export default function VerifyEmailPage() {
     }
   };
 
-  const continueHref = user ? '/' : '/login';
+  const continueHref = user ? '/dashboard' : '/login';
 
   return (
     <AuthShell title="Email verification" subtitle="Confirming the address on your MediCore account">

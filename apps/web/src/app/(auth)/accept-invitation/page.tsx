@@ -140,7 +140,7 @@ export default function AcceptInvitationPage() {
       storeTenant({ organizationId: joined.organizationId, branchId: null });
       toast.success(`Welcome to ${invitation.organizationName}`, `You’ve joined as ${invitation.roleName}.`);
       refetchSession();
-      router.replace('/');
+      router.replace('/dashboard');
     } catch {
       toast.success('Invitation accepted', 'Sign in to continue.');
       router.replace('/login');

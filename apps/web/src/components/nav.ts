@@ -12,7 +12,7 @@ export interface NavItem {
 }
 
 export const NAV: Array<{ section: string; items: NavItem[] }> = [
-  { section: 'Overview', items: [{ href: '/', label: 'Dashboard', icon: 'dashboard', keywords: 'home kpi overview' }] },
+  { section: 'Overview', items: [{ href: '/dashboard', label: 'Dashboard', icon: 'dashboard', keywords: 'home kpi overview' }] },
   {
     section: 'Sell',
     items: [
@@ -69,7 +69,7 @@ export function findNav(pathname: string): { section: string; item: NavItem } | 
   let best: { section: string; item: NavItem } | null = null;
   for (const group of NAV) {
     for (const item of group.items) {
-      const match = item.href === '/' ? pathname === '/' : pathname === item.href || pathname.startsWith(`${item.href}/`);
+      const match = pathname === item.href || pathname.startsWith(`${item.href}/`);
       if (match && (!best || item.href.length > best.item.href.length)) best = { section: group.section, item };
     }
   }

@@ -16,7 +16,7 @@ export function useQueryParam(name: string): { value: string | null; ready: bool
 
 /** Only same-origin absolute paths are allowed as post-login destinations. */
 export function safeNext(raw: string | null): string {
-  if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/\\') || raw.startsWith('/login')) return '/';
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/\\') || raw.startsWith('/login')) return '/dashboard';
   return raw;
 }
 

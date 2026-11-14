@@ -59,7 +59,7 @@ export default function RegisterPage() {
     }
     toast.success('Workspace created', 'Your 14-day trial has started — let’s set up your pharmacy.');
     refetchSession();
-    router.replace('/');
+    router.replace('/dashboard');
   });
 
   return (
