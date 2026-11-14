@@ -65,7 +65,7 @@ export function AuthShell({ title, subtitle, children, footer, wide }: { title: 
           <div className="mc-anim-fade-in flex justify-center lg:hidden">
             <Logo size="lg" />
           </div>
-          <section className="mc-anim-fade-in rounded-xl border border-line bg-surface p-6">
+          <section className="rounded-xl border border-line bg-surface p-6">
             <h1 className="text-[1.375rem] font-semibold tracking-tight text-ink">{title}</h1>
             {subtitle ? <p className="mt-0.5 text-[13px] text-muted">{subtitle}</p> : null}
             <div className="mt-5">{children}</div>
