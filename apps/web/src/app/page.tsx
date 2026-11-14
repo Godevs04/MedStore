@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { priceFor, SUBSCRIPTION_GST_PERCENT } from '@medicore/shared-types';
 
 export const metadata: Metadata = {
   title: 'MediCore — Pharmacy ERP for India',
@@ -22,11 +23,13 @@ const STEPS = [
   { n: '03', title: 'Start billing', body: 'Bill at the counter, receive stock, and watch expiry, margins and books update live.' },
 ];
 
+const inr = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+
 const PLANS = [
-  { name: 'Starter', for: 'Single-shop pharmacy', hi: false, rows: ['1 branch · 5 users', '2,000 invoices / month', 'Catalogue, inventory, POS'] },
-  { name: 'Professional', for: 'Growing retail', hi: true, rows: ['2 branches · 15 users', '20,000 invoices / month', 'Adds purchasing and returns', 'API access'] },
-  { name: 'Business', for: 'Multi-branch and distribution', hi: false, rows: ['10 branches · 50 users', '200,000 invoices / month', 'Adds wholesale and accounting', 'API access'] },
-  { name: 'Enterprise', for: 'Unlimited scale', hi: false, rows: ['Unlimited branches and users', 'Every module', 'Integrations on request'] },
+  { name: 'Starter', key: 'STARTER' as const, for: 'Single-shop pharmacy', hi: false, rows: ['1 branch · 5 users', '2,000 invoices / month', 'Catalogue, inventory, POS'] },
+  { name: 'Professional', key: 'PROFESSIONAL' as const, for: 'Growing retail', hi: true, rows: ['2 branches · 15 users', '20,000 invoices / month', 'Adds purchasing and returns', 'API access'] },
+  { name: 'Business', key: 'BUSINESS' as const, for: 'Multi-branch and distribution', hi: false, rows: ['10 branches · 50 users', '200,000 invoices / month', 'Adds wholesale and accounting', 'API access'] },
+  { name: 'Enterprise', key: null, for: 'Unlimited scale', hi: false, rows: ['Unlimited branches and users', 'Every module', 'Integrations on request'] },
 ];
 
 const TRUST = [
@@ -202,7 +205,7 @@ export default function LandingPage() {
             <div className="mx-auto max-w-2xl text-center">
               <p className="text-[13px] font-semibold uppercase tracking-widest text-teal-ink">Plans</p>
               <h2 className="mt-3 text-[34px] font-semibold leading-tight tracking-tight md:text-[42px]">Grow into the plan that fits.</h2>
-              <p className="mt-4 text-[15px] text-muted">Every workspace starts on a 14-day full-feature trial. Limits and modules are enforced server-side. Talk to us for pricing.</p>
+              <p className="mt-4 text-[15px] text-muted">Every workspace starts on a 14-day full-feature trial. Pay monthly, or yearly and get two months free. Prices exclude {SUBSCRIPTION_GST_PERCENT}% GST.</p>
             </div>
             <div className="mt-12 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
               {PLANS.map((p) => (
@@ -210,7 +213,20 @@ export default function LandingPage() {
                   {p.hi ? <span className="mb-3 w-fit rounded-full bg-primary px-2.5 py-1 text-2xs font-semibold uppercase tracking-wider text-white">Most popular</span> : <span className="mb-3 h-[26px]" />}
                   <h3 className="text-[20px] font-semibold">{p.name}</h3>
                   <p className="mt-1 text-[13.5px] text-muted">{p.for}</p>
-                  <ul className="mt-6 flex-1 space-y-3 text-[14px]">
+                  <div className="mt-5">
+                    {p.key ? (
+                      <>
+                        <div className="flex items-baseline gap-1"><span className="num text-[34px] font-semibold tracking-tight">{inr(priceFor(p.key, 'MONTHLY').basePaise)}</span><span className="text-[13px] text-muted">/ month</span></div>
+                        <p className="mt-1 text-[12.5px] text-faint">or {inr(priceFor(p.key, 'ANNUAL').basePaise)} / year · + GST</p>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-[34px] font-semibold tracking-tight">Custom</div>
+                        <p className="mt-1 text-[12.5px] text-faint">Tailored to your scale</p>
+                      </>
+                    )}
+                  </div>
+                  <ul className="mt-6 flex-1 space-y-3 border-t border-line pt-6 text-[14px]">
                     {p.rows.map((r) => (
                       <li key={r} className="flex gap-2.5"><Check />{r}</li>
                     ))}

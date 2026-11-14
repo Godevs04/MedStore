@@ -329,6 +329,20 @@ export const OPERATION_DOCS: Record<string, OperationDoc> = {
     returns: 'The updated counter.',
     errors: ['DUPLICATE_ENTITY'],
   },
+  'Billing.checkout': {
+    summary: 'Start a plan payment',
+    description:
+      'Creates a Razorpay order for a self-serve plan (Starter, Professional or Business) on a monthly or annual cycle. The amount is computed on the server from the list price plus 18% GST; the client never sends one. Open Razorpay Checkout with the returned `orderId` and `keyId`, then call `POST /organizations/subscription/verify`. Available even when the subscription has lapsed, so a workspace can always renew.',
+    returns: 'Order id, amount in paise, currency, public key id, price breakdown and prefill details.',
+    example: { planKey: 'PROFESSIONAL', interval: 'ANNUAL' },
+  },
+  'Billing.verify': {
+    summary: 'Confirm a plan payment',
+    description:
+      'Verifies the Razorpay signature (HMAC-SHA256 of `order_id|payment_id`), checks the payment is captured, belongs to this workspace and matches the plan price, then activates or extends the plan. Safe to retry: a payment id is applied once. A bad signature returns 400 and changes nothing.',
+    returns: 'Whether the payment was applied, the plan, status and new period end.',
+    example: { razorpay_order_id: 'order_Abc123', razorpay_payment_id: 'pay_Abc123', razorpay_signature: 'f0e1d2c3b4a5968778695a4b3c2d1e0f' },
+  },
   'Organizations.subscriptionEvents': {
     summary: 'Subscription history',
     description: 'Plan changes and period renewals recorded on this workspace’s subscription, newest first.',

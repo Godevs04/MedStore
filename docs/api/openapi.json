@@ -2457,6 +2457,156 @@
         "description": "Deletes a custom role that no member uses.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `roles.manage`\n\n**Business errors:** `STATE_TRANSITION_INVALID`"
       }
     },
+    "/api/v1/organizations/subscription/checkout": {
+      "post": {
+        "operationId": "Billing.checkout",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Order id, amount in paise, currency, public key id, price breakdown and prefill details."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Start a plan payment",
+        "description": "Creates a Razorpay order for a self-serve plan (Starter, Professional or Business) on a monthly or annual cycle. The amount is computed on the server from the list price plus 18% GST; the client never sends one. Open Razorpay Checkout with the returned `orderId` and `keyId`, then call `POST /organizations/subscription/verify`. Available even when the subscription has lapsed, so a workspace can always renew.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `organization.settings.manage`",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "planKey": {
+                    "type": "string",
+                    "enum": [
+                      "STARTER",
+                      "PROFESSIONAL",
+                      "BUSINESS"
+                    ]
+                  },
+                  "interval": {
+                    "type": "string",
+                    "enum": [
+                      "MONTHLY",
+                      "ANNUAL"
+                    ]
+                  }
+                },
+                "required": [
+                  "planKey",
+                  "interval"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "planKey": "PROFESSIONAL",
+                "interval": "ANNUAL"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/organizations/subscription/verify": {
+      "post": {
+        "operationId": "Billing.verify",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/BranchId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether the payment was applied, the plan, status and new period end."
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "402": {
+            "$ref": "#/components/responses/SubscriptionInactive"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Confirm a plan payment",
+        "description": "Verifies the Razorpay signature (HMAC-SHA256 of `order_id|payment_id`), checks the payment is captured, belongs to this workspace and matches the plan price, then activates or extends the plan. Safe to retry: a payment id is applied once. A bad signature returns 400 and changes nothing.\n\n**Access:** signed-in session (cookie or bearer token).  \n**Permissions:** `organization.settings.manage`",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "razorpay_order_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "razorpay_payment_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "razorpay_signature": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "razorpay_order_id",
+                  "razorpay_payment_id",
+                  "razorpay_signature"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "razorpay_order_id": "order_Abc123",
+                "razorpay_payment_id": "pay_Abc123",
+                "razorpay_signature": "f0e1d2c3b4a5968778695a4b3c2d1e0f"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/catalog/categories": {
       "get": {
         "operationId": "Catalog.listCategories",

@@ -159,7 +159,9 @@ export class TenantContextGuard implements CanActivate {
       throw new AppException('SUBSCRIPTION_INACTIVE', 'This workspace has been suspended by the platform administrator. Contact MediCore support.', 403);
     }
     if (!subscription) return;
-    if (!isRead && subscriptionAccess(subscription).lapsed) {
+    // A lapsed workspace must still be able to pay to renew (suspended ones stay locked out above).
+    const isPaymentRoute = /\/organizations\/subscription\/(checkout|verify)\/?$/.test(request.path);
+    if (!isRead && !isPaymentRoute && subscriptionAccess(subscription).lapsed) {
       throw new AppException(
         'SUBSCRIPTION_INACTIVE',
         `Your ${subscription.plan.name} subscription has ended. Records remain readable; renew to resume billing and postings.`,

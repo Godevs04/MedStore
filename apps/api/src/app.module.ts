@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { AuditModule } from './audit/audit.module.js';
+import { BillingModule } from './billing/billing.module.js';
 import { OrganizationsModule } from './organizations/organizations.module.js';
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware.js';
 import { RateLimitMiddleware } from './common/rate-limit.middleware.js';
@@ -30,6 +31,7 @@ import { PlatformModule } from './platform/platform.module.js';
     AuthModule,
     AuditModule,
     OrganizationsModule,
+    BillingModule,
     CatalogModule,
     PartnersModule,
     InventoryModule,
