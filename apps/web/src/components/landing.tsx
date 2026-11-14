@@ -356,7 +356,10 @@ export function Landing() {
             <Link href="/login" className="hover:text-ink">Sign in</Link>
             <Link href="/register" className="hover:text-ink">Register</Link>
           </nav>
-          <p>© 2026 Godevs. All rights reserved.</p>
+          <p>
+            MediCore is built by{' '}
+            <a href="https://teamgodevs.in" className="font-medium text-teal-ink underline underline-offset-2" rel="noopener">Godevs</a>. © 2026 Godevs. All rights reserved.
+          </p>
         </div>
       </footer>
     </div>

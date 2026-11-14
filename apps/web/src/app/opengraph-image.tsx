@@ -24,7 +24,7 @@ export default function OpengraphImage() {
         <div style={{ display: 'flex', alignItems: 'center', fontSize: 40, fontWeight: 700 }}>
           <span>Medi</span>
           <span style={{ color: '#5FD8C4' }}>Core</span>
-          <span style={{ marginLeft: 20, fontSize: 18, letterSpacing: 6, opacity: 0.75 }}>PHARMACY ERP</span>
+          <span style={{ marginLeft: 20, fontSize: 18, letterSpacing: 6, opacity: 0.75 }}>BY GODEVS</span>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', fontSize: 78, fontWeight: 700, lineHeight: 1.1 }}>
           <span>Batch-level inventory.</span>
